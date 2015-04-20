@@ -1,0 +1,1462 @@
+/*
+ * This file is part of mtrace.
+ * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+ * 02110-1301 USA
+ */
+
+#define _GNU_SOURCE
+
+#include <assert.h>
+#include <byteswap.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#include "binfile.h"
+#include "client.h"
+#include "common.h"
+#include "debug.h"
+#include "dump.h"
+#include "options.h"
+#include "process.h"
+#include "rbtree.h"
+
+#define BLOCK_LEAKED	(1 << 0)
+#define BLOCK_SCANNED	(1 << 1)
+#define BLOCK_IGNORE	(2 << 1)
+
+struct rb_block {
+	struct rb_node node;
+	unsigned long flags;
+	unsigned long addr;
+	unsigned long size;
+	struct rb_stack *stack_node;
+};
+
+struct stack {
+	unsigned long refcnt;
+	void *addrs;
+	uint32_t size;
+	uint32_t entries;
+	char **syms;
+	enum mt_operation operation;
+};
+
+struct rb_stack {
+	struct rb_node node;
+	struct stack *stack;
+	unsigned long leaks;
+	unsigned long long n_allocations;
+	unsigned long long total_allocations;
+	unsigned long long bytes_used;
+	unsigned long long bytes_leaked;
+	unsigned long long tsc;
+};
+
+struct map {
+	struct list_head list;
+	unsigned long offset;
+	unsigned long addr;
+	unsigned long size;
+	char *filename;
+	char *realpath;
+	struct bin_file *binfile;
+	int ignore;
+};
+
+static unsigned long get_uint64(void *p)
+{
+	uint64_t v;
+
+	memcpy(&v, p, sizeof(v));
+
+	return v;
+}
+
+static unsigned long get_uint64_swap(void *p)
+{
+	uint64_t v;
+
+	memcpy(&v, p, sizeof(v));
+
+	return bswap_64(v);
+}
+
+static unsigned long get_uint32(void *p)
+{
+	uint32_t v;
+
+	memcpy(&v, p, sizeof(v));
+
+	return v;
+}
+
+static unsigned long get_uint32_swap(void *p)
+{
+	uint32_t v;
+
+	memcpy(&v, p, sizeof(v));
+
+	return bswap_32(v);
+}
+
+static void put_uint64(void *p, unsigned long v)
+{
+	uint64_t _v = v;
+
+	memcpy(p, &_v, sizeof(_v));
+}
+
+static void put_uint64_swap(void *p, unsigned long v)
+{
+	uint64_t _v = bswap_64(v);
+
+	memcpy(p, &_v, sizeof(_v));
+}
+
+static void put_uint32(void *p, unsigned long v)
+{
+	uint32_t _v = v;
+
+	memcpy(p, &_v, sizeof(_v));
+}
+
+static void put_uint32_swap(void *p, unsigned long v)
+{
+	uint32_t _v = bswap_32(v);
+
+	memcpy(p, &_v, sizeof(_v));
+}
+
+static uint16_t val16(uint16_t v)
+{
+	return v;
+}
+
+static uint16_t val16_swap(uint16_t v)
+{
+	return bswap_16(v);
+}
+
+static uint32_t val32(uint32_t v)
+{
+	return v;
+}
+
+static uint32_t val32_swap(uint32_t v)
+{
+	return bswap_32(v);
+}
+
+static uint64_t val64(uint64_t v)
+{
+	return v;
+}
+
+static uint64_t val64_swap(uint64_t v)
+{
+	return bswap_64(v);
+}
+
+static inline int memncmp(void *p1, uint32_t l1, void *p2, uint32_t l2)
+{
+	int ret = memcmp(p1, p2, (l1 < l2) ? l1 : l2);
+	if (ret)
+		return ret;
+	if (l1 < l2)
+		return -1;
+	if (l1 > l2)
+		return 1;
+	return 0;
+}
+
+static struct map *locate_map(struct process *process, bfd_vma addr)
+{
+	struct list_head *it;
+	bfd_vma a = (bfd_vma)addr;
+
+	list_for_each(it, &process->map_list) {
+		struct map *map = container_of(it, struct map, list);
+
+		if ((a >= map->addr) && (a < map->addr + map->size))
+			return map;
+	}
+	return NULL;
+}
+
+static struct map *open_map(struct process *process, bfd_vma addr)
+{
+	struct map *map = locate_map(process, addr);
+	const char *fname;
+	char *realpath;
+	struct opt_b_t *p;
+	static struct opt_b_t opt_b_default = { "", NULL };
+
+	if (!map)
+		return NULL;
+
+	if (map->binfile)
+		return map;
+
+	if (map->ignore)
+		return map;
+
+	p = options.opt_b;
+
+	if (!p)
+		p = &opt_b_default;
+
+	do {
+		int len = strlen(p->pathname);
+
+		while(len && (p->pathname)[len - 1] == '/')
+			--len;
+
+		for(fname = map->filename; *fname == '/'; ++fname)
+			;
+
+		do {
+			if (asprintf(&realpath, "%.*s/%s", len, p->pathname, fname) == -1) {
+				map->ignore = 1;
+				return map;
+			}
+
+			if (!access(realpath, R_OK)) {
+				map->binfile = bin_file_new(realpath);
+
+				if (map->binfile) {
+					map->realpath = realpath;
+					return map;
+				}
+			}
+
+			free(realpath);
+
+			fname = strchr(fname + 1, '/');
+		} while(fname++);
+
+		p = p->next;
+	} while(p);
+
+	map->ignore = 1;
+	return map;
+}
+
+static char *resolv_address(struct process *process, bfd_vma addr)
+{
+	char *sym;
+	struct map *map = open_map(process, addr);
+
+	if (!map)
+		return NULL;
+
+	if (map->binfile) {
+		sym = bin_file_lookup(map->binfile, addr, map->addr);
+		if (sym)
+			return sym;
+	}
+
+	if (asprintf(&sym, "%s", map->filename) == -1)
+		return NULL;
+
+	return sym;
+}
+
+static void stack_resolv(struct process *process, struct stack *stack)
+{
+	uint32_t i;
+	void *addrs;
+
+	stack->syms = malloc(sizeof(*stack->syms) * stack->entries);
+	if (!stack->syms)
+		return;
+
+	addrs = stack->addrs;
+
+	for(i = 0; i < stack->entries; ++i) {
+		unsigned long addr = process->get_ulong(addrs);
+
+		if (!addr) {
+			stack->syms[i] = NULL;
+
+			continue;
+		}
+
+		stack->syms[i] = resolv_address(process, addr);
+
+		addrs += process->ptr_size;
+	}
+}
+
+static void stack_unref(struct stack *stack)
+{
+	if (--stack->refcnt == 0) {
+		if (stack->syms) {
+			unsigned int i;
+
+			for(i = 0; i < stack->entries; ++i)
+				free(stack->syms[i]);
+
+			free(stack->syms);
+		}
+		free(stack);
+	}
+}
+
+static struct rb_stack *stack_clone(struct process *process, struct rb_stack *stack_node)
+{
+	struct rb_root *root = &process->stack_table;
+	struct rb_node **new = &(root->rb_node), *parent = NULL;
+	struct rb_stack *this;
+	int ret;
+
+	/* Figure out where to put new node */
+	while (*new) {
+		this = container_of(*new, struct rb_stack, node);
+
+		parent = *new;
+		ret = memncmp(stack_node->stack->addrs, stack_node->stack->size, this->stack->addrs, this->stack->size);
+
+		if (ret < 0)
+			new = &((*new)->rb_left);
+		else
+		if (ret > 0)
+			new = &((*new)->rb_right);
+		else
+			return this;
+	}
+
+	this = malloc(sizeof(*this));
+	if (!this)
+		return NULL;
+
+	this->leaks = stack_node->leaks;
+	this->n_allocations = stack_node->n_allocations;
+	this->total_allocations = stack_node->total_allocations;
+	this->bytes_used = stack_node->bytes_used;
+	this->bytes_leaked = stack_node->bytes_leaked;
+	this->tsc = stack_node->tsc;
+	this->stack = stack_node->stack;
+	this->stack->refcnt++;
+
+	/* Add new node and rebalance tree. */
+	rb_link_node(&this->node, parent, new);
+	rb_insert_color(&this->node, root);
+
+	process->stack_trees++;
+
+	return this;
+}
+
+static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addrs, uint32_t stack_size, enum mt_operation operation)
+{
+	struct rb_root *root = &process->stack_table;
+	struct rb_node **new = &(root->rb_node), *parent = NULL;
+	struct rb_stack *this;
+	struct stack *stack;
+	int ret;
+
+	/* Figure out where to put new node */
+	while (*new) {
+		this = container_of(*new, struct rb_stack, node);
+
+		parent = *new;
+		ret = memncmp(addrs, stack_size, this->stack->addrs, this->stack->size);
+
+		if (ret < 0)
+			new = &((*new)->rb_left);
+		else
+		if (ret > 0)
+			new = &((*new)->rb_right);
+		else
+			return this;
+	}
+
+	this = malloc(sizeof(*this));
+	if (!this)
+		return NULL;
+
+	stack = malloc(sizeof(*stack));
+	if (!stack) {
+		free(this);
+		return NULL;
+	}
+
+	stack->refcnt = 1;
+	stack->addrs = malloc(stack_size);
+	stack->size = stack_size;
+	stack->entries = stack_size / process->ptr_size;
+	stack->syms = NULL;
+	stack->operation = operation;
+
+	memcpy(stack->addrs, addrs, stack_size);
+
+	this->n_allocations = 0;
+	this->total_allocations = 0;
+	this->bytes_used = 0;
+	this->leaks = 0;
+	this->bytes_leaked = 0;
+	this->stack = stack;
+
+	stack_resolv(process, stack);
+
+	/* Add new node and rebalance tree. */
+	rb_link_node(&this->node, parent, new);
+	rb_insert_color(&this->node, root);
+
+	process->stack_trees++;
+
+	return this;
+}
+
+static void process_dump_stack(struct process *process, struct rb_stack *this)
+{
+	uint32_t i;
+	void *addrs;
+	struct stack *stack = this->stack;
+
+	if (!stack->syms)
+		return;
+
+	for(addrs = stack->addrs, i = 0; i < stack->entries; ++i) {
+		if (dump_printf("  [0x%lx] %s\n", process->get_ulong(addrs), stack->syms[i] ? stack->syms[i] : "?") == -1)
+			return;
+
+		addrs += process->ptr_size;
+	}
+}
+
+static struct rb_block *process_rb_search_range(struct rb_root *root, unsigned long addr, unsigned long size)
+{
+	struct rb_node *node = root->rb_node;
+
+	if (!size)
+		size = 1;
+
+	while (node) {
+		struct rb_block *this = container_of(node, struct rb_block, node);
+
+		if (addr <= this->addr && addr + size > this->addr)
+			return this;
+
+		if (addr < this->addr)
+			node = node->rb_left;
+		else
+			node = node->rb_right;
+	}
+	return NULL;
+}
+
+static struct rb_block *process_rb_search(struct rb_root *root, unsigned long addr)
+{
+	struct rb_node *node = root->rb_node;
+
+	while (node) {
+		struct rb_block *this = container_of(node, struct rb_block, node);
+
+		if (addr < this->addr)
+			node = node->rb_left;
+		else if (addr > this->addr)
+			node = node->rb_right;
+		else
+			return this;
+	}
+	return NULL;
+}
+
+static void process_release_mem(struct process *process, struct rb_block *block, unsigned int size)
+{
+	if (block->flags & BLOCK_LEAKED) {
+		block->flags &= ~BLOCK_LEAKED;
+
+		block->stack_node->leaks--;
+		block->stack_node->bytes_leaked -= block->size;
+
+		process->leaks--;
+		process->leaked_bytes -= block->size;
+	}
+
+	block->stack_node->bytes_used -= size;
+
+	process->bytes_used -= size;
+}
+
+static void process_rb_delete_block(struct process *process, struct rb_block *block)
+{
+	rb_erase(&block->node, &process->block_table);
+
+	process_release_mem(process, block, block->size);
+	process->n_allocations--;
+
+	block->stack_node->n_allocations--;
+
+	free(block);
+}
+
+static int process_rb_insert_block(struct process *process, unsigned long addr, unsigned long size, struct rb_stack *stack, unsigned long flags)
+{
+	struct rb_node **new = &process->block_table.rb_node, *parent = NULL;
+	struct rb_block *block;
+	unsigned long n;
+
+	n = size;
+	if (!n)
+		n = 1;
+
+	/* Figure out where to put the new node */
+	while (*new) {
+		struct rb_block *this = container_of(*new, struct rb_block, node);
+
+		parent = *new;
+
+		if (addr <= this->addr && addr + n > this->addr)
+			return -1;
+
+		if (addr < this->addr)
+			new = &((*new)->rb_left);
+		else
+			new = &((*new)->rb_right);
+	}
+
+	block = malloc(sizeof(*block));
+	if (!block)
+		return -1;
+
+	block->addr = addr;
+	block->size = size;
+	block->flags = flags;
+	block->stack_node = stack;
+	block->stack_node->n_allocations++;
+	block->stack_node->total_allocations++;
+	block->stack_node->bytes_used += size;
+	block->stack_node->stack->refcnt++;
+
+	/* Add new node and rebalance tree. */
+	rb_link_node(&block->node, parent, new);
+	rb_insert_color(&block->node, &process->block_table);
+
+	process->n_allocations++;
+
+	return 0;
+}
+
+static struct map *_process_add_map(struct process *process, unsigned long addr, unsigned long offset, unsigned long size, const char *filename, size_t len)
+{
+	struct map *map = malloc(sizeof(*map));
+
+	map->addr = addr;
+	map->offset = offset;
+	map->size = size;
+	map->filename = malloc(len + 1);
+	map->realpath = NULL;
+	map->binfile = NULL;
+	map->ignore = 0;
+
+	safe_strncpy(map->filename, filename, len + 1);
+
+	if (list_empty(&process->map_list)) {
+		free(process->filename);
+		process->filename = strdup(map->filename);
+	}
+
+	list_add_tail(&map->list, &process->map_list);
+
+	/* fixit: stack_add() can produce now false matches */
+
+	return map;
+}
+
+void process_add_map(struct process *process, void *payload, uint32_t payload_len)
+{
+	struct mt_map_payload *mt_map = payload;
+
+	uint64_t addr = process->val64(mt_map->addr);
+	uint64_t offset = process->val64(mt_map->offset);
+	uint64_t size = process->val64(mt_map->size);
+
+	_process_add_map(process, addr, offset, size, mt_map->filename, payload_len - sizeof(*mt_map));
+}
+
+static void _process_del_map(struct map *map)
+{
+	bin_file_free(map->binfile);
+
+	list_del(&map->list);
+
+	free(map->filename);
+	free(map->realpath);
+	free(map->binfile);
+	free(map);
+}
+
+void process_del_map(struct process *process, void *payload, uint32_t payload_len)
+{
+	struct mt_map_payload *mt_map = payload;
+	uint64_t addr = process->val64(mt_map->addr);
+	uint64_t offset = process->val64(mt_map->offset);
+	uint64_t size = process->val64(mt_map->size);
+	struct list_head *it;
+
+	list_for_each(it, &process->map_list) {
+		struct map *map = container_of(it, struct map, list);
+
+		if (map->addr == addr && map->offset == offset && map->size == size) {
+			_process_del_map(map);
+			return;
+		}
+	}
+	fatal("process_del_map");
+}
+
+static void process_init(struct process *process, int swap_endian, int is_64bit)
+{
+	if (is_64bit) {
+		process->ptr_size = sizeof(uint64_t);
+		process->get_ulong = swap_endian ? get_uint64_swap : get_uint64;
+		process->put_ulong = swap_endian ? put_uint64_swap : put_uint64;
+	}
+	else {
+		process->ptr_size = sizeof(uint32_t);
+		process->get_ulong = swap_endian ? get_uint32_swap : get_uint32;
+		process->put_ulong = swap_endian ? put_uint32_swap : put_uint32;
+	}
+
+	process->val16 = swap_endian ? val16_swap : val16;
+	process->val32 = swap_endian ? val32_swap : val32;
+	process->val64 = swap_endian ? val64_swap : val64;
+
+	process->is_64bit = is_64bit;
+	process->swap_endian = swap_endian;
+	process->status = MT_PROCESS_RUNNING;
+	process->filename = NULL;
+}
+
+void process_reset_allocations(struct process *process)
+{
+	struct rb_block *rbb, *rbb_next;
+	struct rb_stack *rbs, *rbs_next;
+
+	rbtree_postorder_for_each_entry_safe(rbb, rbb_next, &process->block_table, node) {
+		process->n_allocations--;
+		free(rbb);
+	}
+	process->block_table = RB_ROOT;
+
+	rbtree_postorder_for_each_entry_safe(rbs, rbs_next, &process->stack_table, node) {
+		stack_unref(rbs->stack);
+		free(rbs);
+	}
+	process->stack_table = RB_ROOT;
+
+	process->total_allocations = 0;
+	process->bytes_used = 0;
+	process->stack_trees = 0;
+	process->leaks = 0;
+	process->leaked_bytes = 0;
+	process->tsc = 0;
+}
+
+static void process_reset(struct process *process)
+{
+	struct list_head *it, *next;
+
+	process_reset_allocations(process);
+
+	list_for_each_safe(it, next, &process->map_list) {
+		struct map *map = container_of(it, struct map, list);
+
+		_process_del_map(map);
+	}
+
+	free(process->filename);
+
+	process->filename = NULL;
+}
+
+static int process_rb_duplicate_block(struct rb_node *node, void *user)
+{
+	struct rb_block *block = container_of(node, struct rb_block, node);
+	struct process *process = user;
+	struct rb_stack *stack = stack_clone(process, block->stack_node);
+
+	if (process_rb_insert_block(process, block->addr, block->size, stack, block->flags))
+		abort();
+
+	process->bytes_used += block->size;
+
+	return 0;
+}
+
+void process_duplicate(struct process *process, struct process *copy)
+{
+	struct list_head *it;
+
+	process_reset(process);
+	process_init(process, copy->swap_endian, copy->is_64bit);
+
+	if (!copy)
+		return;
+
+	rb_iterate(&copy->block_table, process_rb_duplicate_block, process);
+
+	list_for_each(it, &copy->map_list) {
+		struct map *map = container_of(it, struct map, list);
+
+		_process_add_map(process, map->addr, map->offset, map->size, map->filename, strlen(map->filename));
+	}
+
+	process->total_allocations = copy->total_allocations;
+	process->tsc = copy->tsc;
+}
+
+static int sort_tsc(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->tsc > (*q)->tsc)
+		return -1;
+	if ((*p)->tsc < (*q)->tsc)
+		return 1;
+	return 0;
+}
+
+static int sort_usage(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->bytes_used > (*q)->bytes_used)
+		return -1;
+	if ((*p)->bytes_used < (*q)->bytes_used)
+		return 1;
+	return sort_tsc(p, q);
+}
+
+static int sort_average(const struct rb_stack **p, const struct rb_stack **q)
+{
+	double pv, qv;
+
+	if ((*p)->n_allocations)
+		pv = (double)(*p)->bytes_used / (*p)->n_allocations;
+	else
+		pv = 0.0;
+
+	if ((*q)->n_allocations)
+		qv = (double)(*q)->bytes_used / (*q)->n_allocations;
+	else
+		qv = 0.0;
+
+	if (pv > qv)
+		return -1;
+	if (pv < qv)
+		return 1;
+	return sort_usage(p, q);
+}
+
+static int sort_leaks(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->leaks > (*q)->leaks)
+		return -1;
+	if ((*p)->leaks < (*q)->leaks)
+		return 1;
+	return sort_usage(p, q);
+}
+
+static int sort_bytes_leaked(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->bytes_leaked > (*q)->bytes_leaked)
+		return -1;
+	if ((*p)->bytes_leaked < (*q)->bytes_leaked)
+		return 1;
+	return sort_leaks(p, q);
+}
+
+static int sort_allocations(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->n_allocations > (*q)->n_allocations)
+		return -1;
+	if ((*p)->n_allocations < (*q)->n_allocations)
+		return 1;
+	return sort_usage(p, q);
+}
+
+static int sort_total(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->total_allocations > (*q)->total_allocations)
+		return -1;
+	if ((*p)->total_allocations < (*q)->total_allocations)
+		return 1;
+	return sort_allocations(p, q);
+}
+
+static const char *str_operation(enum mt_operation operation)
+{
+	switch(operation) {
+	case MT_MALLOC:
+		return "malloc";
+	case MT_REALLOC_ENTER:
+		return "realloc enter";
+	case MT_REALLOC:
+		return "realloc";
+	case MT_REALLOC_FAILED:
+		return "realloc failed";
+	case MT_MEMALIGN:
+		return "memalign";
+	case MT_POSIX_MEMALIGN:
+		return "posix_memalign";
+	case MT_ALIGNED_ALLOC:
+		return "aligned_alloc";
+	case MT_VALLOC:
+		return "valloc";
+	case MT_PVALLOC:
+		return "pvalloc";
+	case MT_MMAP:
+		return "mmap";
+	case MT_MMAP64:
+		return "mmap64";
+	case MT_FREE:
+		return "free";
+	case MT_MUNMAP:
+		return "munmap";
+	default:
+		break;
+	}
+	return "unknow operation";
+}
+
+static void _process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), FILE *file)
+{
+	struct rb_stack **arr;
+	unsigned long i;
+	void *data;
+
+	arr = malloc(sizeof(struct rb_stack *) * process->stack_trees);
+	if (!arr)
+		return;
+
+	for(i = 0, data = rb_first(&process->stack_table); data; data = rb_next(data))
+		arr[i++] = container_of(data, struct rb_stack, node);
+
+	if (dump_init(file) == -1)
+		return;
+
+	dump_printf("Process dump %d %s\n", process->pid, process->filename ? process->filename : "<unknown>");
+
+	qsort(arr, process->stack_trees, sizeof(struct stack *), (void *)sortby);
+
+	for(i = 0; i < process->stack_trees; ++i) {
+		struct rb_stack *stack = arr[i];
+
+		if (!skipfunc(stack)) {
+			if (dump_printf(
+				"Stack (%s):\n"
+				" bytes used: %llu\n"
+				" number of open allocations: %llu\n"
+				" total number of allocations: %llu\n"
+				" leaked allocations: %lu (%llu bytes)\n"
+				" tsc: %llu\n",
+					str_operation(stack->stack->operation),
+					stack->bytes_used,
+					stack->n_allocations,
+					stack->total_allocations,
+					stack->leaks,
+					stack->bytes_leaked,
+					stack->tsc
+			) == -1)
+				break;
+
+			process_dump_stack(process, stack);
+		}
+	}
+	free(arr);
+	dump_flush();
+	return;
+}
+
+static void process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), const char *outfile)
+{
+	if (!outfile)
+		_process_dump(process, sortby, skipfunc, NULL);
+	else {
+		FILE *file = fopen(outfile, "w");
+
+		if (!file) {
+			fprintf(stderr, "could not open `%s' for output!\n", outfile);
+			return;
+		}
+		_process_dump(process, sortby, skipfunc, file);
+
+		fclose(file);
+	}
+}
+
+static int skip_none(struct rb_stack *stack)
+{
+	return 0;
+}
+
+static int skip_zero_allocations(struct rb_stack *stack)
+{
+	return !stack->n_allocations;
+}
+
+static int skip_zero_leaks(struct rb_stack *stack)
+{
+	return !stack->leaks;
+}
+
+void process_dump_sort_average(struct process *process,  const char *outfile)
+{
+	process_dump(process, sort_average, skip_zero_allocations, outfile);
+}
+
+void process_dump_sort_usage(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_usage, skip_zero_allocations, outfile);
+}
+
+void process_dump_sort_leaks(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_leaks, skip_zero_leaks, outfile);
+}
+
+void process_dump_sort_bytes_leaked(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_bytes_leaked, skip_zero_leaks, outfile);
+}
+
+void process_dump_sort_allocations(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_allocations, skip_zero_allocations, outfile);
+}
+
+void process_dump_sort_total(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_total, skip_zero_allocations, outfile);
+}
+
+void process_dump_sort_tsc(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_tsc, skip_zero_allocations, outfile);
+}
+
+void process_dump_stacks(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_allocations, skip_none, outfile);
+}
+
+void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
+{
+	unsigned int new = 0;
+	unsigned long n = payload_len / process->ptr_size;
+	unsigned long i;
+	void *new_leaks = leaks;
+
+	for(i = 0; i < n; ++i) {
+		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(leaks));
+
+		if (!(block->flags & BLOCK_LEAKED)) {
+			block->flags |= BLOCK_LEAKED;
+
+			block->stack_node->leaks++;
+			block->stack_node->bytes_leaked += block->size;
+
+			process->leaks++;
+			process->leaked_bytes += block->size;
+
+			memcpy(new_leaks + new * process->ptr_size, leaks, process->ptr_size);
+			new++;
+		}
+		leaks += process->ptr_size;
+	}
+
+	dump_init(options.output);
+	dump_printf("process %d\n", process->pid);
+	dump_printf(" leaks reported: %lu\n", n);
+	dump_printf(" new leaks found: %u\n", new);
+	dump_printf(" leaked bytes: %llu\n", process->leaked_bytes);
+
+	for(i = 0; i < new; ++i) {
+		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(new_leaks));
+
+		if (dump_printf(" leaked at 0x%08lx (%lu bytes)\n", (unsigned long)block->addr, (unsigned long)block->size) == -1)
+			break;
+
+		new_leaks += process->ptr_size;
+	}
+
+	dump_printf("leaks total: %lu\n", process->leaks);
+	dump_flush();
+
+	if (!options.interactive && (process->status == MT_PROCESS_EXITING || process->status == MT_PROCESS_DETACH)) {
+		if (options.sort_by == OPT_SORT_BYTES_LEAKED)
+			_process_dump(process, sort_bytes_leaked, skip_zero_leaks, options.output);
+		else
+			_process_dump(process, sort_leaks, skip_zero_leaks, options.output);
+
+		if (process->status == MT_PROCESS_EXITING) {
+			process_set_status(process, MT_PROCESS_EXIT);
+
+			client_send_msg(process, MT_EXIT, NULL, 0);
+		}
+		else
+			client_send_msg(process, MT_DETACH, NULL, 0);
+	}
+
+	return leaks;
+}
+
+static inline unsigned long roundup_mask(unsigned long val, unsigned long mask)
+{
+	return (val + mask) & ~mask;
+}
+
+static int is_mmap(enum mt_operation operation)
+{
+	return operation == MT_MMAP || operation == MT_MMAP64;
+}
+
+void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payload)
+{
+	struct rb_block *block = NULL;
+	unsigned long ptr;
+	unsigned long size;
+
+	if (!process->tracing)
+		return;
+
+	if (process->is_64bit) {
+		struct mt_alloc_payload_64 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+		size = process->get_ulong(&mt_alloc->size);
+	}
+	else {
+		struct mt_alloc_payload_32 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+		size = process->get_ulong(&mt_alloc->size);
+	}
+
+	do {
+		block = process_rb_search_range(&process->block_table, ptr, size);
+		if (!block)
+			break;
+
+		if (!is_mmap(block->stack_node->stack->operation)) {
+			if (options.verbose > 1)
+				fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
+			if (options.wait)
+				abort();
+			break;
+		}
+
+		if (block->addr >= ptr) {
+			unsigned off = block->addr - ptr;
+
+			size -= off;
+			ptr += off;
+
+			if (size < block->size) {
+				process_release_mem(process, block, size);
+
+				block->addr += size;
+				block->size -= size;
+
+				break;
+			}
+
+			size -= block->size;
+			ptr += block->size;
+
+			process_rb_delete_block(process, block);
+		}
+		else {
+			unsigned off = ptr - block->addr;
+
+			if (off + size < block->size) {
+				unsigned long new_addr = block->addr + (off + size);
+				unsigned long new_size = block->size - (off + size);
+
+				process_release_mem(process, block, block->size - off - new_size);
+
+				block->size = off;
+
+				if (process_rb_insert_block(process, new_addr, new_size, block->stack_node, 0))
+					abort();
+
+				process->n_allocations++;
+				process->total_allocations++;
+				process->bytes_used += new_size;
+
+				break;
+			}
+
+			process_release_mem(process, block, off);
+
+			block->addr += off;
+			block->size -= off;
+
+			size -= block->size;
+			ptr += block->size;
+		}
+	} while(size);
+}
+
+void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
+{
+	struct rb_block *block = NULL;
+	unsigned long ptr;
+
+	if (!process->tracing)
+		return;
+
+	if (process->is_64bit) {
+		struct mt_alloc_payload_64 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+	}
+	else {
+		struct mt_alloc_payload_32 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+	}
+
+	debug(DEBUG_FUNCTION, "ptr=%#lx", ptr);
+
+	block = process_rb_search(&process->block_table, ptr);
+	if (block) {
+		if (is_mmap(block->stack_node->stack->operation)) {
+			if (options.verbose > 1)
+				fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
+			if (options.wait)
+				abort();
+		}
+		process_rb_delete_block(process, block);
+	}
+	else {
+		if (!options.client || options.wait) {
+			fprintf(stderr, ">>> block %#lx not found (pid=%d, tid=%d)\n", ptr, process->pid, mt_msg->tid);
+			abort();
+		}
+	}
+}
+
+void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload)
+{
+	struct rb_block *block = NULL;
+	uint32_t payload_len = mt_msg->payload_len;
+	unsigned long *stack_data;
+	unsigned long stack_size;
+	unsigned long ptr;
+	unsigned long size;
+
+	debug(DEBUG_FUNCTION, "payload_len=%u", payload_len);
+
+	if (!process->tracing)
+		return;
+
+	if (process->is_64bit) {
+		struct mt_alloc_payload_64 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+		size = process->get_ulong(&mt_alloc->size);
+
+		stack_data = payload + sizeof(*mt_alloc);
+		stack_size = (payload_len - sizeof(*mt_alloc));
+	}
+	else {
+		struct mt_alloc_payload_32 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+		size = process->get_ulong(&mt_alloc->size);
+
+		stack_data = payload + sizeof(*mt_alloc);
+		stack_size = (payload_len - sizeof(*mt_alloc));
+	}
+
+	debug(DEBUG_FUNCTION, "ptr=%#lx size=%lu stack_size=%lu", ptr, size, stack_size);
+
+	block = process_rb_search(&process->block_table, ptr);
+	if (block) {
+		if (options.verbose > 1) {
+			fprintf(stderr, ">>> block collison %s ptr %#lx size %lu pid %d tid %d\n", str_operation(mt_msg->operation), ptr, size, process->pid, mt_msg->tid);
+			abort();
+		}
+
+		process_rb_delete_block(process, block);
+	}
+
+	struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+
+	if (process_rb_insert_block(process, ptr, size, stack, 0))
+		abort();
+
+	process->total_allocations++;
+	process->bytes_used += size;
+
+	stack->tsc = process->tsc++;
+}
+
+void process_reinit(struct process *process, int swap_endian, int is_64bit)
+{
+	process_reset(process);
+	process_init(process, swap_endian, is_64bit);
+}
+
+struct process *process_new(pid_t pid, int swap_endian, int is_64bit, int tracing)
+{
+	struct process *process = malloc(sizeof(*process));
+
+	memset(process, 0, sizeof(*process));
+
+	process->pid = pid;
+	process->tracing = tracing;
+	process->block_table = RB_ROOT;
+	process->stack_table = RB_ROOT;
+	INIT_LIST_HEAD(&process->map_list);
+
+	process_init(process, swap_endian, is_64bit);
+
+	return process;
+}
+
+
+void process_show_exit(struct process *process)
+{
+	if (options.client || (!options.client && !options.verbose))
+		fprintf(options.output, "+++ process %d exited +++\n", process->pid);
+}
+
+void process_exit(struct process *process)
+{
+	process_show_exit(process);
+	process_set_status(process, MT_PROCESS_EXIT);
+
+	if (!options.interactive)
+		_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
+}
+
+void process_about_exit(struct process *process)
+{
+	if (options.auto_scan) {
+		process_show_exit(process);
+		process_set_status(process, MT_PROCESS_EXITING);
+		process_leaks_scan(process, SCAN_ALL);
+	}
+	else {
+		process_exit(process);
+		client_send_msg(process, MT_EXIT, NULL, 0);
+	}
+}
+
+void process_detach(struct process *process)
+{
+	process_set_status(process, MT_PROCESS_DETACH);
+
+	if (!options.interactive) {
+		if (options.auto_scan) {
+			process_leaks_scan(process, SCAN_ALL);
+			return;
+		}
+		else {
+			switch(options.sort_by) {
+			case OPT_SORT_AVERAGE:
+				_process_dump(process, sort_average, skip_zero_allocations, options.output);
+				break;
+			case OPT_SORT_STACKS:
+				_process_dump(process, sort_allocations, skip_none, options.output);
+				break;
+			case OPT_SORT_TOTAL:
+				_process_dump(process, sort_total, skip_zero_allocations, options.output);
+				break;
+			case OPT_SORT_TSC:
+				_process_dump(process, sort_tsc, skip_zero_allocations, options.output);
+				break;
+			case OPT_SORT_USAGE:
+				_process_dump(process, sort_usage, skip_zero_allocations, options.output);
+				break;
+			default:
+				_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
+				break;
+			}
+		}
+	}
+
+	client_send_msg(process, MT_DETACH, NULL, 0);
+}
+
+void process_delete(struct process *process)
+{
+	process_reset(process);
+	free(process);
+}
+
+void process_set_status(struct process *process, enum process_status status)
+{
+	process->status = status;
+}
+
+static void process_block_foreach(struct process *process, void (*func)(struct rb_block *, void *), void *user)
+{
+	struct rb_node *data;
+
+	for(data = rb_first(&process->block_table); data; data = rb_next(data))
+		func(container_of(data, struct rb_block, node), user);
+}
+
+static const char *process_get_status(struct process *process)
+{
+	const char *str;
+
+	switch(process->status) {
+	case MT_PROCESS_RUNNING:
+		str = "running";
+		break;
+	case MT_PROCESS_EXIT:
+		str = "exited";
+		break;
+	case MT_PROCESS_EXITING:
+		str = "exiting";
+		break;
+	case MT_PROCESS_IGNORE:
+		str = "ignored";
+		break;
+	case MT_PROCESS_DETACH:
+		str = "detached";
+		break;
+	default:
+		str = "unknown";
+		break;
+	}
+	return str;
+}
+
+void process_status(struct process *process)
+{
+	printf(
+		"process %d status\n"
+		" bytes used: %lu\n"
+		" number of open allocations: %lu\n"
+		" total number of allocations: %lu\n"
+		" average allocation: %f bytes\n"
+		" number of allocators: %lu\n"
+		" number of leaks: %lu\n"
+		" number of leaked bytes: %llu\n"
+		" status: %s\n",
+		process->pid,
+		process->bytes_used,
+		process->n_allocations,
+		process->total_allocations,
+		process->n_allocations ? (double)process->bytes_used / process->n_allocations : 0.0,
+		process->stack_trees,
+		process->leaks,
+		process->leaked_bytes,
+		process_get_status(process)
+	);
+}
+
+struct block_helper {
+	struct process *process;
+	unsigned int	len;
+	unsigned long	mask;
+	unsigned long	fmask;
+	unsigned long	fmode;
+	void * 		data;
+};
+
+static void set_block(struct rb_block *block, void *data)
+{
+	struct block_helper *bh = data;
+	unsigned long addr;
+
+	if ((block->flags & bh->fmask) != 0)
+		return;
+
+	if ((block->flags & bh->fmode) != bh->fmode)
+		return;
+
+	block->flags |= BLOCK_SCANNED;
+
+	for (addr = (unsigned long) block->addr; addr & bh->mask; bh->mask >>= 1)
+		;
+
+	bh->process->put_ulong(bh->data, block->addr);
+	bh->data += bh->process->ptr_size;
+
+	bh->len++;
+}
+
+unsigned long process_leaks_scan(struct process *process, int mode)
+{
+	struct mt_scan_payload *payload;
+	unsigned int payload_len;
+	unsigned long n;
+	unsigned long mask;
+	unsigned long fmask;
+	unsigned long fmode;
+
+	if (!process->n_allocations)
+		return 0;
+
+	switch(mode) {
+	case SCAN_ALL:
+		fmask = 0;
+		fmode = 0;
+		break;
+	case SCAN_NEW:
+		fmask = BLOCK_SCANNED;
+		fmode = 0;
+		break;
+	case SCAN_LEAK:
+		fmask = 0;
+		fmode = BLOCK_LEAKED;
+		break;
+	default:
+		return 0;
+	}
+
+	payload_len = sizeof(*payload) + process->n_allocations * process->ptr_size;
+
+	payload = malloc(payload_len);
+	if (!payload) {
+		fprintf(stderr, "leak scan: out of memory!\n");
+		return 0;
+	}
+	memset(payload, 0, payload_len);
+
+	struct block_helper bh = { .process = process, .len = 0, .mask = ~0, .data = payload->data, .fmask = fmask | BLOCK_IGNORE, .fmode = fmode };
+
+	process_block_foreach(process, set_block, &bh);
+
+	n = bh.len;
+	mask = bh.mask;
+
+	if (dump_init(options.output) != -1) {
+		dump_printf("process %d scanning %lu allocations\n", process->pid, n);
+		dump_flush();
+	}
+
+	payload_len = sizeof(*payload) + n * process->ptr_size;
+
+	payload->ptr_size = process->val32(process->ptr_size);
+	payload->mask = process->val64(mask);
+
+	client_send_msg(process, MT_SCAN, payload, payload_len);
+
+	free(payload);
+
+	return n;
+}
+
