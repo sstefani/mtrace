@@ -58,9 +58,9 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 		ret = do_singlestep(task);
 		breakpoint_enable(task, bp);
 		if (ret) {
-//fprintf(stderr, "%s:%d %d\n", __FUNCTION__, __LINE__, ret);
 			if (ret == 1)
 				task->skip_bp = bp;
+
 			return ret;
 		}
 	}
@@ -76,6 +76,7 @@ void detach_task(struct task *task)
 		sig = task->event.e_un.signum;
 
 	remove_event(task);
+	breakpoint_hw_destroy(task);
 	untrace_task(task, sig);
 }
 

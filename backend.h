@@ -82,10 +82,10 @@ int handle_singlestep(struct task *task, int (*singlestep)(struct task *task));
 arch_addr_t get_return_addr(struct task *task);
 
 /* set instruction hw breakpoint */
-int set_hw_bp(struct task *task, unsigned int slot, arch_addr_t addr);
+int set_hw_bp(struct task *task, unsigned int n, arch_addr_t addr);
 
 /* remove instruction hw breakpoint */
-int reset_hw_bp(struct task *task, unsigned int slot, arch_addr_t addr);
+int reset_hw_bp(struct task *task, unsigned int n);
 
 /* save the process context (state, registers, stack pointer) */
 int fetch_context(struct task *task);

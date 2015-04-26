@@ -126,7 +126,7 @@ static void swap_msg(struct mt_msg *mt_msg)
 	mt_msg->tid = bswap_32(mt_msg->tid);
 }
 
-static int socket_read_msg(struct mt_msg *mt_msg, void **payload, int *swap_endian)
+static int socket_read_msg(struct mt_msg *mt_msg, void **payload, unsigned int *swap_endian)
 {
 	if (TEMP_FAILURE_RETRY(safe_read(client_fd, mt_msg, sizeof(*mt_msg))) <= 0)
 		return FALSE;
@@ -156,6 +156,13 @@ static pid_t pid_payload(struct process *process, void *payload)
 	return process->val32(mt_pid->pid);
 }
 
+static unsigned int attached_payload(void *payload)
+{
+	struct mt_attached_payload *mt_attached = payload;
+
+	return mt_attached->attached;
+}
+
 void client_close(void)
 {
 	if (client_fd != -1) {
@@ -179,7 +186,7 @@ static int client_func(void)
 	struct mt_msg mt_msg;
 	struct process *process;
 	void *payload = NULL;
-	int swap_endian;
+	unsigned int swap_endian;
 
 	if (socket_read_msg(&mt_msg, &payload, &swap_endian) == FALSE) {
 		client_broken();
@@ -204,7 +211,7 @@ static int client_func(void)
 	else {
 		process = client_find_process(mt_msg.pid);
 		if (!process) {
-			process = process_new(mt_msg.pid, swap_endian, 0, mt_info.do_trace);
+			process = process_new(mt_msg.pid, swap_endian, mt_info.do_trace);
 
 			client_add_process(process);
 		}
@@ -242,7 +249,7 @@ static int client_func(void)
 			process_duplicate(process, client_find_process(pid_payload(process, payload)));
 			break;
 		case MT_ATTACH:
-			process_reinit(process, swap_endian, 0);
+			process_reinit(process, swap_endian, 0, attached_payload(payload));
 			break;
 		case MT_ATTACH64:
 			if (!IS64BIT) {
@@ -250,7 +257,7 @@ static int client_func(void)
 				process_set_status(process, MT_PROCESS_IGNORE);
 				break;
 			}
-			process_reinit(process, swap_endian, 1);
+			process_reinit(process, swap_endian, 1, attached_payload(payload));
 			break;
 		case MT_ABOUT_EXIT:
 			process_about_exit(process);

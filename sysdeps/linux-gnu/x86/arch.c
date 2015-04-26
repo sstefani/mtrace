@@ -19,6 +19,7 @@
  */
 
 #include <assert.h>
+#include <backend.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +41,11 @@ static int set_breakpoint_addr(struct task *task, arch_addr_t addr, int n)
 {
 	int ret;
 
+#ifdef __x86_64__
+	if (!task->is_64bit)
+		addr &= 0xffffffff;
+#endif
+
 	ret = ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct user, u_debugreg[n]), addr);
 	if (ret) {
 		if (errno != ESRCH) {
@@ -50,56 +56,63 @@ static int set_breakpoint_addr(struct task *task, arch_addr_t addr, int n)
 	return 0;
 }
 
-static int toggle_breakpoint(struct task *task, int n, int type, int len, int local, int global, int set)
+static int set_breakpoint_mode(struct task *task, int n, int type, int len, int local, int global)
 {
 	long ret;
-	int xtype, xlen;
-	unsigned long dr7, vdr7;
+	uint32_t mode;
+	uint32_t dr7, mask;
 
-	switch (type) {
+	mask = (0b1111 << (16 + 4 * n)) | (0b11 << (2 * n));
+
+	switch(type) {
 	case BP_X:
-		xtype = 0;
+		mode = 0b0000;
 		break;
 	case BP_W:
-		xtype = 1;
+		mode = 0b0001;
 		break;
 	case BP_RW:
-		xtype = 3;
+		mode = 0b0011;
 		break;
+	default:
+		fprintf(stderr, "invalid hw breakpoint type\n");
+		return -1;
 	}
 
-	switch (len) {
+	switch(len) {
 	case 1:
-		xlen = 0;
+		mode |= 0b0000;
 		break;
 	case 2:
-		xlen = 4;
+		mode |= 0b0100;
 		break;
 	case 4:
-		xlen = 0xc;
+		mode |= 0b1100;
 		break;
 	case 8:
-		xlen = 8;
+		mode |= 0b1000;
 		break;
 	}
 
-	vdr7 = (xlen | xtype) << 16;
-	vdr7 <<= 4 * n;
+	dr7 = task->arch.dr7 & ~mask;
 
+	dr7 |= mode << (16 + 4 * n);
+	
 	if (local) {
-		vdr7 |= 1 << (2 * n);
-		vdr7 |= 1 << 8;
+		dr7 |= 0b01 << (2 * n);
+		dr7 |= 1 << 8;
 	}
-	if (global) {
-		vdr7 |= 2 << (2 * n);
-		vdr7 |= 1 << 9;
-	}
-
-	dr7 = task->arch.dr7;
-	if (set)
-		dr7 |= vdr7;
 	else
-		dr7 &= ~vdr7;
+	if (!(dr7 & 0b01010101))
+		dr7 &= ~(1 << 8);
+
+	if (global) {
+		dr7 |= 0b10 << (2 * n);
+		dr7 |= 1 << 9;
+	}
+	else
+	if (!(dr7 & 0b10101010))
+		dr7 &= ~(1 << 9);
 
 	if (dr7 != task->arch.dr7) {
 		task->arch.dr7 = dr7;
@@ -115,31 +128,50 @@ static int toggle_breakpoint(struct task *task, int n, int type, int len, int lo
 	return 0;
 }
 
-int set_hw_bp(struct task *task, unsigned int slot, arch_addr_t addr)
+int set_hw_bp(struct task *task, unsigned int n, arch_addr_t addr)
 {
-	if (set_breakpoint_addr(task, addr, slot) == -1)
+	if (reset_hw_bp(task, n) == -1)
 		return -1;
 
-	return toggle_breakpoint(task,
-		slot,	/* n */
+	if (set_breakpoint_addr(task, addr, n) == -1)
+		return -1;
+
+	return set_breakpoint_mode(task,
+		n,	/* n */
 		BP_X,	/* type */
 		1,	/* len */
 		1,	/* local */
-		0,	/* global */
-		1	/* set */
+		0	/* global */
 	);
 }
 
-int reset_hw_bp(struct task *task, unsigned int slot, arch_addr_t addr)
+int reset_hw_bp(struct task *task, unsigned int n)
 {
-	return toggle_breakpoint(task,
-		slot,	/* n */
-		BP_X,	/* type */
-		1,	/* len */
-		1,	/* local */
-		0,	/* global */
-		0	/* set */
-	);
+	long ret;
+	uint32_t dr7, mask;
+
+	mask = (0b1111 << (16 + 4 * n)) | (0b11 << (2 * n));
+
+	dr7 = task->arch.dr7 & ~mask;
+
+	if (!(dr7 & 0b01010101))
+		dr7 &= ~(1 << 8);
+
+	if (!(dr7 & 0b10101010))
+		dr7 &= ~(1 << 9);
+
+	if (dr7 != task->arch.dr7) {
+		task->arch.dr7 = dr7;
+
+		ret = ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct user, u_debugreg[7]), task->arch.dr7);
+		if (ret) {
+			if (errno != ESRCH) {
+				fprintf(stderr, "PTRACE_POKEUSER u_debugreg[7] pid=%d %s\n", task->pid, strerror(errno));
+				return -1;
+			}
+		}
+	}
+	return 0;
 }
 
 int is_64bit(struct mt_elf *mte)
@@ -150,6 +182,7 @@ int is_64bit(struct mt_elf *mte)
 int arch_task_init(struct task *task)
 {
 	long ret;
+	int i;
 
 	ret = ptrace(PTRACE_PEEKUSER, task->pid, offsetof(struct user, u_debugreg[7]), 0);
 	if (ret == -1 && errno) {
@@ -161,6 +194,9 @@ int arch_task_init(struct task *task)
 	}
 
 	task->arch.dr7 = ret;
+
+	for(i = 0; i < HW_BREAKPOINTS; ++i)
+		reset_hw_bp(task, i);
 
 	return 0;
 }

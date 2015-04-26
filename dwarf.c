@@ -403,14 +403,16 @@ static inline int dwarf_readw(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 
 		ret = dwarf_read64(as, addr, &u64);
 
-		*valp = u64;
+		if (valp)
+			*valp = u64;
 	}
 	else {
 		uint32_t u32;
 
 		ret = dwarf_read32(as, addr, &u32);
 
-		*valp = u32;
+		if (valp)
+			*valp = u32;
 	}
 	return ret;
 }
@@ -430,7 +432,8 @@ static int dwarf_read_uleb128(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 	}
 	while (byte & 0x80);
 
-	*valp = val;
+	if (valp)
+		*valp = val;
 	return 0;
 }
 
@@ -453,7 +456,8 @@ static int dwarf_read_sleb128(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 		/* sign-extend negative value */
 		val |= ((arch_addr_t) -1) << shift;
 
-	*valp = val;
+	if (valp)
+		*valp = val;
 	return 0;
 }
 
@@ -475,6 +479,16 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 		int64_t sval64;
 		arch_addr_t addr;
 	} tmp;
+
+#ifdef DEBUG
+	struct dwarf_cursor *c = &as->cursor;
+	struct library *lib = c->lib;
+
+	if (*addr < ARCH_ADDR_T(lib->image_addr))
+		fatal("invalid access mem: addr %#lx < %p", *addr, lib->image_addr);
+	if (*addr >= ARCH_ADDR_T(lib->image_addr + lib->load_size))
+		fatal("invalid access mem: addr %#lx >= %p", *addr, lib->image_addr + lib->load_size);
+#endif
 
 	memset(&tmp, 0, sizeof(tmp));
 
@@ -1522,7 +1536,7 @@ do {                                              \
 					return ret;
 				tmp2 = u32;
 				if (operand1 == 3) {
-#if __BYTE_ORDER == __LITTLE_ENDIAN
+#if __BYTE_ORDER == __ORDER_LITTLE_ENDIAN
 					tmp2 &= 0xffffff;
 #else
 					tmp2 >>= 8;

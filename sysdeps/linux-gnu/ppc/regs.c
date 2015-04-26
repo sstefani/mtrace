@@ -65,6 +65,9 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 #ifdef __powerpc64__
 	val = fix_machine(task, val);
 #endif
+	if (task->context.regs.nip == val)
+		return;
+
 	task->context.regs.nip = val;
 
 	if (ptrace(PTRACE_POKEUSER, task->pid, (sizeof(unsigned long) * PT_NIP), val) == -1)

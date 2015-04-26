@@ -22,10 +22,13 @@
 #include "dwarf.h"
 #include "task.h"
 
+#include <assert.h>
 #include <stdio.h>
 
 int backtrace_init(struct task *task)
 {
+	assert(task->backtrace == NULL);
+
 	task->backtrace = dwarf_init(task);
 
 	return task->backtrace != NULL;
@@ -33,28 +36,31 @@ int backtrace_init(struct task *task)
 
 void backtrace_destroy(struct task *task)
 {
-	if (task->backtrace)
+	if (task->backtrace) {
 		dwarf_destroy(task->backtrace);
+
+		task->backtrace = NULL;
+	}
 }
 
 int backtrace_init_unwind(struct task *task)
 {
-	if (task->backtrace)
-		return dwarf_init_unwind(task->backtrace);
-	return -1;
+	assert(task->backtrace);
+
+	return dwarf_init_unwind(task->backtrace);
 }
 
 unsigned long backtrace_get_ip(struct task *task)
 {
-	if (task->backtrace)
-		return dwarf_get_ip(task->backtrace);
-	return 0;
+	assert(task->backtrace);
+
+	return dwarf_get_ip(task->backtrace);
 }
 
 int backtrace_step(struct task *task)
 {
-	if (task->backtrace)
-		return dwarf_step(task->backtrace);
-	return -1;
+	assert(task->backtrace);
+
+	return dwarf_step(task->backtrace);
 }
 

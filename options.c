@@ -74,6 +74,7 @@ static void usage(void)
 		" -a, --autoscan      scan memory on exit of a traced program\n"
 		" -b, --binpath=path  binary search path (may be repeated)\n"
 		" -c, --client        connect to socket (path or address)\n"
+		" -C, --cwd           set current working directory\n"
 #ifdef DEBUG
 		" -D, --debug=MASK    enable debugging (see -Dh or --debug=help)\n"
 		" -Dh, --debug=help   show help on debugging\n"
@@ -184,6 +185,7 @@ char **process_options(int argc, char **argv)
 	options.listen = NULL;
 	options.user = NULL;
 	options.command = NULL;
+	options.cwd = -1;
 	options.opt_p = NULL;
 	options.opt_F = NULL;
 	options.opt_b = NULL;
@@ -198,6 +200,7 @@ char **process_options(int argc, char **argv)
 			{ "binpath", 1, 0, 'b' },
 			{ "client", 1, 0, 'c' },
 			{ "config", 1, 0, 'F' },
+			{ "cwd", 1, 0, 'C' },
 			{ "debug", 1, 0, 'D' },
 			{ "depth", 1, 0, 'd' },
 			{ "help", 0, 0, 'h' },
@@ -218,7 +221,7 @@ char **process_options(int argc, char **argv)
 		};
 		c = getopt_long(argc, argv,
 				"+aefhisVvw"
-				"b:c:D:F:l:o:p:P:u:d:S:",
+				"b:c:C:D:F:l:o:p:P:u:d:S:",
 				long_options,
 				&option_index);
 
@@ -250,6 +253,14 @@ char **process_options(int argc, char **argv)
 			}
 		case 'c':
 			options.client = optarg;
+			break;
+		case 'C':
+			options.cwd = open(optarg, O_RDONLY|O_DIRECTORY);
+
+			if (options.cwd == -1) {
+				fprintf(stderr, "%s: `%s' %s\n", progname, optarg, strerror(errno));
+				exit(1);
+			}
 			break;
 		case 'D':
 			{

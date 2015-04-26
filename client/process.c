@@ -80,6 +80,41 @@ struct map {
 	int ignore;
 };
 
+static const char *str_operation(enum mt_operation operation)
+{
+	switch(operation) {
+	case MT_MALLOC:
+		return "malloc";
+	case MT_REALLOC_ENTER:
+		return "realloc enter";
+	case MT_REALLOC:
+		return "realloc";
+	case MT_REALLOC_FAILED:
+		return "realloc failed";
+	case MT_MEMALIGN:
+		return "memalign";
+	case MT_POSIX_MEMALIGN:
+		return "posix_memalign";
+	case MT_ALIGNED_ALLOC:
+		return "aligned_alloc";
+	case MT_VALLOC:
+		return "valloc";
+	case MT_PVALLOC:
+		return "pvalloc";
+	case MT_MMAP:
+		return "mmap";
+	case MT_MMAP64:
+		return "mmap64";
+	case MT_FREE:
+		return "free";
+	case MT_MUNMAP:
+		return "munmap";
+	default:
+		break;
+	}
+	return "unknow operation";
+}
+
 static unsigned long get_uint64(void *p)
 {
 	uint64_t v;
@@ -624,7 +659,7 @@ void process_del_map(struct process *process, void *payload, uint32_t payload_le
 	fatal("process_del_map");
 }
 
-static void process_init(struct process *process, int swap_endian, int is_64bit)
+static void process_init(struct process *process, unsigned int swap_endian, unsigned int is_64bit, unsigned int attached)
 {
 	if (is_64bit) {
 		process->ptr_size = sizeof(uint64_t);
@@ -642,6 +677,7 @@ static void process_init(struct process *process, int swap_endian, int is_64bit)
 	process->val64 = swap_endian ? val64_swap : val64;
 
 	process->is_64bit = is_64bit;
+	process->attached = attached;
 	process->swap_endian = swap_endian;
 	process->status = MT_PROCESS_RUNNING;
 	process->filename = NULL;
@@ -708,7 +744,7 @@ void process_duplicate(struct process *process, struct process *copy)
 	struct list_head *it;
 
 	process_reset(process);
-	process_init(process, copy->swap_endian, copy->is_64bit);
+	process_init(process, copy->swap_endian, copy->is_64bit, copy->attached);
 
 	if (!copy)
 		return;
@@ -798,41 +834,6 @@ static int sort_total(const struct rb_stack **p, const struct rb_stack **q)
 	if ((*p)->total_allocations < (*q)->total_allocations)
 		return 1;
 	return sort_allocations(p, q);
-}
-
-static const char *str_operation(enum mt_operation operation)
-{
-	switch(operation) {
-	case MT_MALLOC:
-		return "malloc";
-	case MT_REALLOC_ENTER:
-		return "realloc enter";
-	case MT_REALLOC:
-		return "realloc";
-	case MT_REALLOC_FAILED:
-		return "realloc failed";
-	case MT_MEMALIGN:
-		return "memalign";
-	case MT_POSIX_MEMALIGN:
-		return "posix_memalign";
-	case MT_ALIGNED_ALLOC:
-		return "aligned_alloc";
-	case MT_VALLOC:
-		return "valloc";
-	case MT_PVALLOC:
-		return "pvalloc";
-	case MT_MMAP:
-		return "mmap";
-	case MT_MMAP64:
-		return "mmap64";
-	case MT_FREE:
-		return "free";
-	case MT_MUNMAP:
-		return "munmap";
-	default:
-		break;
-	}
-	return "unknow operation";
 }
 
 static void _process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), FILE *file)
@@ -1146,7 +1147,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 		process_rb_delete_block(process, block);
 	}
 	else {
-		if (!options.client || options.wait) {
+		if (!process->attached) {
 			fprintf(stderr, ">>> block %#lx not found (pid=%d, tid=%d)\n", ptr, process->pid, mt_msg->tid);
 			abort();
 		}
@@ -1209,13 +1210,13 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 	stack->tsc = process->tsc++;
 }
 
-void process_reinit(struct process *process, int swap_endian, int is_64bit)
+void process_reinit(struct process *process, unsigned int swap_endian, unsigned int is_64bit, unsigned int attached)
 {
 	process_reset(process);
-	process_init(process, swap_endian, is_64bit);
+	process_init(process, swap_endian, is_64bit, attached);
 }
 
-struct process *process_new(pid_t pid, int swap_endian, int is_64bit, int tracing)
+struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tracing)
 {
 	struct process *process = malloc(sizeof(*process));
 
@@ -1227,7 +1228,7 @@ struct process *process_new(pid_t pid, int swap_endian, int is_64bit, int tracin
 	process->stack_table = RB_ROOT;
 	INIT_LIST_HEAD(&process->map_list);
 
-	process_init(process, swap_endian, is_64bit);
+	process_init(process, swap_endian, 0, 0);
 
 	return process;
 }

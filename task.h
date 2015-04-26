@@ -48,6 +48,7 @@ struct task {
 	unsigned int traced:1;
 	unsigned int was_stopped:1;
 	unsigned int is_64bit:1;
+	unsigned int attached:1;
 	
 	/* Dictionary of breakpoints */
 	struct dict *breakpoints;
@@ -110,9 +111,11 @@ void open_pid(pid_t pid);
 
 struct task *pid2task(pid_t pid);
 
-/* Clone the contents of PROC
- * Returns the new task pointer on succes or NULL on failure.  */
-struct task *task_clone(struct task *task, pid_t pid);
+/* Clone the contents of a task */
+int task_clone(struct task *task, struct task *newtask);
+
+/* Fork the contents of a task */
+int task_fork(struct task *task, struct task *newtask);
 
 /* get first process of leader list */
 struct task *get_first_process(void);

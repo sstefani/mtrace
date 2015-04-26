@@ -781,6 +781,7 @@ static int do_start(struct cmd_opt *cmd, int argc, const char *argv[])
 	process_reset_allocations(process);
 
 	process->tracing = 1;
+	process->attached = 1;
 
 	client_send_msg(process, MT_START, NULL, 0);
 

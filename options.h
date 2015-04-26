@@ -72,6 +72,7 @@ struct options_t {
 	int wait;		/* wait for client connection */
 	char *port;		/* socket port */
 	char *command;		/* command string */
+	int cwd;		/* current working directory handle */
 	struct opt_p_t *opt_p;	/* attach to process with a given pid */
 	struct opt_F_t *opt_F;	/* alternate configuration file(s) */
 	struct opt_b_t *opt_b;	/* binary search path(s) */

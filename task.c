@@ -132,14 +132,16 @@ static int leader_setup(struct task *leader)
 }
 
 
-static int task_bare_init(struct task *task)
+static int task_init(struct task *task, int attached)
 {
 	pid_t tgid;
 
 	/* Add process so that we know who the leader is.  */
 	tgid = process_leader(task->pid);
-	if (!tgid)
+	if (!tgid){
+		fprintf(stderr, "%s no tgid for pid=%d\n", __FUNCTION__, task->pid);
 		return -1;
+	}
 
 	if (tgid == task->pid) {
 		task->leader = task;
@@ -152,8 +154,10 @@ static int task_bare_init(struct task *task)
 	else {
 		task->leader = pid2task(tgid);
 
-		if (!task->leader)
+		if (!task->leader) {
+			fprintf(stderr, "%s no leader for tgpid=%d\n", __FUNCTION__, tgid);
 			return -1;
+		}
 
 		task->leader->threads++;
 		task->breakpoints = NULL;
@@ -162,13 +166,20 @@ static int task_bare_init(struct task *task)
 		list_add_tail(&task->task_list, &task->leader->task_list);
 	}
 
+	task->attached = attached;
+
+	if (arch_task_init(task) < 0)
+		return -1;
+
+	if (os_task_init(task) < 0)
+		return -1;
+
 	return 0;
 }
 
 static void leader_cleanup(struct task *task)
 {
-	if (!task->leader)
-		return;
+	assert(task->leader);
 
 	task->leader->threads--;
 	
@@ -188,9 +199,11 @@ static void leader_cleanup(struct task *task)
 static void task_destroy(struct task *task)
 {
 	breakpoint_hw_destroy(task);
-	detach_task(task);
-	leader_cleanup(task);
 	backtrace_destroy(task);
+	arch_task_destroy(task);
+	os_task_destroy(task);
+	leader_cleanup(task);
+	detach_task(task);
 	list_del(&task->task_list);
 	rb_erase(&task->pid_node, &pid_tree);
 	free(task);
@@ -215,22 +228,16 @@ struct task *task_new(pid_t pid, int traced)
 
 	library_setup(task);
 
-	if (arch_task_init(task) < 0)
+	if (task_init(task, 1) < 0)
 		goto fail1;
-
-	if (os_task_init(task) < 0)
-		goto fail2;
 
 	init_event(task);
 
 	insert_pid(task);
 
 	return task;
-fail2:
-	arch_task_destroy(task);
 fail1:
 	task_destroy(task);
-	free(task);
 	return NULL;
 }
 
@@ -240,11 +247,13 @@ int process_exec(struct task *task)
 
 	task->threads_stopped--;
 
+	breakpoint_hw_destroy(task);
+	backtrace_destroy(task);
+	os_task_destroy(task);
+	arch_task_destroy(task);
 	leader_cleanup(task);
 
-	backtrace_destroy(task);
-
-	if (task_bare_init(task) < 0)
+	if (task_init(task, 0) < 0)
 		return -1;
 
 	assert(task->leader == task);
@@ -282,9 +291,6 @@ struct task *task_create(const char *command, char **argv)
 	if (!task)
 		goto fail2;
 
-	if (task_bare_init(task) < 0)
-		goto fail2;
-
 	if (trace_wait(task))
 		goto fail1;
 
@@ -293,8 +299,6 @@ struct task *task_create(const char *command, char **argv)
 
 	if (leader_setup(task) < 0)
 		goto fail1;
-
-	queue_event(task);
 
 	return task;
 fail2:
@@ -306,63 +310,67 @@ fail1:
 	return NULL;
 }
 
-struct task *task_clone(struct task *task, pid_t pid)
+int task_clone(struct task *task, struct task *newtask)
 {
-	struct task *retp;
+	assert(newtask->leader != newtask);
+	assert(newtask->event.type == EVENT_SIGNAL);
+	assert(newtask->event.e_un.signum == 0);
+	assert(newtask->traced);
+	assert(newtask->stopped);
+	assert(newtask->backtrace == NULL);
 
-	assert(task == task->leader);
+	if (backtrace_init(newtask) < 0)
+		goto fail;
 
-	retp = pid2task(pid);
-	if (!retp)
-		goto fail1;
+	breakpoint_hw_clone(newtask);
 
-	assert(!retp->leader);
+	return 0;
+fail:
+	fprintf(stderr, "failed to clone process %d->%d : %s\n", task->pid, newtask->pid, strerror(errno));
+	task_destroy(newtask);
 
-	if (task_bare_init(retp) < 0)
-		goto fail2;
+	return -1;
+}
 
-	retp->leader->threads_stopped++;
+int task_fork(struct task *task, struct task *newtask)
+{
+	struct task *leader = task->leader;
 
-	if (backtrace_init(retp) < 0)
-		goto fail2;
+	assert(newtask->leader == newtask);
+	assert(newtask->event.type == EVENT_SIGNAL);
+	assert(newtask->event.e_un.signum == 0);
+	assert(newtask->traced);
+	assert(newtask->stopped);
+	assert(newtask->backtrace == NULL);
 
-	/* For non-leader tasks, that's all we need to do. */
-	if (retp->leader != retp) {
-		breakpoint_hw_clone(retp);
+	if (backtrace_init(newtask) < 0)
+		goto fail;
 
-		return retp;
-	}
+	if (library_clone_all(newtask, leader))
+		goto fail;
 
-	if (library_clone_all(retp, task))
-		goto fail2;
+	if (breakpoint_clone_all(newtask, leader))
+		goto fail;
 
-	if (breakpoint_clone_all(retp, task))
-		goto fail2;
-
-	retp->libsym = task->libsym;
-	retp->context = task->context;
-	retp->breakpoint = task->breakpoint;
+	newtask->libsym = task->libsym;
+	newtask->context = task->context;
+	newtask->breakpoint = task->breakpoint;
 
 	if (task->breakpoint)
-		retp->breakpoint = breakpoint_find(retp, retp->breakpoint->addr);
+		newtask->breakpoint = breakpoint_find(newtask, newtask->breakpoint->addr);
 
-	if (arch_task_clone(retp, task) < 0)
-		goto fail2;
+	if (arch_task_clone(newtask, task) < 0)
+		goto fail;
 
-	/* At this point, retp is fully initialized, except for OS and
-	 * arch parts, and we can call task_destroy.  */
-	if (os_task_clone(retp, task) < 0)
-		goto fail3;
+	if (os_task_clone(newtask, task) < 0)
+		goto fail;
 
-	return retp;
-fail3:
-	arch_task_destroy(retp);
-fail2:
-	task_destroy(retp);
-fail1:
-	fprintf(stderr, "failed to clone process %d->%d : %s\n", task->pid, pid, strerror(errno));
+	return 0;
+fail:
+	fprintf(stderr, "failed to fork process %d->%d : %s\n", task->pid, newtask->pid, strerror(errno));
+	task_destroy(newtask);
 
-	return NULL;
+	return -1;
 }
 
 static struct task *open_one_pid(pid_t pid)
@@ -375,16 +383,11 @@ static struct task *open_one_pid(pid_t pid)
 	if (task == NULL)
 		goto fail1;
 
-	if (task_bare_init(task) < 0)
-		goto fail2;
-
 	if (trace_attach(task) < 0)
 		goto fail2;
 
 	if (trace_set_options(task) < 0)
 		goto fail2;
-
-	queue_event(task);
 
 	return task;
 fail2:
@@ -445,7 +448,7 @@ void open_pid(pid_t pid)
 				struct task *child = open_one_pid(tasks[i]);
 
 				if (child) {
-					if (backtrace_init(child) < 0)
+					if (task_clone(child->leader, child) < 0)
 						goto fail2;
 				}
 
@@ -506,8 +509,6 @@ void remove_task(struct task *task)
 {
 	debug(DEBUG_FUNCTION, "pid=%d", task->pid);
 
-	arch_task_destroy(task);
-	os_task_destroy(task);
 	task_destroy(task);
 }
 

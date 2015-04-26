@@ -307,20 +307,6 @@ static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
 	return report_alloc(task, MT_PVALLOC, ret, len, options.bt_depth);
 }
 
-#if 1
-static int mt_test(struct task *task, struct library_symbol *libsym)
-{
-	unsigned int i;
-
-	for(i = 0; i < 13; ++i) {
-		unsigned long val = fetch_param(task, i);
-
-		fprintf(stderr, "%s:%d %d\n", __FUNCTION__, __LINE__, (int32_t)val);
-	}
-	return 0;
-}
-#endif
-
 static const struct function flist[] = {
 	{ "malloc",		2,	NULL,		_report_malloc },
 	{ "free",		3,	report_free,	NULL },
@@ -337,16 +323,13 @@ static const struct function flist[] = {
 #if 0
 	{ "cfree",		14,	report_free,	NULL },
 #endif
-#if 1
-	{ "mt_test",		15,	mt_test,	NULL },
-#endif
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)
 {
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(flist); ++i) {
+	for(i = 0; i < ARRAY_SIZE(flist); ++i) {
 		if (!strcmp(sym_name, flist[i].name))
 			return &flist[i];
 	}
@@ -417,15 +400,17 @@ int report_scan(pid_t pid, const void *data, unsigned int data_len)
 
 int report_attach(struct task *task)
 {
+	struct mt_attached_payload state = { .attached = task->attached };
+
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(task->is_64bit ? MT_ATTACH64 : MT_ATTACH, task->pid, 0, NULL, 0);
+	return server_send_msg(task->is_64bit ? MT_ATTACH64 : MT_ATTACH, task->pid, 0, &state, sizeof(state));
 }
 
-int report_fork(struct task *task, pid_t ppid)
+int report_fork(struct task *task, struct task *ptask)
 {
-	struct mt_pid_payload fork_pid = { .pid = ppid };
+	struct mt_pid_payload fork_pid = { .pid = ptask->leader->pid };
 
 	if (!server_connected())
 		return -1;

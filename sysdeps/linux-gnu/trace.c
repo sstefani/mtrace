@@ -67,6 +67,12 @@ static int trace_setup(struct task *task, int status, int signum)
 {
 	int stop_signal;
 
+	task->traced = 1;
+	task->stopped = 1;
+	task->leader->threads_stopped++;
+	task->event.type = EVENT_SIGNAL;
+	task->event.e_un.signum = 0;
+
 	if (!WIFSTOPPED(status)) {
 		fprintf(stderr, "%s pid=%d not stopped\n", __FUNCTION__, task->pid);
 		return -1;
@@ -74,20 +80,12 @@ static int trace_setup(struct task *task, int status, int signum)
 
 	stop_signal = WSTOPSIG(status);
 
-	if (stop_signal == SIGSTOP)
-		task->was_stopped = 1;
-	else
-	if (stop_signal == signum)
-		stop_signal = 0;
+	if (stop_signal != signum) {
+		task->event.e_un.signum = stop_signal;
 
-	task->event.type = EVENT_SIGNAL;
-	task->event.e_un.signum = stop_signal;
-
-	task->traced = 1;
-	task->stopped = 1;
-
-	if (task->leader)
-		task->leader->threads_stopped++;
+		fprintf(stderr, "%s pid=%d unexpected trace signal (got:%d expected:%d)\n", __FUNCTION__, task->pid, stop_signal, signum);
+		return -1;
+	}
 
 	return 0;
 }
@@ -109,7 +107,12 @@ static int _trace_wait(struct task *task, int signum)
 
 int trace_wait(struct task *task)
 {
-	return _trace_wait(task, SIGTRAP);
+	if (_trace_wait(task, SIGTRAP))
+		return -1;
+
+	queue_event(task);
+
+	return 0;
 }
 
 static int child_event(struct task *task, enum event_type ev)
@@ -126,12 +129,18 @@ static int child_event(struct task *task, enum event_type ev)
 	if (!pid2task(pid)) {
 		struct task *child = task_new(pid, 0);
 
-		if (!child || _trace_wait(child, SIGTRAP))
+		if (!child)
 			return -1;
+
+		if (_trace_wait(child, SIGSTOP)) {
+			remove_task(child);
+			return -1;
+		}
 	}
 
 	task->event.e_un.newpid = pid;
 	task->event.type = ev;
+
 	return 0;
 }
 
@@ -213,10 +222,11 @@ static void process_event(struct task *task, int status)
 	int i;
 	arch_addr_t ip;
 
+	assert(leader != NULL);
+
 	task->stopped = 1;
 	
-	if (leader)
-		leader->threads_stopped++;
+	leader->threads_stopped++;
 
 	stop_signal = _process_event(task, status);
 
@@ -267,7 +277,7 @@ static void process_event(struct task *task, int status)
 #if 1
 	assert(bp->enabled);
 #else
-	if (bp->enabled)
+	if (!bp->enabled)
 		return;
 #endif
 
@@ -318,31 +328,49 @@ static inline int fix_signal(struct task *task, int signum)
 
 int untrace_task(struct task *task, int signum)
 {
+	int ret = 0;
+
+	assert(task->leader != NULL);
+
 	debug(DEBUG_PROCESS, "pid=%d", task->pid);
 
-	if (!task->traced)
+	if (!task->stopped)
 		return 0;
 
-	task->traced = 0;
-	task->stopped = 0;
-
-	if (task->leader)
-		task->leader->threads_stopped--;
-
-	if (ptrace(PTRACE_DETACH, task->pid, 0, fix_signal(task, signum)) == -1) {
+	if (ptrace(PTRACE_SETOPTIONS, task->pid, 0, (void *)0) == -1) {
 		if (errno != ESRCH)
-			fprintf(stderr, "PTRACE_DETACH pid=%d %s\n", task->pid, strerror(errno));
-		return -1;
+			fprintf(stderr, "PTRACE_SETOPTIONS pid=%d %s\n", task->pid, strerror(errno));
+		ret = -1;
+		goto skip;
+
 	}
-	return 0;
+
+	signum = fix_signal(task, signum);
+
+	if (ptrace(PTRACE_DETACH, task->pid, 0, signum) == -1) {
+		if (task->traced) {
+			if (errno != ESRCH)
+				fprintf(stderr, "PTRACE_DETACH pid=%d %s\n", task->pid, strerror(errno));
+			ret = -1;
+			goto skip;
+		}
+	}
+
+	task_kill(task, SIGCONT);
+skip:
+	task->leader->threads_stopped--;
+	task->stopped = 0;
+	task->was_stopped = 0;
+	task->traced = 0;
+
+	return ret;
 }
 
 int trace_attach(struct task *task)
 {
 	debug(DEBUG_PROCESS, "pid=%d", task->pid);
 
-	if (task->traced)
-		return 0;
+	assert(task->traced == 0);
 
 	if (ptrace(PTRACE_ATTACH, task->pid, 0, 0) == -1) {
 		fprintf(stderr, "PTRACE_ATTACH pid=%d %s\n", task->pid, strerror(errno));
@@ -352,6 +380,8 @@ int trace_attach(struct task *task)
 
 	if (_trace_wait(task, SIGSTOP))
 		return -1;
+
+	queue_event(task);
 
 	return 0;
 }
@@ -373,8 +403,10 @@ int continue_task(struct task *task, int signum)
 {
 	debug(DEBUG_PROCESS, "pid=%d", task->pid);
 
-	if (task->leader)
-		task->leader->threads_stopped--;
+	assert(task->leader != NULL);
+	assert(task->stopped);
+
+	task->leader->threads_stopped--;
 	task->stopped = 0;
 
 	if (ptrace(PTRACE_CONT, task->pid, 0, fix_signal(task, signum)) == -1) {
@@ -388,16 +420,7 @@ static void do_stop_cb(struct task *task, void *data)
 {
 	if (task->stopped)
 		return;
-#if 0
-	int status;
-	int pid = TEMP_FAILURE_RETRY(waitpid(task->pid, &status, __WALL | WNOHANG));
 
-	if (pid == task->pid) {
-		process_event(task, status);
-		queue_event(task);
-		return;
-	}
-#endif
 	task->was_stopped = 1;
 
 	task_kill(task, SIGSTOP);
@@ -407,8 +430,7 @@ void stop_threads(struct task *task)
 {
 	struct task *leader = task->leader;
 
-	if (!leader)
-		return;
+	assert(task->leader != NULL);
 
 	if (leader->threads != leader->threads_stopped) {
 		each_task(leader, &do_stop_cb, NULL);
@@ -440,12 +462,10 @@ int handle_singlestep(struct task *task, int (*singlestep)(struct task *task))
 		if (stop_signal == SIGTRAP)
 			return 0; /* check if was a real breakpoint code there */
 
-
 		if (!stop_signal) {
 			queue_event(task);
 			return 0;
 		}
-
 
 		if (fix_signal(task, stop_signal) > 0) {
 			queue_event(task);
@@ -503,7 +523,8 @@ struct task *wait_event(void)
 		task = task_new(pid, 0);
 
 		if (task)
-			trace_setup(task, status, SIGTRAP);
+			trace_setup(task, status, SIGSTOP);
+
 		return NULL;
 	}
 

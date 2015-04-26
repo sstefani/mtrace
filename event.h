@@ -36,8 +36,7 @@ enum event_type {
 	EVENT_CLONE,
 	EVENT_VFORK,
 	EVENT_EXEC,
-	EVENT_BREAKPOINT,
-	EVENT_MAX
+	EVENT_BREAKPOINT
 };
 
 struct event {

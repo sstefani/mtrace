@@ -58,7 +58,11 @@ static int open_elf(struct mt_elf *mte, const char *filename)
 {
 	mte->filename = filename;
 
-	mte->fd = open(filename, O_RDONLY);
+	if (options.cwd != -1)
+		mte->fd = openat(options.cwd, filename, O_RDONLY);
+	else
+		mte->fd = open(filename, O_RDONLY);
+
 	if (mte->fd == -1)
 		return 1;
 

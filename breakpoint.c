@@ -153,7 +153,7 @@ static void disable_hw_bp(struct task *task, struct breakpoint *bp)
 
 	task->hw_bp[slot] = NULL;
 
-	if (reset_hw_bp(task, slot, bp->addr) == -1)
+	if (reset_hw_bp(task, slot) == -1)
 		fatal("reset_hw_bp");
 }
 
@@ -272,6 +272,7 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (!bp->enabled) {
+		stop_threads(task);
 #if HW_BREAKPOINTS > 0
 		if (bp->type != SW_BP) {
 			if (bp->type == HW_BP)
@@ -280,7 +281,6 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 		else
 #endif
 		{
-			stop_threads(task);
 			enable_sw_breakpoint(task, bp);
 		}
 		bp->enabled = 1;
@@ -292,6 +292,7 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp)
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (bp->enabled) {
+		stop_threads(task);
 #if HW_BREAKPOINTS > 0
 		if (bp->type != SW_BP) {
 			if (bp->type == HW_BP)
@@ -302,7 +303,6 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp)
 		else
 #endif
 		{
-			stop_threads(task);
 			disable_sw_breakpoint(task, bp);
 		}
 		bp->enabled = 0;
@@ -453,6 +453,8 @@ void breakpoint_clear_all(struct task *leader)
 
 void breakpoint_setup(struct task *leader)
 {
+	assert(leader->breakpoints == NULL);
+
 	leader->breakpoints = dict_init(12401, target_address_hash, target_address_cmp);
 }
 
@@ -475,7 +477,7 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 	new_bp->type = bp->type;
 	new_bp->ext = ext;
 
-#if HW_BREAKPOINT > 0
+#if HW_BREAKPOINTS > 0
 	if (new_bp->type != SW_BP) {
 		new_bp->hw_bp_slot = bp->hw_bp_slot;
 

@@ -51,6 +51,9 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 {
 	unsigned long val = (unsigned long)addr;
 
+	if (task->context.regs.ARM_pc == (long)val)
+		return;
+
 	task->context.regs.ARM_pc = val;
 
 	if (ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct pt_regs, ARM_pc), val) == -1)

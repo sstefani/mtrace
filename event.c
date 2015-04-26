@@ -115,7 +115,7 @@ static void show_clone(struct task *task, enum event_type type)
 
 static struct task *handle_clone(struct task *task, enum event_type type)
 {
-	struct task *newproc;
+	struct task *newtask;
 	int newpid = task->event.e_un.newpid;
 
 	debug(DEBUG_FUNCTION, "pid=%d, newpid=%d", task->pid, newpid);
@@ -125,19 +125,27 @@ static struct task *handle_clone(struct task *task, enum event_type type)
 
 	continue_task(task, 0);
 
-	newproc = task_clone(task, newpid);
-	if (!newproc)
+	newtask = pid2task(newpid);
+	if (!newtask)
 		goto fail;
 
-	if (newproc->leader == newproc) {
+	if (newtask->leader == newtask) {
+		if (task_fork(task, newtask) < 0)
+			goto fail;
+
 		if (!options.follow) {
-			remove_proc(newproc);
+			remove_proc(newtask);
 			return task;
 		}
-		report_fork(newproc, task->pid);
+
+		report_fork(newtask, task);
+	}
+	else {
+		if (task_clone(task, newtask) < 0)
+			goto fail;
 	}
 
-	continue_task(newproc, newproc->event.e_un.signum);
+	continue_task(newtask, newtask->event.e_un.signum);
 
 	return task;
 fail:
@@ -272,8 +280,8 @@ static struct task *handle_breakpoint(struct task *task)
 			if (task->breakpoint) {
 				task->libsym = libsym;
 				task->breakpoint->on_hit = handle_call_after;
+				enable_scratch_hw_bp(task, task->breakpoint);
 			}
-			enable_scratch_hw_bp(task, task->breakpoint);
 		}
 
 		if (libsym->func->report_in)

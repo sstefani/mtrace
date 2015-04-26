@@ -40,7 +40,7 @@ int report_del_map(struct task *task, struct library *lib);
 int report_info(int do_trace);
 int report_scan(pid_t pid, const void *data, unsigned int data_len);
 int report_attach(struct task *task);
-int report_fork(struct task *task, pid_t pid);
+int report_fork(struct task *task, struct task *ptask);
 int report_exit(struct task *task);
 int report_about_exit(struct task *task);
 int report_nofollow(struct task *task);

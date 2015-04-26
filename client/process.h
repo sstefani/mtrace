@@ -50,7 +50,6 @@ struct lib {
 struct process {
 	enum process_status status;
 	pid_t pid;
-	int tracing;
 	char *filename;
 	unsigned long bytes_used;
 	unsigned long n_allocations;
@@ -62,8 +61,10 @@ struct process {
 	struct rb_root stack_table;
 	struct list_head map_list;
 	unsigned long long tsc;
-	int swap_endian;
-	int is_64bit;
+	unsigned int tracing:1;
+	unsigned int swap_endian:1;
+	unsigned int is_64bit:1;
+	unsigned int attached:1;
 	unsigned long (*get_ulong)(void *);
 	void (*put_ulong)(void *, unsigned long);
 	uint16_t (*val16)(uint16_t val);
@@ -72,9 +73,9 @@ struct process {
 	uint8_t ptr_size;
 };
 
-struct process *process_new(pid_t pid, int swap_endian, int is_64bit, int tracing);
+struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tracing);
 void process_reset_allocations(struct process *process);
-void process_reinit(struct process *process, int swap_endian, int is_64bit);
+void process_reinit(struct process *process, unsigned int swap_endian, unsigned int is_64bit, unsigned int attached);
 void process_set_clone(struct process *process, struct process *clone);
 struct process *process_clone_of(struct process *process);
 void process_delete(struct process *process);

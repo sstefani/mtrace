@@ -52,6 +52,10 @@ struct mt_msg {
 	uint32_t payload_len;
 };
 
+struct mt_attached_payload {
+	uint8_t attached;
+};
+
 struct mt_alloc_payload_64 {
 	uint64_t ptr;
 	uint64_t size;

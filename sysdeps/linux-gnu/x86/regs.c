@@ -1,10 +1,6 @@
 /*
  * This file is part of mtrace.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
- *  This file is based on the ltrace source
- *   Copyright (C) 2012 Petr Machata, Red Hat Inc.
- *   Copyright (C) 1998,2002,2004,2008,2009 Juan Cespedes
- *   Copyright (C) 2006 Ian Wienand
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -75,10 +71,16 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 #ifdef __x86_64__
 	val = fix_machine(task, val);
 
+	if (task->context.iregs.rip == val)
+		return;
+
 	task->context.iregs.rip = val;
 	if (ptrace(PTRACE_POKEUSER, task->pid, (sizeof(unsigned long) * RIP), val) != -1)
 		return;
 #else
+	if (task->context.iregs.eip == (long)val)
+		return;
+
 	task->context.iregs.eip = val;
 	if (ptrace(PTRACE_POKEUSER, task->pid, (sizeof(unsigned long) * EIP), val) != -1)
 		return;
@@ -271,52 +273,52 @@ unsigned long fetch_reg(struct task *task, unsigned int reg)
 #else
 	switch(reg) {
 	case EBX:
-		val = task->context.iregs.bx;
+		val = task->context.iregs.ebx;
 		break;
 	case ECX:
-		val = task->context.iregs.cx;
+		val = task->context.iregs.ecx;
 		break;
 	case ESI:
-		val = task->context.iregs.si;
+		val = task->context.iregs.esi;
 		break;
 	case EDI:
-		val = task->context.iregs.di;
+		val = task->context.iregs.edi;
 		break;
 	case EBP:
-		val = task->context.iregs.bp;
+		val = task->context.iregs.ebp;
 		break;
 	case EAX:
-		val = task->context.iregs.cx;
+		val = task->context.iregs.ecx;
 		break;
 	case DS:
-		val = task->context.iregs.ds;
+		val = task->context.iregs.xds;
 		break;
 	case ES:
-		val = task->context.iregs.es;
+		val = task->context.iregs.xes;
 		break;
 	case FS:
-		val = task->context.iregs.fs;
+		val = task->context.iregs.xfs;
 		break;
 	case GS:
-		val = task->context.iregs.gs;
+		val = task->context.iregs.xgs;
 		break;
 	case ORIG_EAX:
-		val = task->context.iregs.orig_ax;
+		val = task->context.iregs.orig_eax;
 		break;
 	case EIP:
-		val = task->context.iregs.ip;
+		val = task->context.iregs.eip;
 		break;
 	case CS:
-		val = task->context.iregs.cs;
+		val = task->context.iregs.xcs;
 		break;
 	case EFL:
-		val = task->context.iregs.flags;
+		val = task->context.iregs.eflags;
 		break;
 	case UESP:
-		val = task->context.iregs.sp;
+		val = task->context.iregs.esp;
 		break;
 	case SS:
-		val = task->context.iregs.ss;
+		val = task->context.iregs.xss;
 		break;
 	default:
 		abort();
