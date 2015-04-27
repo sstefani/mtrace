@@ -32,6 +32,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 
 #include "binfile.h"
 #include "common.h"
@@ -56,6 +57,167 @@ static struct rb_root pid_table;
 static int first_pid;
 static struct memtrace_info mt_info;
 static struct thread *thread;
+
+static unsigned long skip_nl(const char *p, unsigned long n)
+{
+	unsigned long c = 0;
+
+	while(n > c) {
+		if (p[c] != '\n' && p[c] != '\r')
+			break;
+		++c;
+	}
+
+	return c;
+}
+
+static unsigned long get_line(const char *p, unsigned long n)
+{
+	unsigned long c = 0;
+
+	while(n > c) {
+		if (p[c] == '\n' || p[c] == '\r')
+			break;
+		++c;
+	}
+
+	return c;
+}
+
+static unsigned long skip_space(const char *p, unsigned long n)
+{
+	unsigned long c = 0;
+
+	while(n > c) {
+		if (p[c] != ' ' && p[c] != '\t')
+			break;
+		++c;
+	}
+
+	return c;
+}
+
+static unsigned long trim_space(const char *p, unsigned long n)
+{
+	unsigned long c = n;
+
+	while(c) {
+		if (p[c - 1] != ' ' && p[c - 1] != '\t')
+			break;
+		--c;
+	}
+
+	return c;
+}
+
+static unsigned long cmp_n(const char *p, const char *str, unsigned long n)
+{
+	unsigned long c = 0;
+
+	while(n > c) {
+		if (!str[c]) {
+			if (p[c] == ' ' || p[c] == '\t')
+				return c;
+			break;
+		}
+
+		if (p[c] != str[c])
+			break;
+
+		c++;
+	}
+
+	return 0;
+}
+
+static void _parse_config(const char *filename, const char *p, unsigned long n)
+{
+	unsigned long c, l;
+
+	for(;;) {
+		c = skip_nl(p, n);
+
+		p += c;
+		n -= c;
+
+		if (!n)
+			break;
+
+		l = get_line(p, n);
+
+		c = skip_space(p, l);
+
+		p += c;
+		n -= c;
+		l -= c;
+
+		if (!n)
+			break;
+
+		if (*p != '#') {
+			c = cmp_n(p, "ignore", l);
+			if (c) {
+				c += skip_space(p + c, l - c);
+
+				if (c != l) {
+					int ret;
+					regex_t	re;
+					char *regex;
+
+					regex = strndup(p + c, trim_space(p + c, l - c));
+
+					ret = regcomp(&re, regex, REG_NOSUB);
+					if (ret) {
+						char errbuf[128];
+
+						regerror(ret, &re, errbuf, sizeof(errbuf));
+
+						fprintf(stderr, "%s: invalid regular expression: `%s' (%s)\n", filename, regex, errbuf);
+					}
+					else
+						add_ignore_regex(&re);
+
+					free(regex);
+				}
+			}
+			else
+				fprintf(stderr, "%s: invalid line `%.*s'\n", filename, (int)l, p);
+		}
+
+		p += l;
+		n -= l;
+
+		if (!n)
+			break;
+	}
+}
+
+static int parse_config(const char *filename)
+{
+	char *p;
+	struct stat statbuf;
+	int fd;
+	
+	fd = open(filename, O_RDONLY);
+	if (fd == -1)
+		fatal("could not open config file: `%s' (%s)", filename, strerror(errno));
+
+	if (fstat(fd, &statbuf) == -1)
+		fatal("could not read config file: `%s' (%s)", filename, strerror(errno));
+
+	if (statbuf.st_size) {
+		p = mmap(NULL, statbuf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+		if (p == MAP_FAILED)
+			fatal("could map config file: `%s' (%s)", filename, strerror(errno));
+
+		_parse_config(filename, p, statbuf.st_size);
+
+		munmap(p, statbuf.st_size);
+	}
+	close(fd);
+
+	return 0;
+}
 
 static struct rb_process *pid_rb_search(struct rb_root *root, pid_t pid)
 {
@@ -379,24 +541,35 @@ void client_remove_process(struct process *process)
 }
 
 
-void _client_init(int do_trace)
+static int client_init(int do_trace)
 {
+	struct opt_F_t *p;
+
 	pid_table = RB_ROOT;
 	first_pid = 0;
+
 	mt_info.version = MEMTRACE_SI_VERSION;
 	mt_info.mode = 0;
 	mt_info.do_trace = do_trace;
 	mt_info.stack_depth = 0;
+
+	for(p = options.opt_F; p; p = p->next) {
+		if (parse_config(p->filename) < 0)
+			return -1;
+	}
+
+	return 0;
 }
 
 int client_start(void)
 {
-	_client_init(0);
+	if (client_init(0) < 0)
+		return -1;
 
 	client_fd = connect_to(options.client, options.port);
 
 	if (client_fd == -1) {
-		fprintf(stderr, "could not connect: %s:%s", options.client, options.port);
+		fprintf(stderr, "could not connect: %s:%s\n", options.client, options.port);
 		return -1;
 	}
 
@@ -434,13 +607,14 @@ void *client_thread(void *unused)
 
 int client_start_pair(int handle)
 {
+	if (client_init(1) < 0)
+		return -1;
+
 	thread = thread_new();
 	if (!thread)
 		return -1;
 
 	client_fd = handle;
-
-	_client_init(1);
 
 	if (thread_start(thread, client_thread, NULL))
 		fatal("could not start thread (%s)", strerror(errno));

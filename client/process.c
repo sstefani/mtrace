@@ -56,6 +56,7 @@ struct stack {
 	uint32_t entries;
 	char **syms;
 	enum mt_operation operation;
+	unsigned int ignore:1;
 };
 
 struct rb_stack {
@@ -77,8 +78,36 @@ struct map {
 	char *filename;
 	char *realpath;
 	struct bin_file *binfile;
-	int ignore;
+	unsigned int ignore:1;
 };
+
+struct regex_list {
+	regex_t re;
+	struct regex_list *next;
+};
+
+static struct regex_list *regex_ignore_list;
+static struct regex_list *regex_ignore_last;
+
+void add_ignore_regex(regex_t *re)
+{
+	struct regex_list *tmp = malloc(sizeof(*tmp));
+
+	if (!tmp) {
+		fprintf(stderr, "%s\n", strerror(errno));
+		exit(1);
+	}
+
+	tmp->re = *re;
+	tmp->next = NULL;
+
+	if (regex_ignore_last)
+		regex_ignore_last->next = tmp;
+	regex_ignore_last = tmp;
+
+	if (!regex_ignore_list)
+		regex_ignore_list = tmp;
+}
 
 static const char *str_operation(enum mt_operation operation)
 {
@@ -337,6 +366,21 @@ static void stack_resolv(struct process *process, struct stack *stack)
 
 		addrs += process->ptr_size;
 	}
+
+	if (regex_ignore_list) {
+		for(i = 0; i < stack->entries; ++i) {
+			struct regex_list *p;
+
+			for(p = regex_ignore_list; p; p = p->next)
+				if (stack->syms[i] && !regexec(&p->re, stack->syms[i], 0, NULL, 0)) {
+					stack->ignore = 1;
+					break;
+			}
+
+			if (stack->ignore)
+				break;
+		}
+	}
 }
 
 static void stack_unref(struct stack *stack)
@@ -439,6 +483,7 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 	stack->entries = stack_size / process->ptr_size;
 	stack->syms = NULL;
 	stack->operation = operation;
+	stack->ignore = 0;
 
 	memcpy(stack->addrs, addrs, stack_size);
 
@@ -859,7 +904,7 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 	for(i = 0; i < process->stack_trees; ++i) {
 		struct rb_stack *stack = arr[i];
 
-		if (!skipfunc(stack)) {
+		if (!skipfunc(stack) && !stack->stack->ignore) {
 			if (dump_printf(
 				"Stack (%s):\n"
 				" bytes used: %llu\n"
@@ -1056,11 +1101,8 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			break;
 
 		if (!is_mmap(block->stack_node->stack->operation)) {
-			if (options.verbose > 1)
-				fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
-			if (options.wait)
-				abort();
-			break;
+			fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
+			abort();
 		}
 
 		if (block->addr >= ptr) {
@@ -1139,18 +1181,14 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (is_mmap(block->stack_node->stack->operation)) {
-			if (options.verbose > 1)
-				fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
-			if (options.wait)
-				abort();
+			fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
+			abort();
 		}
 		process_rb_delete_block(process, block);
 	}
 	else {
-		if (!process->attached) {
+		if (!process->attached)
 			fprintf(stderr, ">>> block %#lx not found (pid=%d, tid=%d)\n", ptr, process->pid, mt_msg->tid);
-			abort();
-		}
 	}
 }
 
@@ -1191,12 +1229,8 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
-		if (options.verbose > 1) {
-			fprintf(stderr, ">>> block collison %s ptr %#lx size %lu pid %d tid %d\n", str_operation(mt_msg->operation), ptr, size, process->pid, mt_msg->tid);
-			abort();
-		}
-
-		process_rb_delete_block(process, block);
+		fprintf(stderr, ">>> block collison %s ptr %#lx size %lu pid %d tid %d\n", str_operation(mt_msg->operation), ptr, size, process->pid, mt_msg->tid);
+		abort();
 	}
 
 	struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);

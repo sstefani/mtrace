@@ -27,6 +27,8 @@
 
 #include "config.h"
 
+#define _GNU_SOURCE
+
 #include <sys/ioctl.h>
 #include <assert.h>
 #include <errno.h>
@@ -37,6 +39,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
 
 #include "common.h"
 #include "options.h"
@@ -45,9 +49,6 @@
 #define SYSCONFDIR "/etc"
 #endif
 
-#define SYSTEM_CONFIG_FILE SYSCONFDIR "/mtrace.conf"
-#define USER_CONFIG_FILE "~/.mtrace.conf"
-
 #define MIN_STACK	4
 #define MAX_STACK	128
 
@@ -55,6 +56,10 @@
 #define DEFAULT_PORT	4576
 
 struct options_t options;
+
+static struct opt_F_t *opt_F_last;
+static struct opt_p_t *opt_p_last;
+static struct opt_b_t *opt_b_last;
 
 static char *progname;		/* Program name (`mtrace') */
 
@@ -150,6 +155,71 @@ static char *search_for_command(char *filename)
 	return filename;
 }
 
+static int add_opt_F(char *filename)
+{
+	struct opt_F_t *tmp = malloc(sizeof(*tmp));
+
+	if (access(filename, R_OK))
+		return -1;
+
+	if (!tmp) {
+		fprintf(stderr, "%s\n", strerror(errno));
+		exit(1);
+	}
+
+	tmp->filename = strdup(filename);
+	tmp->next = NULL;
+
+	if (opt_F_last)
+		opt_F_last->next = tmp;
+	opt_F_last = tmp;
+
+	if (!options.opt_F)
+		options.opt_F = tmp;
+
+	return 0;
+}
+
+static void def_config(void)
+{
+	char *path;
+	char *filename;
+		
+	path = getenv("HOME");
+	if (!path) {
+		struct passwd *pwd = getpwuid(getuid());
+
+		if (pwd != NULL)
+			path = pwd->pw_dir;
+	}
+
+	if (path) {
+		if (asprintf(&filename, "%s/.mtrace", path) != -1) {
+			if (add_opt_F(filename))
+				free(filename);
+		}
+	}
+	else {
+		path = getenv("XDG_CONFIG_HOME");
+		if (path)  {
+			if (asprintf(&filename, "%s/mtrace", path) != -1) {
+				if (add_opt_F(filename))
+					free(filename);
+			}
+		}
+	}
+
+	if (asprintf(&filename, "%s/mtrace.conf", SYSCONFDIR) != -1) {
+		if (add_opt_F(filename))
+			free(filename);
+	}
+	else
+	if (asprintf(&filename, "%s/mtrace.conf", "/etc") != -1) {
+		if (add_opt_F(filename))
+			free(filename);
+	}
+}
+
 static int parse_int(const char *optarg, char opt, int min, int max)
 {
 	char *endptr;
@@ -165,10 +235,6 @@ static int parse_int(const char *optarg, char opt, int min, int max)
 
 char **process_options(int argc, char **argv)
 {
-	struct opt_F_t *opt_F_last = NULL;
-	struct opt_p_t *opt_p_last = NULL;
-	struct opt_b_t *opt_b_last = NULL;
-
 	progname = argv[0];
 
 	options.auto_scan = 0;
@@ -282,25 +348,11 @@ char **process_options(int argc, char **argv)
 			options.follow = 1;
 			break;
 		case 'F':
-			{
-				struct opt_F_t *tmp = malloc(sizeof(*tmp));
-
-				if (!tmp) {
-					fprintf(stderr, "%s\n", strerror(errno));
-					exit(1);
-				}
-				tmp->filename = optarg;
-				tmp->next = NULL;
-
-				if (opt_F_last)
-					opt_F_last->next = tmp;
-				opt_F_last = tmp;
-
-				if (!options.opt_F)
-					options.opt_F = tmp;
-				break;
+			if (add_opt_F(strdup(optarg)) == -1) {
+				fprintf(stderr, "config file not found %s\n", optarg);
+				exit(1);
 			}
-
+			break;
 		case 'h':
 
 			usage();
@@ -465,13 +517,8 @@ char **process_options(int argc, char **argv)
 	if (options.bt_depth > MAX_STACK)
 		options.bt_depth = MAX_STACK;
 
-	if (!options.opt_F) {
-		options.opt_F = malloc(sizeof(struct opt_F_t));
-		options.opt_F->filename = USER_CONFIG_FILE;
-		options.opt_F->next = malloc(sizeof(struct opt_F_t));
-		options.opt_F->next->filename = SYSTEM_CONFIG_FILE;
-		options.opt_F->next->next = NULL;
-	}
+	if (!options.opt_F)
+		def_config();
 
 	if (argc > 0)
 		options.command = search_for_command(argv[0]);

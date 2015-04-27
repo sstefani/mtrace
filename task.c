@@ -43,6 +43,7 @@
 #include "library.h"
 #include "mtelf.h"
 #include "report.h"
+#include "server.h"
 #include "task.h"
 #include "trace.h"
 
@@ -322,7 +323,8 @@ int task_clone(struct task *task, struct task *newtask)
 	if (backtrace_init(newtask) < 0)
 		goto fail;
 
-	breakpoint_hw_clone(newtask);
+	if (server_connected())
+		breakpoint_hw_clone(newtask);
 
 	return 0;
 fail:

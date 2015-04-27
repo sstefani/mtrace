@@ -181,10 +181,8 @@ int connect_to(const char *node, const char *service)
 			close(sfd);
 		}
 
-		if (!rp) {
-			fprintf(stderr, "Could not connect\n");
+		if (!rp)
 			return -1;
-		}
 	}
 	return sfd;
 }
@@ -224,10 +222,8 @@ int bind_to(const char *node, const char *service)
 			close(sfd);
 		}
 
-		if (!rp) {
-			fprintf(stderr, "Could not bind\n");
+		if (!rp)
 			return -1;
-		}
 	}
 
 	if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &const_int_1, sizeof(const_int_1)))

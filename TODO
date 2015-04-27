@@ -3,7 +3,6 @@ arm thumb support
 dwarf debug support
 arm & ppc hw bp support
 dwarf caching
-regex
 invalid stack trace cache for unmapped libraries
 restore REALLOC_TRY when realloc fails
 manual page

@@ -29,4 +29,5 @@ stamp-h1
 libtool
 docross
 doremote
+dokvm
 mtrace

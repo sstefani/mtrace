@@ -21,6 +21,8 @@
 #ifndef _INC_CLIENT_PROCESS_H
 #define _INC_CLIENT_PROCESS_H
 
+#include <regex.h>
+
 #include "list.h"
 #include "memtrace.h"
 #include "rbtree.h"
@@ -105,6 +107,8 @@ void process_dump_sort_allocations(struct process *process, const char *outfile)
 void process_dump_sort_total(struct process *process, const char *outfile);
 void process_dump_sort_tsc(struct process *process, const char *outfile);
 void process_dump_stacks(struct process *process, const char *outfile);
+
+void add_ignore_regex(regex_t *re);
 
 #endif
 
