@@ -522,6 +522,15 @@ static void process_dump_stack(struct process *process, struct rb_stack *this)
 	}
 }
 
+static void process_dump_collision(struct process *process, struct rb_block *this, unsigned long addr, unsigned long size, enum mt_operation operation)
+{
+	fprintf(stderr, ">>> block collision pid:%d\n new: %s=%#lx(%lu)\n old: %s=%#lx(%lu)\n",
+		process->pid,
+		str_operation(operation), addr, size,
+		str_operation(this->stack_node->stack->operation), this->addr, this->size
+	);
+}
+
 static struct rb_block *process_rb_search_range(struct rb_root *root, unsigned long addr, unsigned long size)
 {
 	struct rb_node *node = root->rb_node;
@@ -589,7 +598,7 @@ static void process_rb_delete_block(struct process *process, struct rb_block *bl
 	free(block);
 }
 
-static int process_rb_insert_block(struct process *process, unsigned long addr, unsigned long size, struct rb_stack *stack, unsigned long flags)
+static int process_rb_insert_block(struct process *process, unsigned long addr, unsigned long size, struct rb_stack *stack, unsigned long flags, enum mt_operation operation)
 {
 	struct rb_node **new = &process->block_table.rb_node, *parent = NULL;
 	struct rb_block *block;
@@ -605,8 +614,15 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 
 		parent = *new;
 
-		if (addr <= this->addr && addr + n > this->addr)
+		if (addr <= this->addr && addr + n > this->addr) {
+			if (options.kill || options.verbose > 1) {
+				process_dump_collision(process, this, addr, size, operation);
+
+				if (options.kill)
+					abort();
+			}
 			return -1;
+		}
 
 		if (addr < this->addr)
 			new = &((*new)->rb_left);
@@ -776,8 +792,8 @@ static int process_rb_duplicate_block(struct rb_node *node, void *user)
 	struct process *process = user;
 	struct rb_stack *stack = stack_clone(process, block->stack_node);
 
-	if (process_rb_insert_block(process, block->addr, block->size, stack, block->flags))
-		abort();
+	if (process_rb_insert_block(process, block->addr, block->size, stack, block->flags, block->stack_node->stack->operation))
+		return -1;
 
 	process->bytes_used += block->size;
 
@@ -887,24 +903,41 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 	unsigned long i;
 	void *data;
 
-	arr = malloc(sizeof(struct rb_stack *) * process->stack_trees);
-	if (!arr)
-		return;
-
-	for(i = 0, data = rb_first(&process->stack_table); data; data = rb_next(data))
-		arr[i++] = container_of(data, struct rb_stack, node);
-
 	if (dump_init(file) == -1)
 		return;
 
 	dump_printf("Process dump %d %s\n", process->pid, process->filename ? process->filename : "<unknown>");
 
+	if (!process->stack_trees)
+		goto skip;
+
+	arr = malloc(sizeof(struct rb_stack *) * process->stack_trees);
+	if (!arr)
+		goto skip;
+
+	for(i = 0, data = rb_first(&process->stack_table); data; data = rb_next(data))
+		arr[i++] = container_of(data, struct rb_stack, node);
+
+	assert(i == process->stack_trees);
+
 	qsort(arr, process->stack_trees, sizeof(struct stack *), (void *)sortby);
+
+	if (file == stderr) {
+		unsigned long n = process->stack_trees / 2;
+		unsigned long l = process->stack_trees - 1;
+
+		for(i = 0; i < n; ++i) {
+			struct rb_stack *tmp = arr[i];
+
+			arr[i] = arr[l - i];
+			arr[l - i] = tmp;
+		}
+	}
 
 	for(i = 0; i < process->stack_trees; ++i) {
 		struct rb_stack *stack = arr[i];
 
-		if (!skipfunc(stack) && !stack->stack->ignore) {
+		if (!stack->stack->ignore && !skipfunc(stack)) {
 			if (dump_printf(
 				"Stack (%s):\n"
 				" bytes used: %llu\n"
@@ -926,6 +959,7 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 		}
 	}
 	free(arr);
+skip:
 	dump_flush();
 	return;
 }
@@ -1101,8 +1135,13 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			break;
 
 		if (!is_mmap(block->stack_node->stack->operation)) {
-			fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
-			abort();
+			if (options.kill || options.verbose > 1) {
+				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
+
+				if (options.kill)
+					abort();
+			}
+			break;
 		}
 
 		if (block->addr >= ptr) {
@@ -1136,8 +1175,8 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 
 				block->size = off;
 
-				if (process_rb_insert_block(process, new_addr, new_size, block->stack_node, 0))
-					abort();
+				if (process_rb_insert_block(process, new_addr, new_size, block->stack_node, 0, mt_msg->operation))
+					break;
 
 				process->n_allocations++;
 				process->total_allocations++;
@@ -1181,14 +1220,24 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (is_mmap(block->stack_node->stack->operation)) {
-			fprintf(stderr, ">>> block missmatch MAP<>MALLOC %#lx found\n", ptr);
-			abort();
+			if (options.kill || options.verbose > 1) {
+				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
+
+				if (options.kill)
+					abort();
+			}
 		}
 		process_rb_delete_block(process, block);
 	}
 	else {
-		if (!process->attached)
-			fprintf(stderr, ">>> block %#lx not found (pid=%d, tid=%d)\n", ptr, process->pid, mt_msg->tid);
+		if (!process->attached) {
+			if (options.kill || options.verbose > 1) {
+				fprintf(stderr, ">>> block %#lx not found pid:%d tid:%d\n", ptr, process->pid, mt_msg->tid);
+
+				if (options.kill)
+					abort();
+			}
+		}
 	}
 }
 
@@ -1227,16 +1276,21 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	debug(DEBUG_FUNCTION, "ptr=%#lx size=%lu stack_size=%lu", ptr, size, stack_size);
 
-	block = process_rb_search(&process->block_table, ptr);
+	block = process_rb_search_range(&process->block_table, ptr, size);
 	if (block) {
-		fprintf(stderr, ">>> block collison %s ptr %#lx size %lu pid %d tid %d\n", str_operation(mt_msg->operation), ptr, size, process->pid, mt_msg->tid);
-		abort();
+		if (options.kill || options.verbose > 1) {
+			process_dump_collision(process, block, ptr, size, mt_msg->operation);
+
+			if (options.kill)
+				abort();
+		}
+		process_rb_delete_block(process, block);
 	}
 
 	struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
 
-	if (process_rb_insert_block(process, ptr, size, stack, 0))
-		abort();
+	if (process_rb_insert_block(process, ptr, size, stack, 0, mt_msg->operation))
+		return;
 
 	process->total_allocations++;
 	process->bytes_used += size;

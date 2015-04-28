@@ -87,6 +87,9 @@ int set_hw_bp(struct task *task, unsigned int n, arch_addr_t addr);
 /* remove instruction hw breakpoint */
 int reset_hw_bp(struct task *task, unsigned int n);
 
+/* remove all instruction hw breakpoints */
+int reset_all_hw_bp(struct task *task);
+
 /* save the process context (state, registers, stack pointer) */
 int fetch_context(struct task *task);
 

@@ -43,7 +43,6 @@
 #include "library.h"
 #include "mtelf.h"
 #include "report.h"
-#include "server.h"
 #include "task.h"
 #include "trace.h"
 
@@ -199,7 +198,6 @@ static void leader_cleanup(struct task *task)
 
 static void task_destroy(struct task *task)
 {
-	breakpoint_hw_destroy(task);
 	backtrace_destroy(task);
 	arch_task_destroy(task);
 	os_task_destroy(task);
@@ -323,8 +321,7 @@ int task_clone(struct task *task, struct task *newtask)
 	if (backtrace_init(newtask) < 0)
 		goto fail;
 
-	if (server_connected())
-		breakpoint_hw_clone(newtask);
+	breakpoint_hw_clone(newtask);
 
 	return 0;
 fail:

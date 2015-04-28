@@ -42,7 +42,7 @@ struct breakpoint {
 	union {
 		unsigned char orig_value[BREAKPOINT_LENGTH];
 #if HW_BREAKPOINTS > 0
-		int hw_bp_slot;
+		unsigned int hw_bp_slot;
 #endif
 	};
 };

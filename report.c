@@ -307,6 +307,13 @@ static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
 	return report_alloc(task, MT_PVALLOC, ret, len, options.bt_depth);
 }
 
+static int report_ni(struct task *task, struct library_symbol *libsym)
+{
+	fprintf(stderr, "%s not implemented!!!\n", libsym->func->name);
+
+	return 0;
+}
+
 static const struct function flist[] = {
 	{ "malloc",		2,	NULL,		_report_malloc },
 	{ "free",		3,	report_free,	NULL },
@@ -320,8 +327,24 @@ static const struct function flist[] = {
 	{ "aligned_alloc",	11,	NULL,		_report_aligned_alloc },
 	{ "valloc",		12,	NULL,		_report_valloc },
 	{ "pvalloc",		13,	NULL,		_report_pvalloc },
+	{ "mremap",		14,	report_ni,	NULL },
 #if 0
 	{ "cfree",		14,	report_free,	NULL },
+	{ "vfree",		14,	report_free,	NULL },
+#endif
+#if 1
+	/*
+	 * support for Google gperftools
+	 * the c++ operators new and delete do not call malloc() and free()
+	 */
+	{ "tc_delete",			14,	report_free,	NULL },
+	{ "tc_deletearray",		14,	report_free,	NULL },
+	{ "tc_deletearray_nothrow",	14,	report_free,	NULL },
+	{ "tc_delete_nothrow",		14,	report_free,	NULL },
+	{ "tc_new",			14,	NULL,	_report_malloc },
+	{ "tc_newarray",		14,	NULL,	_report_malloc },
+	{ "tc_newarray_nothrow",	14,	NULL,	_report_malloc },
+	{ "tc_new_nothrow",		14,	NULL,	_report_malloc },
 #endif
 };
 

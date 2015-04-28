@@ -219,7 +219,7 @@ static void process_event(struct task *task, int status)
 	int stop_signal;
 	struct task *leader = task->leader;
 	struct breakpoint *bp = NULL;
-	int i;
+	unsigned int i;
 	arch_addr_t ip;
 
 	assert(leader != NULL);

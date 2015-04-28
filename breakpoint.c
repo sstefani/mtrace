@@ -114,7 +114,7 @@ static int find_hw_bp_slot(struct task *leader)
 
 static void enable_hw_bp(struct task *task, struct breakpoint *bp)
 {
-	int slot = bp->hw_bp_slot;
+	unsigned int slot = bp->hw_bp_slot;
 
 	if (bp->hw_bp_slot != HW_BP_SCRATCH_SLOT)
 		assert(task->hw_bp[slot] == NULL);
@@ -127,7 +127,7 @@ static void enable_hw_bp(struct task *task, struct breakpoint *bp)
 
 void breakpoint_hw_clone(struct task *task)
 {
-	int i;
+	unsigned int i;
 	struct task *leader = task->leader;
 
 	if (leader == task)
@@ -139,15 +139,21 @@ void breakpoint_hw_clone(struct task *task)
 			continue;
 		}
 
-		assert(leader->hw_bp[i]->hw_bp_slot == i);
+		if (leader->hw_bp[i]) {
+			assert(leader->hw_bp[i]->enabled);
+			assert(leader->hw_bp[i]->hw_bp_slot == i);
 
-		enable_hw_bp(task, leader->hw_bp[i]);
+			enable_hw_bp(task, leader->hw_bp[i]);
+		}
 	}
 }
 
 static void disable_hw_bp(struct task *task, struct breakpoint *bp)
 {
-	int slot = bp->hw_bp_slot;
+	unsigned int slot = bp->hw_bp_slot;
+
+	if (!task->hw_bp[slot])
+		return;
 
 	assert(task->hw_bp[slot] == bp);
 
@@ -159,15 +165,17 @@ static void disable_hw_bp(struct task *task, struct breakpoint *bp)
 
 void breakpoint_hw_destroy(struct task *task)
 {
-	int i;
+	unsigned int i;
 
 	for(i = 0; i < HW_BREAKPOINTS; ++i) {
 		if (task->hw_bp[i]) {
 			assert(task->hw_bp[i]->hw_bp_slot == i);
 
-			disable_hw_bp(task, task->hw_bp[i]);
+			task->hw_bp[i] = NULL;
 		}
 	}
+
+	reset_all_hw_bp(task);
 }
 
 void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
@@ -338,7 +346,7 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 
 #if HW_BREAKPOINTS > 0
 	if (bp->type != SW_BP) {
-		int slot = bp->hw_bp_slot;
+		unsigned int slot = bp->hw_bp_slot;
 
 		if (bp->type == HW_BP) {
 			assert(slot != HW_BP_SCRATCH_SLOT);

@@ -873,11 +873,8 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 	return 0;
 }
 
-static int lib_addr_match(struct library *lib, arch_addr_t ip)
+static inline int lib_addr_match(struct library *lib, arch_addr_t ip)
 {
-	if (!lib)
-		return 0;
-
 	return ip >= lib->load_addr && ip < lib->load_addr + lib->load_size;
 }
 
@@ -886,8 +883,10 @@ int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 	struct task *leader;
 	struct list_head *it;
 
-	if (lib_addr_match(as->cursor.lib, ip))
-		return 0;
+	if (as->cursor.lib) {
+		if (lib_addr_match(as->cursor.lib, ip))
+			return 0;
+	}
 
 	leader = as->task->leader;
 
@@ -1885,12 +1884,13 @@ int dwarf_step(struct dwarf_addr_space *as)
 	int ret;
 	struct dwarf_cursor *c = &as->cursor;
 	struct dwarf_reg_state *rs_current;
-	arch_addr_t ip;
+	arch_addr_t ip, cfa;
 
 	if (!c->valid)
 		return -DWARF_EINVAL;
 
 	ip = c->ip;
+	cfa = c->cfa;
 
 	/* The 'ip' can point either to the previous or next instruction
 	   depending on what type of frame we have: normal call or a place
@@ -1935,10 +1935,27 @@ fail:
 		debug(DEBUG_DWARF, "try arch specific step");
 
 		ret = dwarf_arch_step(as);
-		if (!ret)
-			ret = dwarf_locate_map(as, c->use_prev_instr ? c->ip - 1 : c->ip);
+		if (!ret) {
+			if (dwarf_locate_map(as, c->use_prev_instr ? c->ip - 1 : c->ip))
+				ret = -DWARF_ENOINFO;
+		}
 	}
+
 	if (ret) {
+		unsigned int i;
+
+		for(i = 0; i < 16; ++i) {
+			if (dwarf_readw(as, &cfa, &ip, as->task->is_64bit))
+				break;
+
+			if (!dwarf_locate_map(as, ip)) {
+				c->cfa = cfa;
+				c->ip = ip;
+
+				return 0;
+			}
+		}
+
 		debug(DEBUG_DWARF, "error %d", ret);
 
 		c->valid = 0;

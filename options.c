@@ -90,6 +90,7 @@ static void usage(void)
 		" -f, --follow-child  trace forked children\n"
 		" -h, --help          display this help and exit\n"
 		" -i, --interactive   interactive client mode\n"
+		" -k, --kill          abort mtrace on unexpected error conditon\n"
 		" -l, --listen        listen on socket path or address in server mode\n"
 		" -o, --output=FILE   write the trace output to file with given name\n"
 		" -p, --pid=PID       attach to the process with the process ID pid (may be repeated)\n"
@@ -257,6 +258,7 @@ char **process_options(int argc, char **argv)
 	options.opt_b = NULL;
 	options.sort_by = -1;
 	options.debug = 0;
+	options.kill = 0;
 
 	for(;;) {
 		int c;
@@ -273,6 +275,7 @@ char **process_options(int argc, char **argv)
 			{ "follow-child", 0, 0, 'f'},
 			{ "follow-exec", 0, 0, 'e' },
 			{ "interactive", 0, 0, 'i' },
+			{ "kill", 0, 0, 'k' },
 			{ "listen", 1, 0, 'l' },
 			{ "output", 1, 0, 'o' },
 			{ "pid", 1, 0, 'p' },
@@ -286,7 +289,7 @@ char **process_options(int argc, char **argv)
 			{ 0, 0, 0, 0 }
 		};
 		c = getopt_long(argc, argv,
-				"+aefhisVvw"
+				"+aefhiksVvw"
 				"b:c:C:D:F:l:o:p:P:u:d:S:",
 				long_options,
 				&option_index);
@@ -411,6 +414,9 @@ char **process_options(int argc, char **argv)
 			break;
 		case 'e':
 			options.follow_exec = 1;
+			break;
+		case 'k':
+			options.kill = 1;
 			break;
 		case 'v':
 			options.verbose++;

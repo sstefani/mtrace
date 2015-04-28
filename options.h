@@ -65,6 +65,7 @@ struct options_t {
 	int interactive;	/* interactive mode */
 	FILE *output;		/* output to a specific file */
 	int server;		/* server mode flag */
+	int kill;		/* kill on errors */
 	char *listen;		/* server listen on socket path or address */
 	char *client;		/* connect to socket path or address */
 	char *user;		/* -u: username to run command as */
