@@ -131,7 +131,6 @@ static int leader_setup(struct task *leader)
 	return backtrace_init(leader);
 }
 
-
 static int task_init(struct task *task, int attached)
 {
 	pid_t tgid;
@@ -400,9 +399,10 @@ static void show_attached(struct task *task, void *data)
 	fprintf(options.output, "+++ process pid=%d attached (%s) +++\n", task->pid, library_execname(task->leader));
 }
 
+
 void open_pid(pid_t pid)
 {
-	struct task *task;
+	struct task *leader;
 
 	debug(DEBUG_PROCESS, "pid=%d", pid);
 
@@ -412,11 +412,8 @@ void open_pid(pid_t pid)
 		return;
 
 	/* First, see if we can attach the requested PID itself.  */
-	task = open_one_pid(pid);
-	if (!task)
-		goto fail2;
-
-	if (leader_setup(task) < 0)
+	leader = open_one_pid(pid);
+	if (!leader)
 		goto fail2;
 
 	/* Now attach to all tasks that belong to that PID.  There's a
@@ -437,18 +434,20 @@ void open_pid(pid_t pid)
 		size_t i;
 
 		if (process_tasks(pid, &tasks, &ntasks) < 0) {
-			fprintf(stderr, "Cannot obtain tasks of pid %u: %s\n", pid, strerror(errno));
+			fprintf(stderr, "Cannot obtain tasks of pid %d: %s\n", pid, strerror(errno));
 			goto fail1;
 		}
 
 		have_all = 1;
 		for (i = 0; i < ntasks; ++i) {
 			if (!pid2task(tasks[i])) {
-				struct task *child = open_one_pid(tasks[i]);
+				struct task *task = open_one_pid(tasks[i]);
 
-				if (child) {
-					if (task_clone(child->leader, child) < 0)
-						goto fail2;
+				if (task) {
+					if (backtrace_init(task) < 0) {
+						fprintf(stderr, "Cannot init backtrace for pid %d: %s\n", pid, strerror(errno));
+						goto fail1;
+					}
 				}
 
 				have_all = 0;
@@ -462,14 +461,18 @@ void open_pid(pid_t pid)
 		old_ntasks = ntasks;
 	}
 
+	if (leader_setup(leader) < 0)
+		goto fail1;
+
 	if (options.verbose)
-		each_task(task, &show_attached, NULL);
+		each_task(leader, &show_attached, NULL);
+
 	return;
 fail2:
-	fprintf(stderr, "Cannot attach to pid %u: %s\n", pid, strerror(errno));
+	fprintf(stderr, "Cannot attach to pid %d: %s\n", pid, strerror(errno));
 fail1:
-	if (task)
-		remove_proc(task);
+	if (leader)
+		remove_proc(leader);
 }
 
 struct task *get_first_process(void)
