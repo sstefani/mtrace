@@ -53,7 +53,7 @@ static unsigned int target_address_hash(unsigned long key)
 	} u = { .addr = ARCH_ADDR_T(key) };
 
 	for (i = 0; i < ARRAY_SIZE(u.v); ++i)
-		h = (h >> 1) ^ u.v[i];
+		h += (h >> 2) ^ (u.v[i] << 3);
 
 	return h;
 }
