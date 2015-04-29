@@ -219,7 +219,6 @@ static void process_event(struct task *task, int status)
 	int stop_signal;
 	struct task *leader = task->leader;
 	struct breakpoint *bp = NULL;
-	unsigned int i;
 	arch_addr_t ip;
 
 	assert(leader != NULL);
@@ -248,10 +247,10 @@ static void process_event(struct task *task, int status)
 		return;
 	}
 
-	if (!leader)
-		return;
-
 	ip = get_instruction_pointer(task);
+
+#if HW_BREAKPOINTS > 0
+	unsigned int i;
 
 	for(i = 0; i < HW_BREAKPOINTS; ++i) {
 		if (task->hw_bp[i] && task->hw_bp[i]->addr == ip) {
@@ -261,13 +260,13 @@ static void process_event(struct task *task, int status)
 	}
 
 	if (bp) {
-#if HW_BREAKPOINTS > 0
 		assert(bp->type != SW_BP);
 		assert(bp->hw_bp_slot == i);
-#endif
 	}
-	else {
-		bp = breakpoint_find(leader, get_instruction_pointer(task) - DECR_PC_AFTER_BREAK);
+	else
+#endif
+	{
+		bp = breakpoint_find(leader, ip - DECR_PC_AFTER_BREAK);
 		if (!bp)
 			return;
 		assert(bp->type == SW_BP);
@@ -373,7 +372,8 @@ int trace_attach(struct task *task)
 	assert(task->traced == 0);
 
 	if (ptrace(PTRACE_ATTACH, task->pid, 0, 0) == -1) {
-		fprintf(stderr, "PTRACE_ATTACH pid=%d %s\n", task->pid, strerror(errno));
+		if (errno != ESRCH)
+			fprintf(stderr, "PTRACE_ATTACH pid=%d %s\n", task->pid, strerror(errno));
 		trace_fail_warning();
 		return -1;
 	}
@@ -393,7 +393,8 @@ int trace_set_options(struct task *task)
 	debug(DEBUG_PROCESS, "pid=%d", task->pid);
 
 	if (ptrace(PTRACE_SETOPTIONS, task->pid, 0, (void *)options) == -1) {
-		fprintf(stderr, "PTRACE_SETOPTIONS pid=%d %s\n", task->pid, strerror(errno));
+		if (errno != ESRCH)
+			fprintf(stderr, "PTRACE_SETOPTIONS pid=%d %s\n", task->pid, strerror(errno));
 		return -1;
 	}
 	return 0;
@@ -410,7 +411,8 @@ int continue_task(struct task *task, int signum)
 	task->stopped = 0;
 
 	if (ptrace(PTRACE_CONT, task->pid, 0, fix_signal(task, signum)) == -1) {
-		fprintf(stderr, "PTRACE_CONT pid=%d %s\n", task->pid, strerror(errno));
+		if (errno != ESRCH)
+			fprintf(stderr, "PTRACE_CONT pid=%d %s\n", task->pid, strerror(errno));
 		return -1;
 	}
 	return 0;

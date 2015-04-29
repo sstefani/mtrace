@@ -46,7 +46,7 @@
 #define DWARF_IS_REG_LOC(l)	((l).type == DWARF_LOC_TYPE_REG)
 #define DWARF_IS_VAL_LOC(l)	((l).type == DWARF_LOC_TYPE_VAL)
 
-#define DWARF_ADDR_SIZE(as)	((as)->task->is_64bit ? 8 : 4)
+#define DWARF_ADDR_SIZE(as)	(task_is_64bit((as)->task) ? 8 : 4)
 
 #define DWARF_ENOMEM		1	/* out of memory */
 #define DWARF_EBADREG		2	/* bad register number */

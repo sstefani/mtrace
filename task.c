@@ -403,6 +403,7 @@ static void show_attached(struct task *task, void *data)
 void open_pid(pid_t pid)
 {
 	struct task *leader;
+	struct list_head *it;
 
 	debug(DEBUG_PROCESS, "pid=%d", pid);
 
@@ -441,14 +442,7 @@ void open_pid(pid_t pid)
 		have_all = 1;
 		for (i = 0; i < ntasks; ++i) {
 			if (!pid2task(tasks[i])) {
-				struct task *task = open_one_pid(tasks[i]);
-
-				if (task) {
-					if (backtrace_init(task) < 0) {
-						fprintf(stderr, "Cannot init backtrace for pid %d: %s\n", pid, strerror(errno));
-						goto fail1;
-					}
-				}
+				open_one_pid(tasks[i]);
 
 				have_all = 0;
 			}
@@ -463,6 +457,17 @@ void open_pid(pid_t pid)
 
 	if (leader_setup(leader) < 0)
 		goto fail1;
+
+	list_for_each(it, &leader->task_list) {
+		struct task *task = container_of(it, struct task, task_list);
+
+		task->is_64bit = leader->is_64bit;
+
+		if (backtrace_init(task) < 0) {
+			fprintf(stderr, "Cannot init backtrace for pid %d: %s\n", pid, strerror(errno));
+			goto fail1;
+		}
+	};
 
 	if (options.verbose)
 		each_task(leader, &show_attached, NULL);

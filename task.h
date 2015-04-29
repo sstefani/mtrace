@@ -138,5 +138,11 @@ void remove_proc(struct task *leader);
 /* return true if no more task is traced */
 int task_list_empty(void);
 
+/* return true if task is 64 bit */
+static inline int task_is_64bit(struct task *task)
+{
+	return task->is_64bit;
+}
+
 #endif
 

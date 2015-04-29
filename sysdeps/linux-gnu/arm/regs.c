@@ -56,8 +56,10 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 
 	task->context.regs.ARM_pc = val;
 
-	if (ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct pt_regs, ARM_pc), val) == -1)
-		fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
+	if (ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct pt_regs, ARM_pc), val) == -1) {
+		if (errno != ESRCH)
+			fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
+	}
 }
 
 arch_addr_t get_return_addr(struct task *task)
@@ -67,8 +69,13 @@ arch_addr_t get_return_addr(struct task *task)
 
 int fetch_context(struct task *task)
 {
-	if (ptrace(PTRACE_GETREGS, task->pid, 0, &task->context.regs) == -1)
-		fprintf(stderr, "pid=%d Couldn't fetch register context: %s\n", task->pid, strerror(errno));
+	if (ptrace(PTRACE_GETREGS, task->pid, 0, &task->context.regs) == -1) {
+		if (errno != ESRCH)
+			fprintf(stderr, "pid=%d Couldn't fetch register context: %s\n", task->pid, strerror(errno));
+
+		memset(&task->context.regs, 0, sizeof(task->context.regs));
+		return -1;
+	}
 	return 0;
 }
 

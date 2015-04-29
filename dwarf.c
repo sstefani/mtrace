@@ -467,7 +467,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 	struct dwarf_addr_space *indirect_as = as;
 	arch_addr_t val, initial_addr = *addr;
 	arch_addr_t gp = as->cursor.lib->gp;
-	int is_64bit = as->task->is_64bit;
+	int is_64bit = task_is_64bit(as->task);
 	void *tmp_ptr;
 	int ret;
 	union {
@@ -641,7 +641,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 	   "address-unit sized constants".  The `R' augmentation can be used
 	   to override this, but by default, we pick an address-sized unit
 	   for fde_encoding.  */
-	if (as->task->is_64bit)
+	if (task_is_64bit(as->task))
 		fde_encoding = DW_EH_PE_udata8;
 	else
 		fde_encoding = DW_EH_PE_udata4;
@@ -958,8 +958,8 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 
 	dci->start_ip -= ARCH_ADDR_T(lib->image_addr) - lib->load_addr;
 
-	if (!as->task->is_64bit)
-		dci->start_ip = (uint32_t)dci->start_ip;
+	if (!task_is_64bit(as->task))
+		dci->start_ip &= 0xffffffff;
 
 	if (ip < dci->start_ip || ip >= dci->start_ip + dci->ip_range) {
 		debug(DEBUG_DWARF, "IP %#lx out of range %#lx-%#lx", ip, dci->start_ip, dci->start_ip + dci->ip_range);
@@ -991,11 +991,11 @@ int dwarf_get(struct dwarf_addr_space *as, struct dwarf_loc loc, arch_addr_t *va
 	if (DWARF_IS_REG_LOC(loc))
 		return dwarf_access_reg(as, val, valp);
 
-	if (!as->task->is_64bit)
+	if (!task_is_64bit(as->task))
 		val &= 0xffffffff;
 
 	if (DWARF_IS_MEM_LOC(loc))
-		return dwarf_readw(as, &val, valp, as->task->is_64bit);
+		return dwarf_readw(as, &val, valp, task_is_64bit(as->task));
 
 	*valp = val;
 	return 0;
@@ -1331,7 +1331,7 @@ static int parse_fde(struct dwarf_addr_space *as, arch_addr_t ip, struct dwarf_r
 
 static long sword(struct dwarf_addr_space *as, arch_addr_t val)
 {
-	if (as->task->is_64bit)
+	if (task_is_64bit(as->task))
 		return (int64_t)val;
 	else
 		return (int32_t)val;
@@ -1348,7 +1348,7 @@ static arch_addr_t read_operand(struct dwarf_addr_space *as, arch_addr_t *addr, 
 	int ret;
 
 	if (operand_type == ADDR) {
-		if (as->task->is_64bit)
+		if (task_is_64bit(as->task))
 			operand_type = VAL64;
 		else
 			operand_type = VAL32;
@@ -1509,7 +1509,7 @@ do {                                              \
 			break;
 		case DW_OP_deref:
 			tmp1 = pop();
-			if ((ret = dwarf_readw(as, &tmp1, &tmp2, as->task->is_64bit)) < 0)
+			if ((ret = dwarf_readw(as, &tmp1, &tmp2, task_is_64bit(as->task))) < 0)
 				return ret;
 			push(tmp2);
 			break;
@@ -1945,7 +1945,7 @@ fail:
 		unsigned int i;
 
 		for(i = 0; i < 16; ++i) {
-			if (dwarf_readw(as, &cfa, &ip, as->task->is_64bit))
+			if (dwarf_readw(as, &cfa, &ip, task_is_64bit(as->task)))
 				break;
 
 			if (!dwarf_locate_map(as, ip)) {

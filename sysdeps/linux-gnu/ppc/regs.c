@@ -43,7 +43,7 @@
 
 static inline unsigned long fix_machine(struct task *task, unsigned long val)
 {
-	if (!task->is_64bit)
+	if (!task_is_64bit(task))
 		val &= 0xffffffff;
 
 	return val;
@@ -70,8 +70,10 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 
 	task->context.regs.nip = val;
 
-	if (ptrace(PTRACE_POKEUSER, task->pid, (sizeof(unsigned long) * PT_NIP), val) == -1)
-		fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
+	if (ptrace(PTRACE_POKEUSER, task->pid, sizeof(unsigned long) * PT_NIP, val) == -1) {
+		if (errno != ESRCH)
+			fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
+	}
 }
 
 arch_addr_t get_return_addr(struct task *task)
@@ -84,9 +86,13 @@ arch_addr_t get_return_addr(struct task *task)
 
 int fetch_context(struct task *task)
 {
-	if (ptrace(PTRACE_GETREGS, task->pid, 0, &task->context.regs) == -1)
-		fprintf(stderr, "pid=%d Couldn't fetch register context: %s\n", task->pid, strerror(errno));
+	if (ptrace(PTRACE_GETREGS, task->pid, 0, &task->context.regs) == -1) {
+		if (errno != ESRCH)
+			fprintf(stderr, "pid=%d Couldn't fetch register context: %s\n", task->pid, strerror(errno));
 
+		memset(&task->context.regs, 0, sizeof(task->context.regs));
+		return -1;
+	}
 	return 0;
 }
 
@@ -146,7 +152,7 @@ unsigned long fetch_param(struct task *task, unsigned int param)
 		break;
 	default:
 #ifdef __powerpc64__
-		if (task->is_64bit) {
+		if (task_is_64bit(task)) {
 			val = fetch_stack_64(task, param);
 			break;
 		}

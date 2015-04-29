@@ -40,7 +40,7 @@
 
 static inline unsigned long fix_machine(struct task *task, unsigned long val)
 {
-	if (!task->is_64bit)
+	if (!task_is_64bit(task))
 		val &= 0xffffffff;
 
 	return val;
@@ -75,17 +75,18 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 		return;
 
 	task->context.iregs.rip = val;
-	if (ptrace(PTRACE_POKEUSER, task->pid, (sizeof(unsigned long) * RIP), val) != -1)
+	if (ptrace(PTRACE_POKEUSER, task->pid, sizeof(unsigned long) * RIP, val) != -1)
 		return;
 #else
 	if (task->context.iregs.eip == (long)val)
 		return;
 
 	task->context.iregs.eip = val;
-	if (ptrace(PTRACE_POKEUSER, task->pid, (sizeof(unsigned long) * EIP), val) != -1)
+	if (ptrace(PTRACE_POKEUSER, task->pid, sizeof(unsigned long) * EIP, val) != -1)
 		return;
 #endif
-	fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
+	if (errno != ESRCH)
+		fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
 }
 
 arch_addr_t get_return_addr(struct task *task)
@@ -96,7 +97,9 @@ arch_addr_t get_return_addr(struct task *task)
 	
 	a = ptrace(PTRACE_PEEKTEXT, task->pid, get_stack_pointer(task), 0);
 	if (a == -1 && errno) {
-		fprintf(stderr, "pid=%d Couldn't read return value: %s\n", task->pid, strerror(errno));
+		if (errno != ESRCH)
+			fprintf(stderr, "pid=%d Couldn't read return value: %s\n", task->pid, strerror(errno));
+
 		return ARCH_ADDR_T(0);
 	}
 
@@ -109,7 +112,10 @@ arch_addr_t get_return_addr(struct task *task)
 int fetch_context(struct task *task)
 {
 	if (ptrace(PTRACE_GETREGS, task->pid, 0, &task->context.iregs) == -1) {
-		fprintf(stderr, "pid=%d Couldn't fetch register context: %s\n", task->pid, strerror(errno));
+		if (errno != ESRCH)
+			fprintf(stderr, "pid=%d Couldn't fetch register context: %s\n", task->pid, strerror(errno));
+
+		memset(&task->context.iregs, 0, sizeof(task->context.iregs));
 		return -1;
 	}
 
@@ -156,7 +162,7 @@ static unsigned long fetch_param_64(struct task *task, unsigned int param)
 unsigned long fetch_param(struct task *task, unsigned int param)
 {
 #ifdef __x86_64__
-	if (task->is_64bit)
+	if (task_is_64bit(task))
 		return fetch_param_64(task, param);
 
 	unsigned long sp = fix_machine(task, task->saved_context.iregs.rsp);

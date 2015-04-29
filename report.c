@@ -98,7 +98,7 @@ static int report_alloc(struct task *task, enum mt_operation op, unsigned long p
 
 	debug(DEBUG_FUNCTION, "%d [%d]: %#lx %lu", op, task->pid, ptr, size);
 
-	if (task->is_64bit)
+	if (task_is_64bit(task))
 		return report_alloc64(task, op, ptr, size, depth);
 	else
 		return report_alloc32(task, op, ptr, size, depth);
@@ -202,7 +202,7 @@ static int _report_mmap64(struct task *task, struct library_symbol *libsym)
 
 	size.l = fetch_param(task, 1);
 	
-	if (!task->is_64bit) {
+	if (!task_is_64bit(task)) {
 		size.v.v1 = fetch_param(task, 1);
 		size.v.v2 = fetch_param(task, 2);
 	}
@@ -248,7 +248,7 @@ static int _report_posix_memalign(struct task *task, struct library_symbol *libs
 	unsigned long ptr = fetch_param(task, 0);
 	unsigned long new_ptr;
 
-	if (task->is_64bit)
+	if (task_is_64bit(task))
 		copy_from_proc(task, ARCH_ADDR_T(ptr), &new_ptr, sizeof(new_ptr));
 	else {
 		uint32_t tmp;
@@ -421,7 +421,7 @@ int report_attach(struct task *task)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(task->is_64bit ? MT_ATTACH64 : MT_ATTACH, task->pid, 0, &state, sizeof(state));
+	return server_send_msg(task_is_64bit(task) ? MT_ATTACH64 : MT_ATTACH, task->pid, 0, &state, sizeof(state));
 }
 
 int report_fork(struct task *task, struct task *ptask)

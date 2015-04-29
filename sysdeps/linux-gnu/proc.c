@@ -191,7 +191,7 @@ int process_tasks(pid_t pid, pid_t ** ret_tasks, size_t *ret_n)
  * branch.  */
 static void *select_32_64(struct task *task, void *p32, void *p64)
 {
-	if (sizeof(long) == 4 || !task->is_64bit)
+	if (sizeof(long) == 4 || !task_is_64bit(task))
 		return p32;
 	else
 		return p64;

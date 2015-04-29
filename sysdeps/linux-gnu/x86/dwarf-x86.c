@@ -131,7 +131,7 @@ static int is_plt_entry(struct dwarf_addr_space *as)
 int dwarf_arch_init(struct dwarf_addr_space *as)
 {
 #ifdef __x86_64__
-	if (as->task->is_64bit) {
+	if (task_is_64bit(as->task)) {
 		as->ip_reg = arch_reg64.ip;
 		as->ret_reg = arch_reg64.sp;
 		as->num_regs = ARRAY_SIZE(dwarf_to_regnum_map64);
@@ -151,7 +151,7 @@ int dwarf_arch_init_unwind(struct dwarf_addr_space *as)
 	struct dwarf_cursor *c = &as->cursor;
 
 #ifdef __x86_64__
-	if (as->task->is_64bit) {
+	if (task_is_64bit(as->task)) {
 		c->loc[DWARF_X86_RAX] = DWARF_REG_LOC(DWARF_X86_RAX);
 		c->loc[DWARF_X86_RDX] = DWARF_REG_LOC(DWARF_X86_RDX);
 		c->loc[DWARF_X86_RCX] = DWARF_REG_LOC(DWARF_X86_RCX);
@@ -204,7 +204,7 @@ int dwarf_arch_step(struct dwarf_addr_space *as)
 	int ret;
 
 #ifdef __x86_64__
-	arch_reg = as->task->is_64bit ? &arch_reg64 : &arch_reg32;
+	arch_reg = task_is_64bit(as->task) ? &arch_reg64 : &arch_reg32;
 #else
 	arch_reg = &arch_reg32;
 #endif
@@ -268,7 +268,7 @@ int dwarf_arch_step(struct dwarf_addr_space *as)
 int dwarf_arch_map_reg(struct dwarf_addr_space *as, unsigned int reg)
 {
 #ifdef __x86_64__
-	if (as->task->is_64bit) {
+	if (task_is_64bit(as->task)) {
 		if (reg >= ARRAY_SIZE(dwarf_to_regnum_map64))
 			return -DWARF_EBADREG;
 

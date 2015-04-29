@@ -64,7 +64,7 @@ static int set_breakpoint_addr(struct task *task, arch_addr_t addr, unsigned int
 	long ret;
 
 #ifdef __x86_64__
-	if (!task->is_64bit)
+	if (!task_is_64bit(task))
 		addr &= 0xffffffff;
 #endif
 

@@ -265,7 +265,6 @@ static struct task *handle_breakpoint(struct task *task)
 	}
 
 	if (breakpoint_on_hit(task, bp)) {
-		set_instruction_pointer(task, bp->addr);
 		continue_task(task, 0);
 		return task;
 	}
