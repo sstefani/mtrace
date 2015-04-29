@@ -160,7 +160,6 @@ static int task_init(struct task *task, int attached)
 
 		task->leader->threads++;
 		task->breakpoints = NULL;
-		task->is_64bit = task->leader->is_64bit;
 
 		list_add_tail(&task->task_list, &task->leader->task_list);
 	}
@@ -317,6 +316,8 @@ int task_clone(struct task *task, struct task *newtask)
 	assert(newtask->stopped);
 	assert(newtask->backtrace == NULL);
 
+	newtask->is_64bit = task->is_64bit;
+
 	if (backtrace_init(newtask) < 0)
 		goto fail;
 
@@ -340,6 +341,8 @@ int task_fork(struct task *task, struct task *newtask)
 	assert(newtask->traced);
 	assert(newtask->stopped);
 	assert(newtask->backtrace == NULL);
+
+	newtask->is_64bit = task->is_64bit;
 
 	if (backtrace_init(newtask) < 0)
 		goto fail;
@@ -460,6 +463,8 @@ void open_pid(pid_t pid)
 
 	list_for_each(it, &leader->task_list) {
 		struct task *task = container_of(it, struct task, task_list);
+
+		assert(task->leader == leader);
 
 		task->is_64bit = leader->is_64bit;
 
