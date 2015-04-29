@@ -942,17 +942,20 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 				"Stack (%s):\n"
 				" bytes used: %llu\n"
 				" number of open allocations: %llu\n"
-				" total number of allocations: %llu\n"
-				" leaked allocations: %lu (%llu bytes)\n"
-				" tsc: %llu\n",
+				" total number of allocations: %llu\n",
 					str_operation(stack->stack->operation),
 					stack->bytes_used,
 					stack->n_allocations,
-					stack->total_allocations,
-					stack->leaks,
-					stack->bytes_leaked,
-					stack->tsc
+					stack->total_allocations
 			) == -1)
+				break;
+
+			if (stack->leaks) {
+				if (dump_printf( " leaked allocations: %lu (%llu bytes)\n", stack->leaks, stack->bytes_leaked) == -1)
+					break;
+			}
+
+			if (dump_printf(" tsc: %llu\n", stack->tsc) == -1)
 				break;
 
 			process_dump_stack(process, stack);
