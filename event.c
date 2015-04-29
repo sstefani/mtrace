@@ -280,6 +280,7 @@ static struct task *handle_breakpoint(struct task *task)
 			if (task->breakpoint) {
 				task->libsym = libsym;
 				task->breakpoint->on_hit = handle_call_after;
+
 				enable_scratch_hw_bp(task, task->breakpoint);
 			}
 		}

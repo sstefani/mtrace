@@ -114,10 +114,10 @@ static int _report_malloc(struct task *task, struct library_symbol *libsym)
 	if (!server_connected())
 		return -1;
 
-	unsigned long len = fetch_param(task, 0);
+	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MALLOC, ret, len, options.bt_depth);
+	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth);
 }
 
 static int report_free(struct task *task, struct library_symbol *libsym)
@@ -136,11 +136,11 @@ static int _report_realloc(struct task *task, struct library_symbol *libsym)
 		return -1;
 
 	unsigned long addr = fetch_param(task, 0);
-	unsigned long len = fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
 	if (ret)
-		return report_alloc(task, MT_REALLOC, ret, len, options.bt_depth);
+		return report_alloc(task, MT_REALLOC, ret, size, options.bt_depth);
 	else
 		return report_alloc(task, MT_REALLOC_FAILED, addr, 1, options.bt_depth);
 }
@@ -151,9 +151,9 @@ static int report_realloc(struct task *task, struct library_symbol *libsym)
 		return -1;
 
 	unsigned long addr = fetch_param(task, 0);
-	unsigned long len = fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_REALLOC_ENTER, addr, len, options.bt_depth);
+	return report_alloc(task, MT_REALLOC_ENTER, addr, size, options.bt_depth);
 }
 
 static int _report_calloc(struct task *task, struct library_symbol *libsym)
@@ -161,15 +161,10 @@ static int _report_calloc(struct task *task, struct library_symbol *libsym)
 	if (!server_connected())
 		return -1;
 
-	unsigned long len = fetch_param(task, 0) * fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 0) * fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MALLOC, ret, len, options.bt_depth);
-}
-
-static inline unsigned long roundup_mask(unsigned long val, unsigned long mask)
-{
-	return (val + mask) & ~mask;
+	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth);
 }
 
 static int _report_mmap(struct task *task, struct library_symbol *libsym)
@@ -182,11 +177,9 @@ static int _report_mmap(struct task *task, struct library_symbol *libsym)
 	if ((void *)ret == MAP_FAILED)
 		return 0;
 
-	unsigned long len = fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 1);
 
-	len = roundup_mask(len, PAGE_SIZE -1);
-
-	return report_alloc(task, MT_MMAP, ret, len, options.bt_depth);
+	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth);
 }
 
 static int _report_mmap64(struct task *task, struct library_symbol *libsym)
@@ -205,21 +198,18 @@ static int _report_mmap64(struct task *task, struct library_symbol *libsym)
 			uint32_t v1;
 			uint32_t v2;
 		} v;
-	} len;
+	} size;
 
-	len.l = fetch_param(task, 1);
+	size.l = fetch_param(task, 1);
 	
 	if (!task->is_64bit) {
-		len.v.v1 = fetch_param(task, 1);
-		len.v.v2 = fetch_param(task, 2);
+		size.v.v1 = fetch_param(task, 1);
+		size.v.v2 = fetch_param(task, 2);
 	}
 	else
-		len.l = fetch_param(task, 1);
+		size.l = fetch_param(task, 1);
 
-	ret &= ~(PAGE_SIZE -1);
-	len.l = roundup_mask(len.l, PAGE_SIZE -1);
-
-	return report_alloc(task, MT_MMAP64, ret, len.l, options.bt_depth);
+	return report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth);
 }
 
 static int report_munmap(struct task *task, struct library_symbol *libsym)
@@ -228,12 +218,9 @@ static int report_munmap(struct task *task, struct library_symbol *libsym)
 		return -1;
 
 	unsigned long addr = fetch_param(task, 0);
-	unsigned long len = fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 1);
 
-	addr &= ~(PAGE_SIZE -1);
-	len = roundup_mask(len, PAGE_SIZE -1);
-
-	return report_alloc(task, MT_MUNMAP, addr, len, 0);
+	return report_alloc(task, MT_MUNMAP, addr, size, 0);
 }
 
 static int _report_memalign(struct task *task, struct library_symbol *libsym)
@@ -241,10 +228,10 @@ static int _report_memalign(struct task *task, struct library_symbol *libsym)
 	if (!server_connected())
 		return -1;
 
-	unsigned long len = fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MEMALIGN, ret, len, options.bt_depth);
+	return report_alloc(task, MT_MEMALIGN, ret, size, options.bt_depth);
 }
 
 static int _report_posix_memalign(struct task *task, struct library_symbol *libsym)
@@ -257,7 +244,7 @@ static int _report_posix_memalign(struct task *task, struct library_symbol *libs
 	if (ret)
 		return 0;
 
-	unsigned long len = fetch_param(task, 2);
+	unsigned long size = fetch_param(task, 2);
 	unsigned long ptr = fetch_param(task, 0);
 	unsigned long new_ptr;
 
@@ -271,7 +258,7 @@ static int _report_posix_memalign(struct task *task, struct library_symbol *libs
 		new_ptr = tmp;
 	}
 
-	return report_alloc(task, MT_POSIX_MEMALIGN, new_ptr, len, options.bt_depth);
+	return report_alloc(task, MT_POSIX_MEMALIGN, new_ptr, size, options.bt_depth);
 }
 
 static int _report_aligned_alloc(struct task *task, struct library_symbol *libsym)
@@ -279,10 +266,10 @@ static int _report_aligned_alloc(struct task *task, struct library_symbol *libsy
 	if (!server_connected())
 		return -1;
 
-	unsigned long len = fetch_param(task, 1);
+	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_ALIGNED_ALLOC, ret, len, options.bt_depth);
+	return report_alloc(task, MT_ALIGNED_ALLOC, ret, size, options.bt_depth);
 }
 
 static int _report_valloc(struct task *task, struct library_symbol *libsym)
@@ -290,10 +277,10 @@ static int _report_valloc(struct task *task, struct library_symbol *libsym)
 	if (!server_connected())
 		return -1;
 
-	unsigned long len = fetch_param(task, 0);
+	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_VALLOC, ret, len, options.bt_depth);
+	return report_alloc(task, MT_VALLOC, ret, size, options.bt_depth);
 }
 
 static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
@@ -301,17 +288,26 @@ static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
 	if (!server_connected())
 		return -1;
 
-	unsigned long len = fetch_param(task, 0);
+	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_PVALLOC, ret, len, options.bt_depth);
+	return report_alloc(task, MT_PVALLOC, ret, size, options.bt_depth);
 }
 
-static int report_ni(struct task *task, struct library_symbol *libsym)
+static int report_mremap(struct task *task, struct library_symbol *libsym)
 {
-	fprintf(stderr, "%s not implemented!!!\n", libsym->func->name);
+	unsigned long addr = fetch_param(task, 0);
+	unsigned long size = fetch_param(task, 1);
 
-	return 0;
+	return report_alloc(task, MT_MUNMAP, addr, size, 0);
+}
+
+static int _report_mremap(struct task *task, struct library_symbol *libsym)
+{
+	unsigned long size = fetch_param(task, 2);
+	unsigned long ret = fetch_retval(task);
+
+	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth);
 }
 
 static const struct function flist[] = {
@@ -327,25 +323,22 @@ static const struct function flist[] = {
 	{ "aligned_alloc",	11,	NULL,		_report_aligned_alloc },
 	{ "valloc",		12,	NULL,		_report_valloc },
 	{ "pvalloc",		13,	NULL,		_report_pvalloc },
-	{ "mremap",		14,	report_ni,	NULL },
-#if 0
-	{ "cfree",		14,	report_free,	NULL },
-	{ "vfree",		14,	report_free,	NULL },
-#endif
-#if 1
+	{ "mremap",		14,	report_mremap,	_report_mremap},
+	{ "cfree",		15,	report_free,	NULL },
+	{ "vfree",		16,	report_free,	NULL },
+
 	/*
 	 * support for Google gperftools
 	 * the c++ operators new and delete do not call malloc() and free()
 	 */
-	{ "tc_delete",			14,	report_free,	NULL },
-	{ "tc_deletearray",		14,	report_free,	NULL },
-	{ "tc_deletearray_nothrow",	14,	report_free,	NULL },
-	{ "tc_delete_nothrow",		14,	report_free,	NULL },
-	{ "tc_new",			14,	NULL,	_report_malloc },
-	{ "tc_newarray",		14,	NULL,	_report_malloc },
-	{ "tc_newarray_nothrow",	14,	NULL,	_report_malloc },
-	{ "tc_new_nothrow",		14,	NULL,	_report_malloc },
-#endif
+	{ "tc_delete",			17,	report_free,	NULL },
+	{ "tc_deletearray",		18,	report_free,	NULL },
+	{ "tc_deletearray_nothrow",	19,	report_free,	NULL },
+	{ "tc_delete_nothrow",		20,	report_free,	NULL },
+	{ "tc_new",			21,	NULL,	_report_malloc },
+	{ "tc_newarray",		22,	NULL,	_report_malloc },
+	{ "tc_newarray_nothrow",	23,	NULL,	_report_malloc },
+	{ "tc_new_nothrow",		24,	NULL,	_report_malloc },
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)
