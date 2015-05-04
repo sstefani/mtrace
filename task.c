@@ -176,21 +176,23 @@ static int task_init(struct task *task, int attached)
 
 static void leader_cleanup(struct task *task)
 {
-	assert(task->leader);
+	if (!task->leader)
+		return;
 
 	task->leader->threads--;
 	
-	if (task->leader == task) {
-		if (task->breakpoint) {
-			breakpoint_delete(task, task->breakpoint);
-			task->breakpoint = NULL;
-		}
+	if (task->leader != task)
+		return;
 
-		library_clear_all(task);
-		breakpoint_clear_all(task);
-
-		list_del(&task->leader_list);
+	if (task->breakpoint) {
+		breakpoint_delete(task, task->breakpoint);
+		task->breakpoint = NULL;
 	}
+
+	library_clear_all(task);
+	breakpoint_clear_all(task);
+
+	list_del(&task->leader_list);
 }
 
 static void task_destroy(struct task *task)
@@ -198,8 +200,8 @@ static void task_destroy(struct task *task)
 	backtrace_destroy(task);
 	arch_task_destroy(task);
 	os_task_destroy(task);
-	leader_cleanup(task);
 	detach_task(task);
+	leader_cleanup(task);
 	list_del(&task->task_list);
 	rb_erase(&task->pid_node, &pid_tree);
 	free(task);
@@ -237,29 +239,43 @@ fail1:
 	return NULL;
 }
 
+static void remove_task_cb(struct task *task, void *data)
+{
+	if (task != data) {
+		debug(DEBUG_FUNCTION, "clear pid=%d from leader pid=%d", task->pid, task->leader->pid);
+
+		remove_task(task);
+	}
+}
+
 int process_exec(struct task *task)
 {
-	assert(task->leader == task);
+	struct task *leader = task->leader;
 
-	task->threads_stopped--;
+	leader->threads_stopped--;
 
-	breakpoint_hw_destroy(task);
-	backtrace_destroy(task);
-	os_task_destroy(task);
-	arch_task_destroy(task);
-	leader_cleanup(task);
+	breakpoint_disable_all(leader);
+	each_task(leader, &remove_task_cb, leader);
 
-	if (task_init(task, 0) < 0)
-		return -1;
+	backtrace_destroy(leader);
+	os_task_destroy(leader);
+	arch_task_destroy(leader);
+	leader_cleanup(leader);
 
-	assert(task->leader == task);
+	if (task_init(leader, 0) < 0)
+		goto fail;
 
-	task->threads_stopped++;
+	assert(leader->leader == leader);
 
-	if (leader_setup(task) < 0)
-		return -1;
+	leader->threads_stopped++;
+
+	if (leader_setup(leader) < 0)
+		goto fail;
 
 	return 0;
+fail:
+	task_destroy(leader);
+	return -1;
 }
 
 struct task *task_create(const char *command, char **argv)
@@ -523,15 +539,6 @@ void remove_task(struct task *task)
 	task_destroy(task);
 }
 
-static void clear_leader(struct task *task, void *data)
-{
-	if (task != data) {
-		debug(DEBUG_FUNCTION, "clear pid=%d from leader pid=%d", task->pid, task->leader->pid);
-
-		remove_task(task);
-	}
-}
-
 void remove_proc(struct task *leader)
 {
 	debug(DEBUG_FUNCTION, "pid=%d", leader->pid);
@@ -539,7 +546,7 @@ void remove_proc(struct task *leader)
 	assert(leader->leader == leader);
 
 	breakpoint_disable_all(leader);
-	each_task(leader, &clear_leader, leader);
+	each_task(leader, &remove_task_cb, leader);
 	remove_task(leader);
 }
 
