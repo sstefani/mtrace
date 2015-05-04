@@ -1327,16 +1327,12 @@ struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tr
 }
 
 
-void process_show_exit(struct process *process)
-{
-	if (options.client || (!options.client && !options.verbose))
-		fprintf(options.output, "+++ process %d exited +++\n", process->pid);
-}
-
 void process_exit(struct process *process)
 {
-	process_show_exit(process);
 	process_set_status(process, MT_PROCESS_EXIT);
+
+	if (options.client || (!options.client && !options.verbose))
+		fprintf(options.output, "+++ process %d exited +++\n", process->pid);
 
 	if (!options.interactive)
 		_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
@@ -1344,15 +1340,10 @@ void process_exit(struct process *process)
 
 void process_about_exit(struct process *process)
 {
-	if (options.auto_scan) {
-		process_show_exit(process);
-		process_set_status(process, MT_PROCESS_EXITING);
+	process_set_status(process, MT_PROCESS_EXITING);
+
+	if (options.auto_scan)
 		process_leaks_scan(process, SCAN_ALL);
-	}
-	else {
-		process_exit(process);
-		client_send_msg(process, MT_EXIT, NULL, 0);
-	}
 }
 
 void process_detach(struct process *process)

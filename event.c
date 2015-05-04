@@ -173,17 +173,12 @@ static void show_exit(struct task *task)
 
 static struct task *handle_about_exit(struct task *task)
 {
-	show_exit(task);
+	if (task->leader == task)
+		report_about_exit(task);
 
-	if (task->leader == task) {
-		if (report_about_exit(task) != -1)
-			return task;
-		remove_proc(task);
-	}
-	else
-		remove_task(task);
+	continue_task(task, 0);
 
-	return NULL;
+	return task;
 }
 
 static struct task *handle_exit(struct task *task)
