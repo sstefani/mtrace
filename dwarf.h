@@ -48,7 +48,7 @@
 #define DWARF_IS_REG_LOC(l)	((l).type == DWARF_LOC_TYPE_REG)
 #define DWARF_IS_VAL_LOC(l)	((l).type == DWARF_LOC_TYPE_VAL)
 
-#define DWARF_ADDR_SIZE(as)	(task_is_64bit((as)->task) ? 8 : 4)
+#define DWARF_ADDR_SIZE(as)	((as)->is_64bit ? 8 : 4)
 
 #define DWARF_ENOMEM		1	/* out of memory */
 #define DWARF_EBADREG		2	/* bad register number */
@@ -83,6 +83,7 @@ struct dwarf_loc {
 };
 
 struct dwarf_cursor {
+	struct task *task;
 	arch_addr_t cfa;		/* canonical frame address; aka frame-/stack-pointer */
 	arch_addr_t ip;			/* instruction pointer */
 	arch_addr_t ret_addr_column;	/* column for return-address */
@@ -94,7 +95,7 @@ struct dwarf_cursor {
 };
 
 struct dwarf_addr_space {
-	struct task *task;
+	unsigned int is_64bit:1;
 	arch_addr_t addr;
 	union {
 		long val;
@@ -108,9 +109,9 @@ struct dwarf_addr_space {
 
 struct dwarf_eh_frame_hdr;
 
-void *dwarf_init(struct task *task);
+void *dwarf_init(int is_64bit);
 void dwarf_destroy(struct dwarf_addr_space *as);
-int dwarf_init_unwind(struct dwarf_addr_space *as);
+int dwarf_init_unwind(struct dwarf_addr_space *as, struct task *task);
 int dwarf_step(struct dwarf_addr_space *as);
 arch_addr_t dwarf_get_ip(struct dwarf_addr_space *as);
 

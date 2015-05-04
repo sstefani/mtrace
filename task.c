@@ -191,13 +191,13 @@ static void leader_cleanup(struct task *task)
 
 	library_clear_all(task);
 	breakpoint_clear_all(task);
+	backtrace_destroy(task);
 
 	list_del(&task->leader_list);
 }
 
 static void task_destroy(struct task *task)
 {
-	backtrace_destroy(task);
 	arch_task_destroy(task);
 	os_task_destroy(task);
 	detach_task(task);
@@ -257,7 +257,6 @@ int process_exec(struct task *task)
 	breakpoint_disable_all(leader);
 	each_task(leader, &remove_task_cb, leader);
 
-	backtrace_destroy(leader);
 	os_task_destroy(leader);
 	arch_task_destroy(leader);
 	leader_cleanup(leader);
@@ -333,17 +332,9 @@ int task_clone(struct task *task, struct task *newtask)
 
 	newtask->is_64bit = task->is_64bit;
 
-	if (backtrace_init(newtask) < 0)
-		goto fail;
-
 	breakpoint_hw_clone(newtask);
 
 	return 0;
-fail:
-	fprintf(stderr, "failed to clone process %d->%d : %s\n", task->pid, newtask->pid, strerror(errno));
-	task_destroy(newtask);
-
-	return -1;
 }
 
 int task_fork(struct task *task, struct task *newtask)
@@ -482,11 +473,6 @@ void open_pid(pid_t pid)
 		assert(task->leader == leader);
 
 		task->is_64bit = leader->is_64bit;
-
-		if (backtrace_init(task) < 0) {
-			fprintf(stderr, "Cannot init backtrace for pid %d: %s\n", pid, strerror(errno));
-			goto fail1;
-		}
 	};
 
 	if (options.verbose)

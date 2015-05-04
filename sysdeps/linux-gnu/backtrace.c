@@ -27,15 +27,18 @@
 
 int backtrace_init(struct task *task)
 {
+	assert(task->leader == task);
 	assert(task->backtrace == NULL);
 
-	task->backtrace = dwarf_init(task);
+	task->backtrace = dwarf_init(task->is_64bit);
 
 	return task->backtrace != NULL;
 }
 
 void backtrace_destroy(struct task *task)
 {
+	assert(task->leader == task);
+
 	if (task->backtrace) {
 		dwarf_destroy(task->backtrace);
 
@@ -45,22 +48,25 @@ void backtrace_destroy(struct task *task)
 
 int backtrace_init_unwind(struct task *task)
 {
-	assert(task->backtrace);
+	assert(task->leader);
+	assert(task->leader->backtrace);
 
-	return dwarf_init_unwind(task->backtrace);
+	return dwarf_init_unwind(task->leader->backtrace, task);
 }
 
 unsigned long backtrace_get_ip(struct task *task)
 {
-	assert(task->backtrace);
+	assert(task->leader);
+	assert(task->leader->backtrace);
 
-	return dwarf_get_ip(task->backtrace);
+	return dwarf_get_ip(task->leader->backtrace);
 }
 
 int backtrace_step(struct task *task)
 {
-	assert(task->backtrace);
+	assert(task->leader);
+	assert(task->leader->backtrace);
 
-	return dwarf_step(task->backtrace);
+	return dwarf_step(task->leader->backtrace);
 }
 

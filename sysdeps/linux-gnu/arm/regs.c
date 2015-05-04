@@ -27,7 +27,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/ptrace.h>
-//#include <sys/reg.h>
 
 #include "backend.h"
 #include "task.h"

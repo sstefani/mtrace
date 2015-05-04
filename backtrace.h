@@ -25,10 +25,10 @@
 
 #include "task.h"
 
-/* init backtrace for given task */
+/* init backtrace for given leader task */
 int backtrace_init(struct task *task);
 
-/* destroy backtrace for given task */
+/* destroy backtrace for given leader task */
 void backtrace_destroy(struct task *task);
 
 /* start backtrace for given task */

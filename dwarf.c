@@ -319,6 +319,8 @@ static const uint8_t dwarf_operands[256] = {
 
 static int dwarf_access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void *valp, size_t size)
 {
+	struct dwarf_cursor *c = &as->cursor;
+
 	if (!addr) {
 		debug(DEBUG_DWARF, "invalid null memory access");
 		return -DWARF_EINVAL;
@@ -337,8 +339,8 @@ static int dwarf_access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void 
 		return 0;
 	}
 
-	if (copy_from_proc(as->task, addr, &as->val, sizeof(as->val)) != sizeof(as->val)) {
-		debug(DEBUG_DWARF, "cannot access memory %#lx of pid %d", addr, as->task->pid);
+	if (copy_from_proc(c->task, addr, &as->val, sizeof(as->val)) != sizeof(as->val)) {
+		debug(DEBUG_DWARF, "cannot access memory %#lx of pid %d", addr, c->task->pid);
 		return -DWARF_EINVAL;
 	}
 
@@ -469,7 +471,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 	struct dwarf_addr_space *indirect_as = as;
 	arch_addr_t val, initial_addr = *addr;
 	arch_addr_t gp = as->cursor.lib->gp;
-	int is_64bit = task_is_64bit(as->task);
+	int is_64bit = as->is_64bit;
 	void *tmp_ptr;
 	int ret;
 	union {
@@ -643,7 +645,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 	   "address-unit sized constants".  The `R' augmentation can be used
 	   to override this, but by default, we pick an address-sized unit
 	   for fde_encoding.  */
-	if (task_is_64bit(as->task))
+	if (as->is_64bit)
 		fde_encoding = DW_EH_PE_udata8;
 	else
 		fde_encoding = DW_EH_PE_udata4;
@@ -882,6 +884,7 @@ static inline int lib_addr_match(struct library *lib, arch_addr_t ip)
 
 int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 {
+	struct dwarf_cursor *c = &as->cursor;
 	struct task *leader;
 	struct list_head *it;
 
@@ -890,7 +893,7 @@ int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 			return 0;
 	}
 
-	leader = as->task->leader;
+	leader = c->task->leader;
 
 	as->cursor.lib = NULL;
 
@@ -960,7 +963,7 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 
 	dci->start_ip -= ARCH_ADDR_T(lib->image_addr) - lib->load_addr;
 
-	if (!task_is_64bit(as->task))
+	if (!as->is_64bit)
 		dci->start_ip &= 0xffffffff;
 
 	if (ip < dci->start_ip || ip >= dci->start_ip + dci->ip_range) {
@@ -973,6 +976,8 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 
 static int dwarf_access_reg(struct dwarf_addr_space *as, unsigned int reg, arch_addr_t *valp)
 {
+	struct dwarf_cursor *c = &as->cursor;
+
 	int map = dwarf_arch_map_reg(as, reg);
 
 	if (map < 0) {
@@ -981,7 +986,7 @@ static int dwarf_access_reg(struct dwarf_addr_space *as, unsigned int reg, arch_
 		return map;
 	}
 
-	*valp = fetch_reg(as->task, map);
+	*valp = fetch_reg(c->task, map);
 
 	return 0;
 }
@@ -993,11 +998,11 @@ int dwarf_get(struct dwarf_addr_space *as, struct dwarf_loc loc, arch_addr_t *va
 	if (DWARF_IS_REG_LOC(loc))
 		return dwarf_access_reg(as, val, valp);
 
-	if (!task_is_64bit(as->task))
+	if (!as->is_64bit)
 		val &= 0xffffffff;
 
 	if (DWARF_IS_MEM_LOC(loc))
-		return dwarf_readw(as, &val, valp, task_is_64bit(as->task));
+		return dwarf_readw(as, &val, valp, as->is_64bit);
 
 	*valp = val;
 	return 0;
@@ -1333,7 +1338,7 @@ static int parse_fde(struct dwarf_addr_space *as, arch_addr_t ip, struct dwarf_r
 
 static long sword(struct dwarf_addr_space *as, arch_addr_t val)
 {
-	if (task_is_64bit(as->task))
+	if (as->is_64bit)
 		return (int64_t)val;
 	else
 		return (int32_t)val;
@@ -1350,7 +1355,7 @@ static arch_addr_t read_operand(struct dwarf_addr_space *as, arch_addr_t *addr, 
 	int ret;
 
 	if (operand_type == ADDR) {
-		if (task_is_64bit(as->task))
+		if (as->is_64bit)
 			operand_type = VAL64;
 		else
 			operand_type = VAL32;
@@ -1511,7 +1516,7 @@ do {                                              \
 			break;
 		case DW_OP_deref:
 			tmp1 = pop();
-			if ((ret = dwarf_readw(as, &tmp1, &tmp2, task_is_64bit(as->task))) < 0)
+			if ((ret = dwarf_readw(as, &tmp1, &tmp2, as->is_64bit)) < 0)
 				return ret;
 			push(tmp2);
 			break;
@@ -1832,7 +1837,7 @@ static int fetch_proc_info(struct dwarf_addr_space *as, arch_addr_t ip)
 	return ret;
 }
 
-int dwarf_init_unwind(struct dwarf_addr_space *as)
+int dwarf_init_unwind(struct dwarf_addr_space *as, struct task *task)
 {
 	struct dwarf_cursor *c = &as->cursor;
 
@@ -1842,6 +1847,7 @@ int dwarf_init_unwind(struct dwarf_addr_space *as)
 	c->use_prev_instr = 0;
 	c->valid = 1;
 	c->lib = NULL;
+	c->task = task;
 
 	as->addr = 0;
 	as->val = 0;
@@ -1851,7 +1857,7 @@ int dwarf_init_unwind(struct dwarf_addr_space *as)
 	return dwarf_arch_init_unwind(as);
 }
 
-void *dwarf_init(struct task *task)
+void *dwarf_init(int is_64bit)
 {
 	struct dwarf_addr_space *as;
 	int ret;
@@ -1860,7 +1866,7 @@ void *dwarf_init(struct task *task)
 
 	memset(as, 0, sizeof(*as));
 
-	as->task = task;
+	as->is_64bit = is_64bit;
 	as->addr = 0;
 	as->val = 0;
 
@@ -1947,7 +1953,7 @@ fail:
 		unsigned int i;
 
 		for(i = 0; i < 16; ++i) {
-			if (dwarf_readw(as, &cfa, &ip, task_is_64bit(as->task)))
+			if (dwarf_readw(as, &cfa, &ip, as->is_64bit))
 				break;
 
 			if (!dwarf_locate_map(as, ip)) {
@@ -1984,8 +1990,9 @@ int dwarf_get_unwind_table(struct task *task, struct library *lib, struct dwarf_
 
 	memset(&tmp_as, 0, sizeof(tmp_as));
 
-	tmp_as.task = task;
+	tmp_as.is_64bit = task->is_64bit;
 	tmp_as.cursor.lib = lib;
+	tmp_as.cursor.task = task;
 
 	if (hdr->version != DW_EH_VERSION) {
 		debug(DEBUG_DWARF, "exception table has unexpected version %d", hdr->version);
