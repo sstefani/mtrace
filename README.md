@@ -1,4 +1,4 @@
-mtrace is an interactive dynamic memory tracer/debugger for C and C++ using GLIBC, which intercepts and reports all kinds of dynamic memory allocations using a preloaded library.
+mtrace is an interactive dynamic memory tracer/debugger for C and C++, which intercepts and reports all kinds of dynamic memory allocations.
 
 It supports the developer to get statistics about the memory usage and finding memory leaks in an arbitrate application. There is no need of modification of the source code nor any recompilation.
 
