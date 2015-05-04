@@ -3,8 +3,6 @@
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
  *
- * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich.
- *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
  * published by the Free Software Foundation; either version 2 of the
@@ -74,8 +72,8 @@ static void usage(void)
 		"\n"
 		" -a, --autoscan      scan memory on exit of a traced program\n"
 		" -b, --binpath=path  binary search path (may be repeated)\n"
-		" -c, --client        connect to socket (path or address)\n"
-		" -C, --cwd           set current working directory\n"
+		" -c, --client=addr   connect to socket (path or address)\n"
+		" -C, --cwd=path      use as current working directory for traced process\n"
 #ifdef DEBUG
 		" -D, --debug=MASK    enable debugging (see -Dh or --debug=help)\n"
 		" -Dh, --debug=help   show help on debugging\n"
@@ -83,7 +81,7 @@ static void usage(void)
 		" -d, --depth=NR      backtrace stack depth (default: " STR(DEFAULT_STACK) ")\n"
 		" -e, --follow-exec   follow exec() system calls\n"
 		" -F, --config=FILE   load alternate configuration file (may be repeated)\n"
-		" -f, --follow-child  trace forked children\n"
+		" -f, --follow-fork   trace forked children\n"
 		" -h, --help          display this help and exit\n"
 		" -i, --interactive   interactive client mode\n"
 		" -k, --kill          abort mtrace on unexpected error conditon\n"
@@ -126,9 +124,9 @@ static char *search_for_command(char *filename)
 	char *path;
 	int m, n;
 
-	if (strchr(filename, '/')) {
+	if (strchr(filename, '/'))
 		return filename;
-	}
+
 	for (path = getenv("PATH"); path && *path; path += m) {
 		if (strchr(path, ':')) {
 			n = strchr(path, ':') - path;
@@ -136,18 +134,21 @@ static char *search_for_command(char *filename)
 		} else {
 			m = n = strlen(path);
 		}
+
 		if (n + strlen(filename) + 1 >= PATH_MAX) {
 			fprintf(stderr, "Error: filename too long.\n");
 			exit(1);
 		}
+
 		strncpy(pathname, path, n);
-		if (n && pathname[n - 1] != '/') {
+
+		if (n && pathname[n - 1] != '/')
 			pathname[n++] = '/';
-		}
+
 		strcpy(pathname + n, filename);
-		if (!access(pathname, X_OK)) {
+
+		if (!access(pathname, X_OK))
 			return pathname;
-		}
 	}
 	return filename;
 }
@@ -192,28 +193,31 @@ static void def_config(void)
 
 	if (path) {
 		if (asprintf(&filename, "%s/.mtrace", path) != -1) {
-			if (add_opt_F(filename))
-				free(filename);
+			if (!add_opt_F(filename))
+				return;
+			free(filename);
 		}
 	}
-	else {
-		path = getenv("XDG_CONFIG_HOME");
-		if (path)  {
-			if (asprintf(&filename, "%s/mtrace", path) != -1) {
-				if (add_opt_F(filename))
-					free(filename);
-			}
+
+	path = getenv("XDG_CONFIG_HOME");
+	if (path)  {
+		if (asprintf(&filename, "%s/mtrace", path) != -1) {
+			if (!add_opt_F(filename))
+				return;
+			free(filename);
 		}
 	}
 
 	if (asprintf(&filename, "%s/mtrace.conf", SYSCONFDIR) != -1) {
-		if (add_opt_F(filename))
-			free(filename);
+		if (!add_opt_F(filename))
+			return;
+		free(filename);
 	}
-	else
+
 	if (asprintf(&filename, "%s/mtrace.conf", "/etc") != -1) {
-		if (add_opt_F(filename))
-			free(filename);
+		if (!add_opt_F(filename))
+			return;
+		free(filename);
 	}
 }
 
@@ -232,6 +236,8 @@ static int parse_int(const char *optarg, char opt, int min, int max)
 
 char **process_options(int argc, char **argv)
 {
+	char *output = NULL;
+
 	progname = argv[0];
 
 	options.auto_scan = 0;
@@ -268,7 +274,7 @@ char **process_options(int argc, char **argv)
 			{ "debug", 1, 0, 'D' },
 			{ "depth", 1, 0, 'd' },
 			{ "help", 0, 0, 'h' },
-			{ "follow-child", 0, 0, 'f'},
+			{ "follow-fork", 0, 0, 'f'},
 			{ "follow-exec", 0, 0, 'e' },
 			{ "interactive", 0, 0, 'i' },
 			{ "kill", 0, 0, 'k' },
@@ -363,13 +369,7 @@ char **process_options(int argc, char **argv)
 			options.listen = optarg;
 			break;
 		case 'o':
-			options.output = fopen(optarg, "w");
-			if (!options.output) {
-				fprintf(stderr, "can't open %s for writing: %s\n", optarg, strerror(errno));
-				exit(1);
-			}
-			setvbuf(options.output, (char *)NULL, _IOLBF, 0);
-			fcntl(fileno(options.output), F_SETFD, FD_CLOEXEC);
+			output = optarg;
 			break;
 		case 'p':
 			{
@@ -460,6 +460,9 @@ char **process_options(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
+	if (argc > 0)
+		options.command = search_for_command(argv[0]);
+
 	if (options.sort_by == OPT_SORT_LEAKS || options.sort_by == OPT_SORT_BYTES_LEAKED)
 		options.auto_scan = 1;
 
@@ -489,9 +492,15 @@ char **process_options(int argc, char **argv)
 		err_usage();
 	}
 
-	if (options.interactive && (!options.client && !options.opt_p)) {
-		fprintf(stderr, "%s: interactive mode can only invoked in -p or -c mode\n", progname);
-		err_usage();
+	if (options.interactive) {
+		if ((!options.client && !options.opt_p) || options.command) {
+			fprintf(stderr, "%s: interactive mode can only invoked in -p or -c mode\n", progname);
+			err_usage();
+		}
+		output = NULL;
+
+		if (options.auto_scan)
+			fprintf(stderr, "%s: auto scan ignored in interactive mode\n", progname);
 	}
 
 	if (options.auto_scan && options.server) {
@@ -522,8 +531,16 @@ char **process_options(int argc, char **argv)
 	if (!options.opt_F)
 		def_config();
 
-	if (argc > 0)
-		options.command = search_for_command(argv[0]);
+	if (output) {
+		options.output = fopen(output, "w");
+
+		if (!options.output) {
+			fprintf(stderr, "can't open %s for writing: %s\n", output, strerror(errno));
+			exit(1);
+		}
+		setvbuf(options.output, (char *)NULL, _IOLBF, 0);
+		fcntl(fileno(options.output), F_SETFD, FD_CLOEXEC);
+	}
 
 	return &argv[0];
 }
