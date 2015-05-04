@@ -29,9 +29,15 @@
 #define	REPORT_LEAVE	2
 
 struct function {
+	/* symbol name */
 	const char *name;
+	/* level for aliased symbol */
+	unsigned int level;
+	/* minimum number of hw breakpoints for using a hw bp */
 	unsigned int hw_bp_min;
+	/* report when function is entered */
 	int (*report_in)(struct task *task, struct library_symbol *libsym);
+	/* report when function is exited */
 	int (*report_out)(struct task *task, struct library_symbol *libsym);
 };
 

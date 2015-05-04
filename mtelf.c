@@ -175,13 +175,19 @@ static int populate_this_symtab(struct mt_elf *mte, struct library *lib, Elf_Dat
 
 		arch_addr_t addr = ARCH_ADDR_T(sym.st_value + mte->bias);
 
-		if (!library_find_symbol(lib, addr)) {
+		struct library_symbol *libsym = library_find_symbol(lib, addr);
+		if (!libsym) {
 			struct library_symbol *libsym = library_symbol_new(lib, addr, func);
 
 			if (!libsym) {
 				fprintf(stderr, "couldn't init symbol: %s%s\n", name, func->name);
 				continue;
 			}
+		}
+		else {
+			/* handle symbol alias */
+			if (libsym->func->level > func->level)
+				libsym->func = func;
 		}
 	}
 

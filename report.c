@@ -313,34 +313,33 @@ static int _report_mremap(struct task *task, struct library_symbol *libsym)
 }
 
 static const struct function flist[] = {
-	{ "malloc",		2,	NULL,		_report_malloc },
-	{ "free",		3,	report_free,	NULL },
-	{ "realloc",		4,	report_realloc,	_report_realloc },
-	{ "calloc",		5,	NULL,		_report_calloc },
-	{ "posix_memalign",	6,	NULL,		_report_posix_memalign },
-	{ "mmap",		7,	NULL,		_report_mmap },
-	{ "mmap64",		8,	NULL,		_report_mmap64 },
-	{ "munmap",		9,	report_munmap,	_null },
-	{ "memalign",		10,	NULL,		_report_memalign },
-	{ "aligned_alloc",	11,	NULL,		_report_aligned_alloc },
-	{ "valloc",		12,	NULL,		_report_valloc },
-	{ "pvalloc",		13,	NULL,		_report_pvalloc },
-	{ "mremap",		14,	report_mremap,	_report_mremap},
-	{ "cfree",		15,	report_free,	NULL },
-	{ "vfree",		16,	report_free,	NULL },
+	{ "malloc",			0,	2,	NULL,		_report_malloc },
+	{ "free",			0,	3,	report_free,	NULL },
+	{ "realloc",			0,	4,	report_realloc,	_report_realloc },
+	{ "calloc",			0,	5,	NULL,		_report_calloc },
+	{ "posix_memalign",		0,	6,	NULL,		_report_posix_memalign },
+	{ "mmap",			0,	7,	NULL,		_report_mmap },
+	{ "mmap64",			1,	8,	NULL,		_report_mmap64 },
+	{ "munmap",			0,	9,	report_munmap,	_null },
+	{ "memalign",			0,	10,	NULL,		_report_memalign },
+	{ "aligned_alloc",		1,	11,	NULL,		_report_aligned_alloc },
+	{ "valloc",			1,	12,	NULL,		_report_valloc },
+	{ "pvalloc",			1,	13,	NULL,		_report_pvalloc },
+	{ "mremap",			0,	14,	report_mremap,	_report_mremap},
+	{ "cfree",			1,	15,	report_free,	NULL },
 
 	/*
 	 * support for Google gperftools
 	 * the c++ operators new and delete do not call malloc() and free()
 	 */
-	{ "tc_delete",			17,	report_free,	NULL },
-	{ "tc_deletearray",		18,	report_free,	NULL },
-	{ "tc_deletearray_nothrow",	19,	report_free,	NULL },
-	{ "tc_delete_nothrow",		20,	report_free,	NULL },
-	{ "tc_new",			21,	NULL,	_report_malloc },
-	{ "tc_newarray",		22,	NULL,	_report_malloc },
-	{ "tc_newarray_nothrow",	23,	NULL,	_report_malloc },
-	{ "tc_new_nothrow",		24,	NULL,	_report_malloc },
+	{ "tc_delete",			1,	17,	report_free,	NULL },
+	{ "tc_deletearray",		1,	18,	report_free,	NULL },
+	{ "tc_deletearray_nothrow",	1,	19,	report_free,	NULL },
+	{ "tc_delete_nothrow",		1,	20,	report_free,	NULL },
+	{ "tc_new",			1,	21,	NULL,	_report_malloc },
+	{ "tc_newarray",		1,	22,	NULL,	_report_malloc },
+	{ "tc_newarray_nothrow",	1,	23,	NULL,	_report_malloc },
+	{ "tc_new_nothrow",		1,	24,	NULL,	_report_malloc },
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)
