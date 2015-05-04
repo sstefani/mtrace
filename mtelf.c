@@ -48,14 +48,32 @@
 #include "common.h"
 #include "report.h"
 
-static int open_elf(struct mt_elf *mte, const char *filename)
+static int open_elf(struct mt_elf *mte, struct task *task, const char *filename)
 {
-	mte->filename = filename;
+	char *cwd;
 
-	if (options.cwd != -1)
-		mte->fd = openat(options.cwd, filename, O_RDONLY);
-	else
-		mte->fd = open(filename, O_RDONLY);
+	mte->filename = filename;
+	mte->fd = -1;
+
+	cwd = pid2cwd(task->pid);
+	if (cwd) {
+		int fd = open(cwd, O_RDONLY|O_DIRECTORY);
+
+		if (fd != -1) {
+			mte->fd = openat(fd, filename, O_RDONLY);
+
+			close(fd);
+		}
+
+		free(cwd);
+	}
+
+	if (mte->fd == -1) {
+		if (options.cwd != -1)
+			mte->fd = openat(options.cwd, filename, O_RDONLY);
+		else
+			mte->fd = open(filename, O_RDONLY);
+	}
 
 	if (mte->fd == -1)
 		return 1;
@@ -236,11 +254,11 @@ static void close_elf(struct mt_elf *mte)
 	}
 }
 
-static int elf_read(struct mt_elf *mte, const char *filename, GElf_Addr bias)
+static int elf_read(struct mt_elf *mte, struct task *task, const char *filename, GElf_Addr bias)
 {
 	debug(DEBUG_FUNCTION, "filename=%s", filename);
 
-	if (open_elf(mte, filename) < 0)
+	if (open_elf(mte, task, filename) < 0)
 		return -1;
 
 	GElf_Phdr phdr;
@@ -351,7 +369,7 @@ int elf_read_library(struct task *task, struct library *lib, const char *filenam
 
 	library_set_filename(lib, filename);
 
-	if (elf_read(&mte, filename, bias) == -1)
+	if (elf_read(&mte, task, filename, bias) == -1)
 		return -1;
 
 	mte.bias = bias;
@@ -456,7 +474,7 @@ struct library *elf_read_main_binary(struct task *task)
 
 	library_set_filename(lib, strdup(fname));
 
-	if (elf_read(&mte, filename, 0) == -1)
+	if (elf_read(&mte, task, filename, 0) == -1)
 		goto fail3;
 
 	task->is_64bit = is_64bit(&mte);
@@ -490,7 +508,7 @@ struct library *elf_read_main_binary(struct task *task)
 
 	copy_str_from_proc(task, ARCH_ADDR_T(mte.interp), fname, sizeof(fname));
 
-	if (!elf_read(&mte_ld, fname, (GElf_Addr)base)) {
+	if (!elf_read(&mte_ld, task, fname, (GElf_Addr)base)) {
 		mte_ld.bias = (GElf_Addr)base;
 		mte_ld.entry_addr = mte_ld.ehdr.e_entry + (GElf_Addr)base;
 

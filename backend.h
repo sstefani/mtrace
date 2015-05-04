@@ -34,16 +34,19 @@
 #include <stddef.h>
 #include <sys/types.h>
 
-/* Convert a PID to a path to the corresponding binary.  */
+/* Convert a pid to a path to the corresponding binary.  */
 char *pid2name(pid_t pid);
 
-/* Given a PID, find a leader of thread group.  */
+/* return the cwd of a pid.  */
+char *pid2cwd(pid_t pid);
+
+/* Given a pid, find a leader of thread group.  */
 pid_t process_leader(pid_t pid);
 
-/* Given a PID of leader thread, fill in PIDs of all the tasks.  The
- * function will initialize the pointer *RET_TASKS to a
+/* Given a pid of leader thread, fill in pids of all the tasks.  The
+ * function will initialize the pointer *ret_tasks to a
  * newly-allocated array, and will store number of elements in that
- * array to *RET_N.  You have to free that buffer when you don't need
+ * array to *ret_n.  You have to free that buffer when you don't need
  * it anymore.  */
 int process_tasks(pid_t pid, pid_t **ret_tasks, size_t *ret_n);
 
@@ -56,8 +59,7 @@ void trace_me(void);
 /* stop tracing a task.  */
 int untrace_task(struct task *task, int signum);
 
-/* Called when mtrace needs to attach to task, such as when it attaches
- * to a running process, whose PID is given on the command line.  */
+/* Called when mtrace needs to attach to task */
 int trace_attach(struct task *task);
 
 /* wait for a task ready for tracing */
@@ -127,7 +129,7 @@ int linkmap_init(struct task *task, arch_addr_t dyn_addr);
 
 /* This should extract entry point address and interpreter (dynamic
  * linker) bias if possible.  Returns 0 if there were no errors, -1
- * otherwise.  Sets *ENTRYP and *INTERP_BIASP to non-zero values if
+ * otherwise.  Sets *entryp and *interp_biasp to non-zero values if
  * the corresponding value is known, or zero otherwise; this is not
  * done for pointers that are NULL.  */
 int process_get_entry(struct task *task, unsigned long *entryp, unsigned long *interp_biasp);

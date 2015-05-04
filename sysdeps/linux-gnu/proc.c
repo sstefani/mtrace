@@ -71,6 +71,24 @@ char *pid2name(pid_t pid)
 	return strdup(proc_exe);
 }
 
+/*
+ * Returns a (malloc'd) file name corresponding to a running pid
+ */
+char *pid2cwd(pid_t pid)
+{
+	int ret;
+	char fname[PATH_MAX];
+	PROC_PID_FILE(proc_cwd, "/proc/%d/cwd", pid);
+
+	ret = readlink(proc_cwd, fname, sizeof(fname) - 1);
+	if (ret == -1)
+		return NULL;
+
+	fname[ret] = 0;
+
+	return strdup(fname);
+}
+
 static FILE *open_status_file(pid_t pid)
 {
 	PROC_PID_FILE(fn, "/proc/%d/status", pid);
