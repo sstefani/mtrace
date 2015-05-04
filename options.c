@@ -2,12 +2,8 @@
  * This file is part of mtrace.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
- *   Copyright (C) 2012, 2013 Petr Machata, Red Hat Inc.
- *   Copyright (C) 2009,2010 Joe Damato
- *   Copyright (C) 1998,1999,2002,2003,2004,2007,2008,2009 Juan Cespedes
- *   Copyright (C) 2006 Ian Wienand
- *   Copyright (C) 2006 Steve Fink
- *   Copyright (C) 2006 Paul Gilliam, IBM Corporation
+ *
+ * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
