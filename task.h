@@ -1,7 +1,6 @@
 /*
  * This file is part of mtrace.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
- *  This file is based on the ltrace source
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich.
  *
