@@ -829,6 +829,9 @@ static int readline_func(void)
 
 void readline_init(void)
 {
+	if (!options.interactive)
+		return;
+
 	rl_terminal_name = getenv("TERM");
 	rl_instream = stdin;
 	rl_outstream = stderr;
