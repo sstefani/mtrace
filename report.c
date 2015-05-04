@@ -328,18 +328,14 @@ static const struct function flist[] = {
 	{ "mremap",			0,	14,	report_mremap,	_report_mremap},
 	{ "cfree",			1,	15,	report_free,	NULL },
 
-	/*
-	 * support for Google gperftools
-	 * the c++ operators new and delete do not call malloc() and free()
-	 */
-	{ "tc_delete",			1,	17,	report_free,	NULL },
-	{ "tc_deletearray",		1,	18,	report_free,	NULL },
-	{ "tc_deletearray_nothrow",	1,	19,	report_free,	NULL },
-	{ "tc_delete_nothrow",		1,	20,	report_free,	NULL },
-	{ "tc_new",			1,	21,	NULL,	_report_malloc },
-	{ "tc_newarray",		1,	22,	NULL,	_report_malloc },
-	{ "tc_newarray_nothrow",	1,	23,	NULL,	_report_malloc },
-	{ "tc_new_nothrow",		1,	24,	NULL,	_report_malloc },
+	{ "_Znwm",			1,	17,	NULL,		_report_malloc }, /* operator new(unsigned long) */
+	{ "_Znam",			1,	18,	NULL,		_report_malloc }, /* operator new[](unsigned long) */
+	{ "_ZnwmRKSt9nothrow_t",	1,	19,	NULL,		_report_malloc }, /* operator new(unsigned long, std::nothrow_t const&) */
+	{ "_ZnamRKSt9nothrow_t",	1,	20,	NULL,		_report_malloc }, /* operator new[](unsigned long, std::nothrow_t const& */
+	{ "_ZdlPv",			1,	21,	report_free,	NULL }, /* operator delete(void*) */
+	{ "_ZdaPv",			1,	22,	report_free,	NULL }, /* operator delete[](void*) */
+	{ "_ZdlPvRKSt9nothrow_t",	1,	23,	report_free,	NULL }, /* operator delete(void*, std::nothrow_t const&) */
+	{ "_ZdaPvRKSt9nothrow_t",	1,	24,	report_free,	NULL }, /* operator delete[](void*, std::nothrow_t const&) */
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)
