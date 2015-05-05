@@ -88,6 +88,7 @@ static void usage(void)
 		" -i, --interactive   interactive client mode\n"
 		" -k, --kill          abort mtrace on unexpected error conditon\n"
 		" -l, --listen        listen on socket path or address in server mode\n"
+		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
 		" -o, --output=FILE   write the trace output to file with given name\n"
 		" -p, --pid=PID       attach to the process with the process ID pid (may be repeated)\n"
 		" -P, --port=PORT     socket port (default: " STR(DEFAULT_PORT) ")\n"
@@ -263,6 +264,7 @@ char **process_options(int argc, char **argv)
 	options.sort_by = -1;
 	options.debug = 0;
 	options.kill = 0;
+	options.nocpp = 0;
 
 	for(;;) {
 		int c;
@@ -281,6 +283,7 @@ char **process_options(int argc, char **argv)
 			{ "interactive", 0, 0, 'i' },
 			{ "kill", 0, 0, 'k' },
 			{ "listen", 1, 0, 'l' },
+			{ "nocpp", 1, 0, 'n' },
 			{ "output", 1, 0, 'o' },
 			{ "pid", 1, 0, 'p' },
 			{ "port", 1, 0, 'P' },
@@ -293,7 +296,7 @@ char **process_options(int argc, char **argv)
 			{ 0, 0, 0, 0 }
 		};
 		c = getopt_long(argc, argv,
-				"+aefhiksVvw"
+				"+aefhiknsVvw"
 				"b:c:C:D:F:l:o:p:P:u:d:S:",
 				long_options,
 				&option_index);
@@ -372,6 +375,9 @@ char **process_options(int argc, char **argv)
 			break;
 		case 'o':
 			output = optarg;
+			break;
+		case 'n':
+			options.nocpp = 1;
 			break;
 		case 'p':
 			{
@@ -482,7 +488,11 @@ char **process_options(int argc, char **argv)
 		fprintf(stderr, "%s: client mode does not require -p nor executable\n", progname);
 		err_usage();
 	}
-	else
+
+	if (options.client && options.nocpp) {
+		fprintf(stderr, "%s: client mode does not require -n\n", progname);
+		err_usage();
+	}
 
 	if (options.client && options.server) {
 		fprintf(stderr, "%s: choose between client and server mode\n", progname);

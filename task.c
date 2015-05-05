@@ -174,37 +174,50 @@ static int task_init(struct task *task, int attached)
 	return 0;
 }
 
-static void leader_cleanup(struct task *task)
+static int leader_cleanup(struct task *leader)
 {
-	if (!task->leader)
-		return;
+	if (!leader)
+		return 0;
 
-	task->leader->threads--;
+	if (--leader->threads)
+		return 0;
 	
-	if (task->leader != task)
+	library_clear_all(leader);
+	breakpoint_clear_all(leader);
+	backtrace_destroy(leader);
+
+	return 1;
+}
+
+static void leader_release(struct task *leader)
+{
+	if (!leader_cleanup(leader))
 		return;
 
-	if (task->breakpoint) {
-		breakpoint_delete(task, task->breakpoint);
-		task->breakpoint = NULL;
-	}
-
-	library_clear_all(task);
-	breakpoint_clear_all(task);
-	backtrace_destroy(task);
-
-	list_del(&task->leader_list);
+	list_del(&leader->leader_list);
+	free(leader);
 }
 
 static void task_destroy(struct task *task)
 {
+	struct task *leader = task->leader;
+
+	if (task->deleted)
+		return;
+
+	task->deleted = 1;
+
 	arch_task_destroy(task);
 	os_task_destroy(task);
 	detach_task(task);
-	leader_cleanup(task);
-	list_del(&task->task_list);
 	rb_erase(&task->pid_node, &pid_tree);
-	free(task);
+
+	if (leader != task) {
+		list_del(&task->task_list);
+		free(task);
+	}
+
+	leader_release(leader);
 }
 
 struct task *task_new(pid_t pid, int traced)
@@ -361,10 +374,16 @@ int task_fork(struct task *task, struct task *newtask)
 
 	newtask->libsym = task->libsym;
 	newtask->context = task->context;
-	newtask->breakpoint = task->breakpoint;
 
 	if (task->breakpoint)
 		newtask->breakpoint = breakpoint_find(newtask, newtask->breakpoint->addr);
+	else
+		newtask->breakpoint = NULL;
+
+	if (task->skip_bp)
+		newtask->skip_bp = breakpoint_ref(breakpoint_find(newtask, newtask->skip_bp->addr));
+	else
+		newtask->skip_bp = NULL;
 
 	if (arch_task_clone(newtask, task) < 0)
 		goto fail;
@@ -378,6 +397,14 @@ fail:
 	task_destroy(newtask);
 
 	return -1;
+}
+
+void task_reset_bp(struct task *task)
+{
+	breakpoint_unref(task->skip_bp);
+
+	task->breakpoint = NULL;
+	task->skip_bp = NULL;
 }
 
 static struct task *open_one_pid(pid_t pid)
@@ -405,7 +432,7 @@ fail1:
 
 static void show_attached(struct task *task, void *data)
 {
-	fprintf(options.output, "+++ process pid=%d attached (%s) +++\n", task->pid, library_execname(task->leader));
+	fprintf(stderr, "+++ process pid=%d attached (%s) +++\n", task->pid, library_execname(task->leader));
 }
 
 
@@ -532,8 +559,7 @@ void remove_proc(struct task *leader)
 	assert(leader->leader == leader);
 
 	breakpoint_disable_all(leader);
-	each_task(leader, &remove_task_cb, leader);
-	remove_task(leader);
+	each_task(leader, &remove_task_cb, NULL);
 }
 
 int task_list_empty(void)

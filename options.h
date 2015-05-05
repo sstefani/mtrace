@@ -77,6 +77,7 @@ struct options_t {
 	struct opt_b_t *opt_b;	/* binary search path(s) */
 	int sort_by;		/* sort dump in non interative and non server mode */
 	int debug;		/* debug */
+	int nocpp;		/* disable trace of c++ allocation operators */
 };
 
 char **process_options(int argc, char **argv);

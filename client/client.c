@@ -35,6 +35,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <signal.h>
 
 #include "binfile.h"
 #include "common.h"
@@ -59,6 +60,7 @@ static struct rb_root pid_table;
 static int first_pid;
 static struct memtrace_info mt_info;
 static struct thread *thread;
+static int pipefd[2];
 
 static unsigned long skip_nl(const char *p, unsigned long n)
 {
@@ -563,6 +565,35 @@ static int client_init(int do_trace)
 	return 0;
 }
 
+static void signal_exit(int sig)
+{
+	const char signum = sig;
+
+	signal(SIGINT, SIG_IGN);
+	signal(SIGTERM, SIG_IGN);
+
+	write(pipefd[1], &signum, 1);
+}
+
+static int scan_process(struct process *process)
+{
+	if (options.auto_scan) {
+		process_leaks_scan(process, SCAN_ALL);
+		client_wait_op(MT_SCAN);
+	}
+	else
+		process_dump_sortby(process);
+
+	return 0;
+}
+
+static int signal_func(void)
+{
+	fprintf(stderr, "terminating...\n");
+	client_iterate_processes(scan_process);
+	exit(0);
+}
+
 int client_start(void)
 {
 	if (client_init(0) < 0)
@@ -591,10 +622,28 @@ int client_start(void)
 
 	ioevent_add_input(client_fd, client_func);
 
-	readline_init();
+	if (options.interactive) {
+		readline_init();
 
-	while(ioevent_watch(-1) != -1)
-		;
+		while(ioevent_watch(-1) != -1)
+			;
+	}
+	else {
+		if (pipe(pipefd) == -1) {
+			fprintf(stderr, "could not create pipe (%s)", strerror(errno));
+			return -1;
+		}
+
+		ioevent_add_input(pipefd[0], signal_func);
+
+		signal(SIGINT, signal_exit);	/* Detach task_es when interrupted */
+		signal(SIGTERM, signal_exit);	/* ... or killed */
+
+		while(client_fd != -1) {
+			if (ioevent_watch(-1) == -1)
+				break;
+		}
+	}
 
 	return 0;
 }

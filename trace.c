@@ -55,12 +55,14 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 		ret = do_singlestep(task);
 		breakpoint_enable(task, bp);
 		if (ret) {
-			if (ret == 1)
-				task->skip_bp = bp;
-
+			if (ret == 1) {
+				breakpoint_unref(task->skip_bp);
+				task->skip_bp = breakpoint_ref(bp);
+			}
 			return ret;
 		}
 	}
+
 	continue_task(task, 0);
 	return 0;
 }
@@ -69,8 +71,13 @@ void detach_task(struct task *task)
 {
 	int sig = 0;
 
+	task_reset_bp(task);
+
 	if (task->event.type == EVENT_SIGNAL)
 		sig = task->event.e_un.signum;
+	else
+	if (task->event.type == EVENT_BREAKPOINT)
+		breakpoint_unref(task->event.e_un.breakpoint);
 
 	remove_event(task);
 	breakpoint_hw_destroy(task);
@@ -79,7 +86,7 @@ void detach_task(struct task *task)
 
 static void detach_cb(struct task *task, void *data)
 {
-	detach_task(task);
+	remove_task(task);
 }
 
 void detach_proc(struct task *leader)
@@ -88,6 +95,5 @@ void detach_proc(struct task *leader)
 
 	breakpoint_disable_all(leader);
 	each_task(leader, &detach_cb, NULL);
-	remove_task(leader);
 }
 

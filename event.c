@@ -110,7 +110,7 @@ static void show_clone(struct task *task, enum event_type type)
 		str = "?";
 		break;
 	}
-	fprintf(options.output, "+++ process pid=%d %s (newpid=%d) +++\n", task->pid, str, task->event.e_un.newpid);
+	fprintf(stderr, "+++ process pid=%d %s (newpid=%d) +++\n", task->pid, str, task->event.e_un.newpid);
 }
 
 static struct task *handle_clone(struct task *task, enum event_type type)
@@ -167,7 +167,7 @@ static struct task *handle_signal(struct task *task)
 static void show_exit(struct task *task)
 {
 	if (options.verbose)
-		fprintf(options.output, "+++ process pid=%d exited (status=%d) +++\n", task->pid, task->event.e_un.ret_val);
+		fprintf(stderr, "+++ process pid=%d exited (status=%d) +++\n", task->pid, task->event.e_un.ret_val);
 
 }
 
@@ -175,8 +175,8 @@ static struct task *handle_about_exit(struct task *task)
 {
 	if (task->leader == task)
 		report_about_exit(task);
-
-	continue_task(task, 0);
+	else
+		continue_task(task, 0);
 
 	return task;
 }
@@ -198,7 +198,7 @@ static struct task *handle_exit(struct task *task)
 static struct task *handle_exit_signal(struct task *task)
 {
 	if (options.verbose)
-		fprintf(options.output, "+++ process pid=%d killed by signal %s (%d) +++\n", task->pid, strsignal(task->event.e_un.signum), task->event.e_un.signum);
+		fprintf(stderr, "+++ process pid=%d killed by signal %s (%d) +++\n", task->pid, strsignal(task->event.e_un.signum), task->event.e_un.signum);
 
 	if (task->leader == task) {
 		report_exit(task);
@@ -223,7 +223,7 @@ static struct task *handle_exec(struct task *task)
 	}
 
 	if (options.verbose)
-		fprintf(options.output, "+++ process pid=%d exec (%s) +++\n", task->pid, library_execname(task));
+		fprintf(stderr, "+++ process pid=%d exec (%s) +++\n", task->pid, library_execname(task));
 
 	continue_task(task, 0);
 	return task;
@@ -253,15 +253,26 @@ static struct task *handle_breakpoint(struct task *task)
 	
 	debug(DEBUG_FUNCTION, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
+	if (bp->deleted) {
+		struct breakpoint *nbp = breakpoint_find(task, bp->addr);
+
+		if (!nbp)
+			nbp = bp;
+
+		skip_breakpoint(task, nbp);
+		goto end;
+	}
+
 	if (task->skip_bp == bp) {
+		breakpoint_unref(task->skip_bp);
 		task->skip_bp = NULL;
 		skip_breakpoint(task, bp);
-		return task;
+		goto end;
 	}
 
 	if (breakpoint_on_hit(task, bp)) {
 		continue_task(task, 0);
-		return task;
+		goto end;
 	}
 
 	if (bp->libsym && !task->breakpoint) {
@@ -285,6 +296,9 @@ static struct task *handle_breakpoint(struct task *task)
 
 	if (task->stopped)
 		skip_breakpoint(task, bp);
+
+end:
+	breakpoint_unref(bp);
 
 	return task;
 }

@@ -78,6 +78,9 @@ noinst_HEADERS = \
 	thread.h \
 	trace.h
 
+dist_man1_MANS = mtrace.1
+dist_man5_MANS = mtrace.conf.5
+
 dist_doc_DATA = COPYING CREDITS INSTALL README TODO
 
 EXTRA_DIST = 

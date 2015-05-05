@@ -25,9 +25,6 @@
 
 #include "forward.h"
 
-#define	REPORT_ENTER	1
-#define	REPORT_LEAVE	2
-
 struct function {
 	/* symbol name */
 	const char *name;

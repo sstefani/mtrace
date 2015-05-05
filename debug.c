@@ -46,8 +46,7 @@ void _debug(int level, const char *file, const char *function, int line, const c
 		abort();
 	va_end(args);
 
-	fprintf(options.output, "DEBUG: %s():%s@%d - %s\n", function, file, line, buf);
-	fflush(options.output);
+	fprintf(stderr, "DEBUG: %s():%s@%d - %s\n", function, file, line, buf);
 }
 
 #endif

@@ -37,8 +37,10 @@ struct breakpoint {
 	arch_addr_t addr;
 	unsigned int enabled:1;
 	unsigned int locked:1;
+	unsigned int deleted:1;
 	unsigned int type:2;
 	unsigned int ext:8;
+	unsigned int refcnt;
 	union {
 		unsigned char orig_value[BREAKPOINT_LENGTH];
 #if HW_BREAKPOINTS > 0
@@ -103,6 +105,23 @@ static inline void breakpoint_hw_destroy(struct task *task)
 {
 }
 #endif
+
+static inline struct breakpoint *breakpoint_ref(struct breakpoint *bp)
+{
+	if (bp)
+		++bp->refcnt;
+	return bp;
+}
+
+static inline int breakpoint_unref(struct breakpoint *bp)
+{
+	if (bp) {
+		if (--bp->refcnt)
+			return 0;
+		free(bp);
+	}
+	return 1;
+}
 
 #endif
 

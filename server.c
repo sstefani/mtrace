@@ -64,10 +64,10 @@ static void stop_trace(struct task *leader)
 	list_for_each(it, &leader->task_list) {
 		struct task *task = container_of(it, struct task, task_list);
 
-		task->breakpoint = NULL;
+		task_reset_bp(task);
 	}
 
-	leader->breakpoint = NULL;
+	task_reset_bp(leader);
 }
 
 static void start_trace(struct task *leader)
@@ -149,7 +149,7 @@ int server_handle_command(void)
 
 	if (ret != sizeof(cmd)) {
 		if (ret > 0) {
-			if (!options.verbose)
+			if (options.verbose)
 				fprintf(stderr, "cmd read wrong size %d\n", ret);
 		}
 		server_close();
@@ -200,8 +200,8 @@ int server_handle_command(void)
 	case MT_DETACH:
 		detach_proc(task);
 		break;
-	case MT_EXIT:
-		remove_proc(task);
+	case MT_ABOUT_EXIT:
+		continue_task(task, 0);
 		break;
 	default:
 		break;

@@ -101,6 +101,7 @@ void process_detach(struct process *process);
 
 unsigned long process_leaks_scan(struct process *process, int mode);
 
+void process_dump_sortby(struct process *process);
 void process_dump_sort_average(struct process *process, const char *outfile);
 void process_dump_sort_usage(struct process *process, const char *outfile);
 void process_dump_sort_leaks(struct process *process, const char *outfile);

@@ -676,6 +676,8 @@ static int do_reset(struct cmd_opt *cmd, int argc, const char *argv[])
 	if (!process)
 		return -1;
 
+	process->attached = 1;
+
 	process_reset_allocations(process);
 
 	return 0;
@@ -829,9 +831,6 @@ static int readline_func(void)
 
 void readline_init(void)
 {
-	if (!options.interactive)
-		return;
-
 	rl_terminal_name = getenv("TERM");
 	rl_instream = stdin;
 	rl_outstream = stderr;

@@ -58,7 +58,7 @@ void mtrace_request_exit(void)
 		return;
 
 	if (options.verbose)
-		fprintf(options.output, "+++ request exit +++\n");
+		fprintf(stderr, "+++ request exit +++\n");
 
 	do_exit = 1;
 	wait_event_wakeup();
@@ -112,7 +112,7 @@ static void mtrace_init(char **cmd)
 			exit(EXIT_FAILURE);
 
 		if (options.verbose)
-			fprintf(options.output, "+++ process pid=%d created (%s) +++\n", task->pid, library_execname(task));
+			fprintf(stderr, "+++ process pid=%d created (%s) +++\n", task->pid, library_execname(task));
 	}
 
 	for(opt_p_tmp = options.opt_p; opt_p_tmp; opt_p_tmp = opt_p_tmp->next)

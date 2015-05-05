@@ -1,9 +1,9 @@
-ppc single step
+ppc single step enhancement
 arm thumb support
 dwarf debug support
 arm & ppc hw bp support
 dwarf caching
 invalid stack trace cache for unmapped libraries
 restore REALLOC_TRY when realloc fails
-manual page
-documentation
+mremap revamp
+write documentation

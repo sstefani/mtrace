@@ -8,24 +8,31 @@ The mtrace utility was designed to run in a very constrained environment, like s
 
 The mtrace utility intercepts the following GLIBC calls:
 
-    malloc()
-    memalign()
-    realloc()
-    free()
-    posix_memalign()
-    aligned_alloc()
-    valloc()
-    pvalloc()
-    mmap()
-    munmap()
-    clone()
-    system()
-    execve()
-    exit()
+	void *malloc(size_t size);
+        void free(void *ptr);
+        void *calloc(size_t nmemb, size_t size);
+        void *realloc(void *ptr, size_t size);
+        int posix_memalign(void **memptr, size_t alignment, size_t size);
+        void *aligned_alloc(size_t alignment, size_t size);
+        void *valloc(size_t size);
+        void *memalign(size_t alignment, size_t size);
+        void *pvalloc(size_t size);
+        void cfree(void *ptr);
+        void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+        void *mmap64(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+        int munmap(void *addr, size_t length);
+        void *mremap(void *old_address, size_t old_size, size_t new_size, int flags, ... /* void *new_address */);
 
-The operator new() method is using malloc(), so memory allocations of a C++ application can also be traced.
+        void *operator new(size_t size) throw (std::bad_alloc)
+        void *operator new(size_t size, const std::nothrow_t& nt) __THROW
+        void *operator new[](size_t size) throw (std::bad_alloc)
+        void *operator new[](size_t size, const std::nothrow_t& nt) __THROW
+        void operator delete(void* p) __THROW
+        void operator delete(void* p, const std::nothrow_t& nt) __THROW
+        void operator delete[](void* p) __THROW
+        void operator delete[](void* p, const std::nothrow_t& nt) __THROW
 
-There is currently support for X86 (32 udn 64 Bit), PowerPC (32 Bit) and ARM (32 Bit). Only Linux is now supported, but there are plans to support different operating systems and CPU's.
+There is currently support for X86 (32 and 64 Bit), PowerPC (32 Bit) and ARM (32 Bit). Only Linux is now supported, but there are plans to support different operating systems and CPU's.
 
 Stay tuned...
 

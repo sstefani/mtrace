@@ -178,6 +178,9 @@ void breakpoint_hw_destroy(struct task *task)
 
 void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
+	if (bp->deleted)
+		return;
+
 	if (bp->type == SW_BP)
 		return;
 
@@ -194,6 +197,9 @@ static void enable_hw_bp_cb(struct task *task, void *data)
 
 void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
+	if (bp->deleted)
+		return;
+
 	if (bp->type == SW_BP)
 		return;
 
@@ -230,7 +236,9 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	bp->addr = addr;
 	bp->enabled = 0;
 	bp->locked = 0;
+	bp->deleted = 0;
 	bp->ext = ext;
+	bp->refcnt = 1;
 
 	switch(bp_type) {
 	case HW_BP_SCRATCH:
@@ -275,6 +283,9 @@ struct breakpoint *breakpoint_new(struct task *task, arch_addr_t addr, struct li
 
 void breakpoint_enable(struct task *task, struct breakpoint *bp)
 {
+	if (bp->deleted)
+		return;
+
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (!bp->enabled) {
@@ -295,6 +306,9 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 
 void breakpoint_disable(struct task *task, struct breakpoint *bp)
 {
+	if (bp->deleted)
+		return;
+
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (bp->enabled) {
@@ -338,6 +352,9 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 {
 	struct task *leader = task->leader;
 
+	if (bp->deleted)
+		return;
+
 	debug(DEBUG_FUNCTION, "pid=%d, addr=%lx", task->pid, bp->addr);
 
 	breakpoint_disable(task, bp);
@@ -355,9 +372,11 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 			assert(slot == HW_BP_SCRATCH_SLOT);
 	}
 #endif
+	bp->deleted = 1;
 
 	dict_remove_entry(leader->breakpoints, (unsigned long)bp->addr);
-	free(bp);
+
+	breakpoint_unref(bp);
 }
 
 static int enable_nonlocked_bp_cb(unsigned long key, const void *value, void *data)
@@ -470,6 +489,9 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 	struct task *new_task = (struct task *)data;
 	struct library_symbol *libsym = bp->libsym ? find_symbol(new_task, bp->libsym->addr) : NULL;
 	size_t ext = bp->ext;
+
+	if (bp->deleted)
+		return 0;
 
 	struct breakpoint *new_bp = malloc(sizeof(*new_bp) + ext);
 	if (!new_bp)

@@ -240,27 +240,6 @@ void library_add(struct task *leader, struct library *lib)
 	report_add_map(leader, lib);
 }
 
-void cb_remove_breakpoint_for_symbol(struct library_symbol *libsym, void *data)
-{
-	struct task *task = data;
-	arch_addr_t addr = libsym->addr;
-	struct breakpoint *bp = breakpoint_find(task, addr);
-
-	if (bp)
-		breakpoint_delete(task, bp);
-}
-
-void library_remove(struct task *leader, struct library *lib)
-{
-	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", lib->filename, lib->base, leader->pid);
-
-	library_each_symbol(lib, cb_remove_breakpoint_for_symbol, leader);
-
-	list_del(&lib->list);
-
-	report_del_map(leader, lib);
-}
-
 void library_clear_all(struct task *leader)
 {
 	library_delete_list(leader, &leader->libraries_list);

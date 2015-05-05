@@ -325,7 +325,7 @@ static const struct function flist[] = {
 	{ "aligned_alloc",		1,	11,	NULL,		_report_aligned_alloc },
 	{ "valloc",			1,	12,	NULL,		_report_valloc },
 	{ "pvalloc",			1,	13,	NULL,		_report_pvalloc },
-	{ "mremap",			0,	14,	report_mremap,	_report_mremap},
+	{ "mremap",			0,	14,	report_mremap,	_report_mremap },
 	{ "cfree",			1,	15,	report_free,	NULL },
 
 	{ "_Znwm",			1,	17,	NULL,		_report_malloc }, /* operator new(unsigned long) */
@@ -343,6 +343,9 @@ const struct function *flist_matches_symbol(const char *sym_name)
 	unsigned int i;
 
 	for(i = 0; i < ARRAY_SIZE(flist); ++i) {
+		if (options.nocpp && flist[i].name[0] == '_')
+			continue;
+
 		if (!strcmp(sym_name, flist[i].name))
 			return &flist[i];
 	}

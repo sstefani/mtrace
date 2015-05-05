@@ -47,6 +47,7 @@ struct task {
 	unsigned int was_stopped:1;
 	unsigned int is_64bit:1;
 	unsigned int attached:1;
+	unsigned int deleted:1;
 	
 	/* Dictionary of breakpoints */
 	struct dict *breakpoints;
@@ -114,6 +115,9 @@ int task_clone(struct task *task, struct task *newtask);
 
 /* Fork the contents of a task */
 int task_fork(struct task *task, struct task *newtask);
+
+/* reset all breakpoints for task */
+void task_reset_bp(struct task *task);
 
 /* get first process of leader list */
 struct task *get_first_process(void);

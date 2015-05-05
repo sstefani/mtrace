@@ -251,6 +251,7 @@ static void process_event(struct task *task, int status)
 
 	for(i = 0; i < HW_BREAKPOINTS; ++i) {
 		if (task->hw_bp[i] && task->hw_bp[i]->addr == ip) {
+			/* todo: check if this was really a hw bp */
 			bp = task->hw_bp[i];
 			break;
 		}
@@ -276,9 +277,8 @@ static void process_event(struct task *task, int status)
 	if (!bp->enabled)
 		return;
 #endif
-
 	task->event.type = EVENT_BREAKPOINT;
-	task->event.e_un.breakpoint = bp;
+	task->event.e_un.breakpoint = breakpoint_ref(bp);
 
 	debug(DEBUG_EVENT, "BREAKPOINT: pid=%d, addr=%#lx", task->pid, task->event.e_un.breakpoint->addr);
 

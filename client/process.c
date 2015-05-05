@@ -1084,20 +1084,8 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	dump_printf("leaks total: %lu\n", process->leaks);
 	dump_flush();
 
-	if (!options.interactive && (process->status == MT_PROCESS_EXITING || process->status == MT_PROCESS_DETACH)) {
-		if (options.sort_by == OPT_SORT_BYTES_LEAKED)
-			_process_dump(process, sort_bytes_leaked, skip_zero_leaks, options.output);
-		else
-			_process_dump(process, sort_leaks, skip_zero_leaks, options.output);
-
-		if (process->status == MT_PROCESS_EXITING) {
-			process_set_status(process, MT_PROCESS_EXIT);
-
-			client_send_msg(process, MT_EXIT, NULL, 0);
-		}
-		else
-			client_send_msg(process, MT_DETACH, NULL, 0);
-	}
+	if (!options.interactive)
+		process_dump_sortby(process);
 
 	return leaks;
 }
@@ -1327,15 +1315,39 @@ struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tr
 }
 
 
+void process_dump_sortby(struct process *process)
+{
+	switch(options.sort_by) {
+	case OPT_SORT_AVERAGE:
+		_process_dump(process, sort_average, skip_zero_allocations, options.output);
+		break;
+	case OPT_SORT_STACKS:
+		_process_dump(process, sort_allocations, skip_none, options.output);
+		break;
+	case OPT_SORT_TOTAL:
+		_process_dump(process, sort_total, skip_zero_allocations, options.output);
+		break;
+	case OPT_SORT_TSC:
+		_process_dump(process, sort_tsc, skip_zero_allocations, options.output);
+		break;
+	case OPT_SORT_USAGE:
+		_process_dump(process, sort_usage, skip_zero_allocations, options.output);
+		break;
+	default:
+		_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
+		break;
+	}
+}
+
 void process_exit(struct process *process)
 {
 	process_set_status(process, MT_PROCESS_EXIT);
 
 	if (options.client || (!options.client && !options.verbose))
-		fprintf(options.output, "+++ process %d exited +++\n", process->pid);
+		fprintf(stderr, "+++ process %d exited +++\n", process->pid);
 
 	if (!options.interactive)
-		_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
+		process_dump_sortby(process);
 }
 
 void process_about_exit(struct process *process)
@@ -1344,40 +1356,19 @@ void process_about_exit(struct process *process)
 
 	if (options.auto_scan)
 		process_leaks_scan(process, SCAN_ALL);
+
+	client_send_msg(process, MT_ABOUT_EXIT, NULL, 0);
 }
 
 void process_detach(struct process *process)
 {
 	process_set_status(process, MT_PROCESS_DETACH);
 
-	if (!options.interactive) {
-		if (options.auto_scan) {
-			process_leaks_scan(process, SCAN_ALL);
-			return;
-		}
-		else {
-			switch(options.sort_by) {
-			case OPT_SORT_AVERAGE:
-				_process_dump(process, sort_average, skip_zero_allocations, options.output);
-				break;
-			case OPT_SORT_STACKS:
-				_process_dump(process, sort_allocations, skip_none, options.output);
-				break;
-			case OPT_SORT_TOTAL:
-				_process_dump(process, sort_total, skip_zero_allocations, options.output);
-				break;
-			case OPT_SORT_TSC:
-				_process_dump(process, sort_tsc, skip_zero_allocations, options.output);
-				break;
-			case OPT_SORT_USAGE:
-				_process_dump(process, sort_usage, skip_zero_allocations, options.output);
-				break;
-			default:
-				_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
-				break;
-			}
-		}
-	}
+	if (options.auto_scan)
+		process_leaks_scan(process, SCAN_ALL);
+	else
+	if (!options.interactive)
+		process_dump_sortby(process);
 
 	client_send_msg(process, MT_DETACH, NULL, 0);
 }
