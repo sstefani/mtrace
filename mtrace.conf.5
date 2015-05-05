@@ -1,0 +1,50 @@
+.\" -*-nroff-*-
+.\" Copyright (c) 2015 Stefani Seibold <stefani@seibold.net>
+.\"
+.\" This program is free software; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of the
+.\" License, or (at your option) any later version.
+.\"
+.\" This program is distributed in the hope that it will be useful, but
+.\" WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+.\" General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program; if not, write to the Free Software
+.\" Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+.\" 02110-1301 USA
+.\"
+.TH mtrace.conf "5" "May 2015" "" "mtrace configuration file"
+.SH "NAME"
+.LP
+\fBmtrace.conf\fR \- Configuration file for \fBmtrace(1)\fR.
+
+.SH DESCRIPTION
+
+This manual page describes \fBmtrace.conf\fR, a file that contains
+configuration information for \fBmtrace(1)\fR to use.
+
+Each line of a configuration file describes at most a single item.
+Lines composed entirely of white space are ignored, as are lines
+starting with a hash characters (comment lines).
+
+Currently only one command is available: \fIignore\fR
+
+.SH ignore
+
+The ignore command is followed by a regular expression.  All allocations where
+the regular expression match will be ignored by the memory allocation
+bookkeeping.
+
+The syntax is as follows:
+
+.RS
+\fIignore\fR \fIregex\fR
+.RE
+
+It is possible to use several ignore commands for several regular expressions.
+
+.SH AUTHOR
+Stefani Seibold <stefani@seibold.net>

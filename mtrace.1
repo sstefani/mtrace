@@ -1,0 +1,507 @@
+.\" -*-nroff-*-
+.\" Copyright (c) 2015 Stefani Seibold <stefani@seibold.net>
+.\"
+.\" This program is free software; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of the
+.\" License, or (at your option) any later version.
+.\"
+.\" This program is distributed in the hope that it will be useful, but
+.\" WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+.\" General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public License
+.\" along with this program; if not, write to the Free Software
+.\" Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
+.\" 02110-1301 USA
+.\"
+.TH MTRACE "1" "May 2015" "" "User Commands"
+.SH NAME
+mtrace \- A dynamic memory allocation tracer
+.SH SYNOPSIS
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+.PP
+.B mtrace
+.\"
+.\" Output formatting:
+.\"
+[\-d|\-\-depth \fIlevel\fR]
+[\-F|\-\-config \fIfile\fR]
+[\-S|\-\-sort \fIoption\fR]
+[\-o|\-\-output \fIfile\fR]
+.\"
+.\" Various:
+.\"
+[\-a|\-\-autoscan]
+[\-b|\-\-binpath \fIpath\fR]
+[\-C|\-\-cwd \fIpath\fR]
+[\-D|\-\-debug \fImask\fR]
+[\-n|\-\-nocpp]
+[\-u \fIusername\fR]
+[\-v|\-\-verbose]
+.\"
+.\" What processes to trace:
+.\"
+[\-e|\-\-follow\-exec]
+[\-f|\-\-follow\-fork]
+[\-p|\-\-pid \fIpid\fR]
+[[\-\-] \fIcommand [arg ...]\fR]
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+.PP
+.BR mtrace " \-c|\-\-client addr"
+[\-P|\-\-port num]
+[\-i|\-\-interactive]
+.\"
+.\" Output formatting:
+.\"
+[\-b|\-\-binpath \fIpath\fR]
+[\-F|\-\-config \fIfile\fR]
+[\-S|\-\-sort \fIoption\fR]
+[\-o|\-\-output \fIfilenfR]
+.\"
+.\" Various:
+.\"
+[\-a|\-\-autoscan]
+[\-D|\-\-debug \fImask\fR]
+[\-v|\-\-verbose]
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+.PP
+.BR mtrace " \-s|\-\-server"
+[\-P|\-\-port num]
+[\-l|\-\-listen addr]
+[\-w|\-\-wait]
+.\"
+.\" Output formatting:
+.\"
+[\-d|\-\-depth \fIlevel\fR]
+[\-o|\-\-output \fIfile\fR]
+.\"
+.\" Various:
+.\"
+[\-C|\-\-cwd \fIpath\fR]
+[\-D|\-\-debug \fImask\fR]
+[\-n|\-\-nocpp]
+[\-u \fIusername\fR]
+[\-v|\-\-verbose]
+.\"
+.\" What processes to trace:
+.\"
+[\-e|\-\-follow\-exec]
+[\-f|\-\-follow\-fork]
+[\-p|\-\-pid \fIpid\fR]
+[[\-\-] \fIcommand [arg ...]\fR]
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+.PP
+.B mtrace -i|\-\-interactive
+.\"
+.\" Output formatting:
+.\"
+[\-d|\-\-depth \fIlevel\fR]
+[\-F|\-\-config \fIfile\fR]
+[\-S|\-\-sort \fIoption\fR]
+.\"
+.\" Various:
+.\"
+[\-a|\-\-autoscan]
+[\-b|\-\-binpath \fIpath\fR]
+[\-C|\-\-cwd]
+[\-D|\-\-debug \fImask\fR]
+[\-n|\-\-nocpp]
+[\-u \fIusername\fR]
+[\-v|\-\-verbose]
+.\"
+.\" What processes to trace:
+.\"
+[\-e|\-\-follow\-exec]
+[\-f|\-\-follow\-fork]
+[\-p|\-\-pid \fIpid\fR]
+.\"
+.\" ---------------------------------------------------------------------------
+.\"
+.PP
+.BR mtrace " \-V|\-\-version"
+.PP
+.BR mtrace " \-h|\-\-help"
+.SH DESCRIPTION
+.B mtrace
+is a dynamic memory tracer, debugger and statistical analyses tool for C and
+C++.  It traces, records and reports all dynamic memory functions which are
+called by the specified
+.I command
+or
+.I process
+until it exits or
+.B mtrace
+is terminated.
+
+Unlike other memory tracers, the trace will be performed by setting
+breakpoints on each know dynamic alloction function.  So no additional
+library nor any kind of instrumentation or recompiling is needed to trace
+and hunt for memory leaks.
+
+.B mtrace
+is able to find no longer referenced memory allocation by scanning all
+writable memory mappings of the program against the pointer of the allocation.
+If the memory address will be not found during a scan there is a high change
+for a missing reference and therefore for a memory leak.
+
+The following funtions will be intercepted:
+
+.in +4
+.nf
+void *malloc(size_t size);
+void free(void *ptr);
+void *calloc(size_t nmemb, size_t size);
+void *realloc(void *ptr, size_t size);
+int posix_memalign(void **memptr, size_t alignment, size_t size);
+void *aligned_alloc(size_t alignment, size_t size);
+void *valloc(size_t size);
+void *memalign(size_t alignment, size_t size);
+void *pvalloc(size_t size);
+void cfree(void *ptr);
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+void *mmap64(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+int munmap(void *addr, size_t length);
+void *mremap(void *old_address, size_t old_size, size_t new_size, int flags, ... /* void *new_address */);
+
+void *operator new(size_t size) throw (std::bad_alloc)
+void *operator new(size_t size, const std::nothrow_t& nt) __THROW
+void *operator new[](size_t size) throw (std::bad_alloc)
+void *operator new[](size_t size, const std::nothrow_t& nt) __THROW
+void operator delete(void* p) __THROW
+void operator delete(void* p, const std::nothrow_t& nt) __THROW
+void operator delete[](void* p) __THROW
+void operator delete[](void* p, const std::nothrow_t& nt) __THROW
+.fi
+.in
+.PP
+.B mtrace
+offers four different kind of modes.  A non interactive mode, a server
+mode and a interactive and non interactive client mode.
+
+The most common mode is the non interactive mode, which allows to run
+and/or attach to a process, similar to strace.
+.B mtrace
+will show all open allocations when the traced program exists or
+.B mtrace
+will be terminated.
+
+For system with memory restrictions or cross architecture
+.B mtrace
+offers a server mode which moves the memory bookkeeping and address resolution
+outside to a connected client.  In this case the server must be started on
+target system where the program is executed.  Then the client has to be started
+on the host system.
+
+To get a more detailed information about the dynamic memory consumption
+.B mtrace
+can be started in an interactive mode.  This mode is available for client
+mode or when attaching to a process.  See the section \fBINTERACTIVE MODE\fR
+to learn more about the interactive commands in
+\fBmtrace\fR.
+.SH OPTIONS
+.PP
+.IP "\-a, \-\-autoscan"
+Scan all writeable memory mappings of the process for leaked pointers on exit
+of the traced program or termination of \fBmtrace\fR.  If the pointer value of an
+open allocated memory block will be not found on any aligned memory addresses,
+it will be marked and reported as leaked.  The scan can take a very long time,
+depending on the size of the writeable memory mappings and the number of open
+allocations.
+.IP "\-b, \-\-binpath \fIpath\fR"
+Set the binary search path.  This option is mostly needed for remote cross
+architecture trace and tells the client where to find the binaries or
+libraries.  The client tries to locate the binaries by adding the remote path
+of the binary to the search path.  If the binary is not found it will strip
+down the leading directory of the remote path and try again until no more
+leading directory is found.  It is possible to add several binary search paths
+by passing more than one option -b.
+.IP "\-c, \-\-client \fIaddr\fR"
+Run
+.B mtrace
+as client and connect to a socket.  If addr begins with / or . it will assumed
+a named socket, otherwise it will be passed to getaddrinfo(3), which handles
+any kind of hostname, IPv4 or IPv6 addresses.
+.IP "\-C, \-\-cwd \fIpath\fR"
+This option is valid in any mode except the client mode.  Its used for locating
+libraries for an attached process which are linked with relative paths.  In this
+case
+.B mtrace
+does not know the origin state of the current working directory and need
+to manually add this information.
+.IP "\-D, \-\-debug \fImask\fR"
+Show debugging output of
+.B mtrace
+itself.  \fImask\fR is a number
+describing which debug messages should be displayed.  Use the option
+\-Dh to see what can be used.  This option is only available when
+.B mtrace
+was build with --enable-debug.
+.IP "\-d, \-\-depth \fIlevel\fR"
+Do backtrace of \fIlevel\fR stack frames for each memory allocation function.
+.IP "\-f, \-\-follow-fork"
+Trace child processes as they are created by one of the currently traced
+processes as a result of the fork(2) system call.
+.IP "\-f, \-\-follow-exec"
+Trace processes as they are created by one of the currently traced processes as
+a result of execve(2) system call.
+.IP "\-F, \-\-config \fIpath"
+Set the config file.  For a detailed description of this file see
+mtrace.conf(5).  It is possible to pass several config files by passing more
+than one option \-F.  If no -F is given,
+.B mtrace
+will look up for one of the default files in the following order:
+$HOME/.mtrace,
+$XDG_CONFIG_HOME/mtrace,
+SYSCONFDIR/mtrace.conf,
+/etc/mtrace.conf
+.IP "\-h, \-\-help"
+Show a summary of the options to mtrace and exit.
+.IP "\-i, \-\-interactive"
+Enables the interactive mode for client or when attaching to a process.  See
+the section \fBINTERACTIVE MODE\fR to learn more about the interactive commands
+in this mode.
+.IP "\-k, \-\-kill"
+Kill mtrace in case of a bookkeeping error.  This options is for
+.B mtrace
+development only!
+.IP "\-l, \-\-listen \fIaddr"
+Listen on socket path or address in server mode.  If addr begins with / or . it
+will assumed a named socket, otherwise it will be passed to getaddrinfo(3),
+which handles any kind of hostname, IPv4 or IPv6 addresses.
+.IP "\-o, \-\-output \fIfilename"
+Write the trace output to the file \fIfilename\fR rather than to stderr.  When
+passing this option the output will be written in reserve order in opposite the
+stderr output.  So the highest value of the sort order is at the beginning of
+the file and the lowest at the end of the file.
+.IP "\-n, \-\-nocpp"
+Disable the trace of C++ allocation operators.  This is safe and faster for libstdc++,
+since this library does call malloc() and free() inside the allocation operators.
+.IP "\-p, \-\-pid \fIpid"
+Attach to the process with the process ID \fIpid\fR and begin tracing.
+This option can be used together with passing a command to execute.
+It is possible to attach to several processes by passing more than one
+option \-p.
+.IP "\-P, \-\-port \fInum"
+Set the port number for client or server mode.  The default port number is 4576.
+.IP "\-s, \-\-server"
+Run mtrace in server mode.  This is mostly needed for remote cross architecture
+trace or when running an interactive client.  If no option -l and -P is passed
+to the sever mode, the server will listen on any address using port 4576.
+.IP "\-S, \-\-sortby keyword"
+Sort the output of the stack backtraces by keyword.  Valid keywords are:
+
+.RS
+\fIallocations\fR
+.RS
+Sort by the number of open allocations.
+.RE
+.RE
+.RS
+\fIaverage\fR
+.RS
+Sort by the number of average allocations (number of bytes in used / number of open allocations).
+.RE
+.RE
+.RS
+\fIbytes-leaked\fR
+.RS
+Sort by number of bytes leaked (only useful with option -a).
+.RE
+.RE
+.RS
+\fIleaks\fR
+.RS
+Sort by number of leaked allocations (only useful with option -a).
+.RE
+.RE
+.RS
+\fIstacks\fR
+.RS
+Like \fIallocations\fR but show also all stack backtraces with zero open allocations.
+.RE
+.RE
+.RS
+\fItotal\fR
+.RS
+Sort by the total number of allocations.
+.RE
+.RE
+.RS
+\fItsc\fR
+.RS
+Sort by the pseudo time stamp counter.  Each stack backtrace will get an incremented counter value.
+.RE
+.RE
+.RS
+\fIusage\fR
+.RS
+Sort by number of bytes in use of all open allocations.
+.RE
+.RE
+.IP "\-u \fIusername"
+Run command with the userid, groupid and supplementary groups of
+.IR username .
+This option is only useful when running as root and enables the
+correct execution of setuid and/or setgid binaries.
+.IP "\-v, \-\-verbose"
+Be verbose and display more details about what going on.  This option can be
+repeated for a more detailed view.
+.IP "\-V, \-\-version"
+Show the version number of mtrace and exit.
+.IP "\-w, \-\-wait"
+This option stops the execution of the traced processes until a client is
+connected to the server.  So this option is only valid in server mode.
+.SH INTERACTIVE MODE
+
+The interactive mode offers a command line interface, which allows to gather
+different kind of debug statistics during the runtime and after termination of
+the traced program.  Due the use of readline it offers auto completion by
+using the TAB key.  The following commands are available:
+
+.in +4
+.nf
+dump
+help
+proclist
+quit
+reset
+scan
+set
+show
+start
+status
+stop
+.fi
+.in
+.PP
+
+.IP "dump \fIsortby\fR \fIpid\fR \fI>filename\fR"
+The dump command allows to output the current state of the memory bookkeeping
+at any time.  It accepts a maximum of three parameters:
+
+.RS
+\fIsortby\fR
+.RS
+Sort the output of dump by the keyword.  The keyword is the same as for the
+option -S (\fIallocations, \fIaverage\fR, \fIbytes-leaked\fR, \fIleaks\fR,
+\fIstacks\fR, \fItotal\fR, \fItsc\fR and \fIusage\fR).  See option -S for
+more details about the sortby keywords.  The default sort order is
+\fIallocations\fR when no sortby parameter is used.
+.RE
+.RE
+.RS
+\fIpid\fR
+.RS
+Process Id.  When no process Id is specified the lowest pid of all currently
+traced processes will be used as default.
+.RE
+.RE
+.RS
+\fI>filename\fR
+.RS
+Write the output to a file.  When the parameter is omitted it will paging the
+dump output.
+.RE
+.RE
+
+.IP "help \fIcommand\fR"
+Shows the help text for a given command.  If no command parameter is passed, it
+will show all available commands.
+
+.IP "proclist"
+Shows the list of currently traced processes.
+
+.IP "quit"
+Close the client connection and exit the
+.B mtrace
+debugger.
+
+.IP "reset \fIpid\fR"
+Reset the bookkeeping of a given process Id.
+
+.IP "scan \fIpid\fR \fImode\fR"
+Scan for memory leaks for a given process Id.  The scan operation can be only
+performed when tracing is running.  \fImode\fR is one of the following keywords:
+
+.RS
+\fIall\fR
+.RS
+Scan all open allocations for leaking.
+.RE
+.RE
+.RS
+\fIleak\fR
+.RS
+Scan all leaked marked allocations again.
+.RE
+.RE
+.RS
+\fInew\fR
+.RS
+Scan only allocations since last scan.
+.RE
+.RE
+
+.IP "set searchpath \fIpathes\fR"
+Set the searchpath for binaries and libraries.  This is similar to to options
+-b.  To pass more the one path search path, use a colon as seperator.  For a
+detailed description about the search path see option -B.
+
+.IP "show \fI...\fR"
+Show information about
+
+.RS
+\fIinfo\fR
+.RS
+Shows client settings.
+.RE
+.RE
+.RS
+\fIsearchpath\fR
+.RS
+Show searchpath for binaries and libraries.
+.RE
+.RE
+
+.IP "start \fIpid\fR"
+Start allocation tracing.
+
+.IP "status \fIpid\fR"
+Show allocation status.
+
+.IP "stop \fIpid\fR"
+Stop allocation tracing.  Note that in this state the \fIscan\fR command can
+not performed.
+
+.SH BUGS
+It only works on Linux for X86, X86_64, ARM 32 and PowerPC 32. No Hardware
+Breakpoint support on ARM and PowerPC. No ARM Thumb support. See TODO file
+for more open issues.
+.LP
+.PP
+If you would like to report a bug, send a mail to stefani@seibold.net
+.SH FILES
+.TP
+.I /etc/mtrace.conf\fR or \fISYSCONFDIR/mtrace.conf
+System configuration file
+.TP
+.I $HOME/.mtrace\fR or \fI$XDG_CONFIG_HOME/mtrace
+Personal config file, overrides system configuration file
+.PP
+
+See mtrace.conf(5) for details on the syntax of this file.
+.SH AUTHOR
+Stefani Seibold <stefani@seibold.net>
+.SH "SEE ALSO"
+.BR mtrace.conf(5),
+.BR ptrace(2)
