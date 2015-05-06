@@ -1,0 +1,4 @@
+the source is based on
+ ltrace http://ltrace.org/
+ libunwind http://www.nongnu.org/libunwind/
+ linux https://kernel.org/

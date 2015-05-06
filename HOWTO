@@ -1,0 +1,172 @@
+﻿The easiest way for using mtrace is simply run a program under the control of mtrace:
+
+mtrace -d 10 a.out
+
+This will run a.out and records all memory allocations. When the program exits or mtrace is terminated, it dumps all open memory allocations for each different stack backtrace:
+
+.
+.
+.
+Stack (mmap):
+ bytes used: 8392704
+ number of open allocations: 1
+ total number of allocations: 1
+ tsc: 4
+  [0x7f9e207abfd7] /lib64/libpthread.so.0 pthread_create
+  [0x4010e0] /home/stefani/mt/test/x.c:128 test
+  [0x40126a] /home/stefani/mt/test/x.c:189 main
+  [0x7f9e20427b55] /lib64/libc.so.6 __libc_start_main
+  [0x400b89] /home/stefani/mt/test/a.out _start
+Stack (malloc):
+ bytes used: 4800
+ number of open allocations: 8
+ total number of allocations: 30
+ tsc: 75
+  [0x400dee] /home/stefani/mt/test/x.c:56 ThreadFuncA
+  [0x7f9e207ab3a4] /lib64/libpthread.so.0 __pthread_get_minstack
+  [0x7f9e204ee18d] /lib64/libc.so.6 clone
+
+In this case you see for the last stack backtrace which calls malloc() by function ThreadFuncA in file /home/stefani/mt/test/x.c at line 56, which has 8 open allocations using a total of 4800 bytes.
+
+The default sort order is "allocations", which sorts the output by the number of open allocations. The lowest value is printed out first and the highest value at last. So the most interesting values are always in view. If you wish a different sort order und can pass a -S option, for example.
+
+mtrace -d 10 -s usage a.out
+
+This will sort by the total sum of bytes used:
+
+Stack (malloc):
+ bytes used: 288
+ number of open allocations: 1
+ total number of allocations: 1
+ tsc: 1
+  [0x7ff0ca5562e2] /lib64/ld-linux-x86-64.so.2 _dl_mcount
+  [0x7ff0ca556a8e] /lib64/ld-linux-x86-64.so.2 _dl_allocate_tls
+  [0x7ff0c990c069] /lib64/libpthread.so.0 pthread_create
+  [0x401022] /home/stefani/mt/test/x.c:107 test
+  [0x40126a] /home/stefani/mt/test/x.c:189 main
+  [0x7ff0c9587b55] /lib64/libc.so.6 __libc_start_main
+  [0x400b89] /home/stefani/mt/test/a.out _start
+.
+.
+.
+Stack (mmap):
+ bytes used: 8392704
+ number of open allocations: 1
+ total number of allocations: 1
+ tsc: 2
+  [0x7ff0c990bfd7] /lib64/libpthread.so.0 pthread_create
+  [0x401081] /home/stefani/mt/test/x.c:117 test
+  [0x40126a] /home/stefani/mt/test/x.c:189 main
+  [0x7ff0c9587b55] /lib64/libc.so.6 __libc_start_main
+  [0x400b89] /home/stefani/mt/test/a.out _start
+Stack (mmap):
+ bytes used: 8392704
+ number of open allocations: 1
+ total number of allocations: 1
+ tsc: 4
+  [0x7ff0c990bfd7] /lib64/libpthread.so.0 pthread_create
+  [0x4010e0] /home/stefani/mt/test/x.c:128 test
+  [0x40126a] /home/stefani/mt/test/x.c:189 main
+  [0x7ff0c9587b55] /lib64/libc.so.6 __libc_start_main
+  [0x400b89] /home/stefani/mt/test/a.out _start
+
+So you can see that the last two stack backtraces both called mmap() from inside the pthread_create() function. But since there are two different backtrace stacks there will be not merged together (the first on is called by x.c:117 and the other by x.c:128). Lets assume for the above example the stack backtrace depth is set (to the not really useful) value of 1, then mtrace would output:
+
+Stack (mmap):
+ bytes used: 16785408
+ number of open allocations: 2
+ total number of allocations: 2
+ tsc: 4
+  [0x7ff0c990bfd7] /lib64/libpthread.so.0 pthread_create
+
+In this case it is not possible to identifiy which function has been called pthread_create() and some important informations get lost. So it always reasonable to use a stack depth which allows to distinguish the callers. For C programs a depth value of 10 is recommended and for C++ a minimum of 20 is useful.
+
+It is also possible to write the output to a file instead to stderr, for example: 
+
+mtrace -d 10 -o /tmp/mtrace.out a.out
+
+In this case the dump will written to /tmp/mtrace.out after the program exits or mtrace is terminated. Note that in the case the sort order is inverted, the highest value is written first to the file and the lowest value at last. So the most interesting values are always in view when opening the file with an editor. 
+
+It is also possible to attach to an already running program:
+
+mtrace -d 10 -o /tmp/mtrace.out $(pidof -s a.out)
+
+This is e.g. useful when you not want do trace the whole startup of the program or you want to test only a specific function of a program. Imaging a test scenario where a leak is assumed. So attached mtrace, run the tests (more then once is better) and then terminated mtrace by Ctrl-C. One of last dump stack backtraces should show the culprit.
+
+A more sophisticate way to find a memory leak is to scan for lost pointer values, e.g.
+
+mtrace -a -S leaks -d 10 -o /tmp/mtrace.out $(pidof -s a.out)
+
+After attach and run the tests and terminating mtrace by Ctrl-C, the memory will be scanned for lost pointer. The dump output will then sorted by the number of leaked allocations:
+
+process 12166 scanning 18 allocations
+process 12166
+ leaks reported: 15
+ new leaks found: 15
+ leaked bytes: 8064
+ leaked at 0x02030010 (288 bytes)
+ leaked at 0x02030140 (288 bytes)
+ leaked at 0x02030270 (288 bytes)
+ leaked at 0x7fb4740008c0 (0 bytes)
+ leaked at 0x7fb4740008e0 (400 bytes)
+ leaked at 0x7fb474000a80 (800 bytes)
+ leaked at 0x7fb474000db0 (1200 bytes)
+ leaked at 0x7fb474001270 (0 bytes)
+ leaked at 0x7fb474001290 (400 bytes)
+ leaked at 0x7fb474001430 (800 bytes)
+ leaked at 0x7fb474001760 (1200 bytes)
+ leaked at 0x7fb474001c20 (0 bytes)
+ leaked at 0x7fb474001c40 (400 bytes)
+ leaked at 0x7fb474001de0 (800 bytes)
+ leaked at 0x7fb474002110 (1200 bytes)
+leaks total: 15
+.
+.
+.
+Stack (malloc):
+ bytes used: 288
+ number of open allocations: 1
+ total number of allocations: 1
+ leaked allocations: 1 (288 bytes)
+ tsc: 6
+  [0x7fb47aae72e2] /lib64/ld-linux-x86-64.so.2 _dl_mcount
+  [0x7fb47aae7a8e] /lib64/ld-linux-x86-64.so.2 _dl_allocate_tls
+  [0x7fb479e9d069] /lib64/libpthread.so.0 pthread_create
+  [0x4010e0] /home/stefani/mt/test/x.c:128 test
+  [0x40126a] /home/stefani/mt/test/x.c:189 main
+  [0x7fb479b18b55] /lib64/libc.so.6 __libc_start_main
+  [0x400b89] /home/stefani/mt/test/a.out _start
+Stack (malloc):
+ bytes used: 7200
+ number of open allocations: 12
+ total number of allocations: 45
+ leaked allocations: 12 (7200 bytes)
+ tsc: 110
+  [0x400dee] /home/stefani/mt/test/x.c:56 ThreadFuncA
+  [0x7fb479e9c3a4] /lib64/libpthread.so.0 __pthread_get_minstack
+  [0x7fb479bdf18d] /lib64/libc.so.6 clone
+
+So you can see there are 15 leaked pointer in this case and the main culprit is a malloc() called from ThreadFuncA().
+
+There is also a server mode and a client with an command line interface. This is useful when you want get information during the runtime 
+of a program, for example:
+
+mtrace -w -s -d 10 a.out
+
+This start the client waiting for a client connection before running the program a.out.
+
+Then you can connect the client using an other terminal or on an other computer:
+
+mtrace -c 127.0.0.1
+memtrace info:
+ follow fork: no
+ follow exec: no
+ verbose: no
+ do trace: yes
+ stack depth: 10
+memtrace> 
+
+No you can ask for help with the command "help", or dump the current state of the bookkeeping by using the command "dump".
+
+For more information about the interactive mode see the manual page mtrace(1) section INTERACTIVE MODE.
+

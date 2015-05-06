@@ -150,7 +150,7 @@ and hunt for memory leaks.
 
 .B mtrace
 is able to find no longer referenced memory allocation by scanning all
-writable memory mappings of the program against the pointer of the allocation.
+writable memory mappings of the program against the pointer of an allocation.
 If the memory address will be not found during a scan there is a high change
 for a missing reference and therefore for a memory leak.
 
@@ -185,8 +185,8 @@ void operator delete[](void* p, const std::nothrow_t& nt) __THROW
 .in
 .PP
 .B mtrace
-offers four different kind of modes.  A non interactive mode, a server
-mode and a interactive and non interactive client mode.
+offers three different kind of working modes.  A non interactive mode, a
+server mode and a interactive client mode.
 
 The most common mode is the non interactive mode, which allows to run
 and/or attach to a process, similar to strace.
@@ -195,12 +195,13 @@ will show all open allocations when the traced program exists or
 .B mtrace
 will be terminated.
 
-For system with memory restrictions or cross architecture
+For system with memory restrictions or for using in a cross architecture
+environment,
 .B mtrace
 offers a server mode which moves the memory bookkeeping and address resolution
 outside to a connected client.  In this case the server must be started on
 target system where the program is executed.  Then the client has to be started
-on the host system.
+on the remote host system.
 
 To get a more detailed information about the dynamic memory consumption
 .B mtrace
@@ -214,7 +215,7 @@ to learn more about the interactive commands in
 Scan all writeable memory mappings of the process for leaked pointers on exit
 of the traced program or termination of \fBmtrace\fR.  If the pointer value of an
 open allocated memory block will be not found on any aligned memory addresses,
-it will be marked and reported as leaked.  The scan can take a very long time,
+it will be marked and reported as leaked.  The scan can take some time,
 depending on the size of the writeable memory mappings and the number of open
 allocations.
 .IP "\-b, \-\-binpath \fIpath\fR"
@@ -224,7 +225,7 @@ libraries.  The client tries to locate the binaries by adding the remote path
 of the binary to the search path.  If the binary is not found it will strip
 down the leading directory of the remote path and try again until no more
 leading directory is found.  It is possible to add several binary search paths
-by passing more than one option -b.
+by passing more than one \-b option.
 .IP "\-c, \-\-client \fIaddr\fR"
 Run
 .B mtrace
@@ -242,8 +243,8 @@ to manually add this information.
 Show debugging output of
 .B mtrace
 itself.  \fImask\fR is a number
-describing which debug messages should be displayed.  Use the option
-\-Dh to see what can be used.  This option is only available when
+describing which debug messages should be displayed.  Use the \-Dh option
+to see what can be used.  This option is only available when
 .B mtrace
 was build with --enable-debug.
 .IP "\-d, \-\-depth \fIlevel\fR"
@@ -257,7 +258,7 @@ a result of execve(2) system call.
 .IP "\-F, \-\-config \fIpath"
 Set the config file.  For a detailed description of this file see
 mtrace.conf(5).  It is possible to pass several config files by passing more
-than one option \-F.  If no -F is given,
+than one \-F option.  If no -F is given,
 .B mtrace
 will look up for one of the default files in the following order:
 $HOME/.mtrace,
@@ -290,12 +291,12 @@ since this library does call malloc() and free() inside the allocation operators
 Attach to the process with the process ID \fIpid\fR and begin tracing.
 This option can be used together with passing a command to execute.
 It is possible to attach to several processes by passing more than one
-option \-p.
+\-p option.
 .IP "\-P, \-\-port \fInum"
 Set the port number for client or server mode.  The default port number is 4576.
 .IP "\-s, \-\-server"
 Run mtrace in server mode.  This is mostly needed for remote cross architecture
-trace or when running an interactive client.  If no option -l and -P is passed
+trace or when running an interactive client.  If no \-l and \-P option is passed
 to the sever mode, the server will listen on any address using port 4576.
 .IP "\-S, \-\-sortby keyword"
 Sort the output of the stack backtraces by keyword.  Valid keywords are:
@@ -315,13 +316,13 @@ Sort by the number of average allocations (number of bytes in used / number of o
 .RS
 \fIbytes-leaked\fR
 .RS
-Sort by number of bytes leaked (only useful with option -a).
+Sort by number of bytes leaked (only useful with \-a option).
 .RE
 .RE
 .RS
 \fIleaks\fR
 .RS
-Sort by number of leaked allocations (only useful with option -a).
+Sort by number of leaked allocations (only useful with \-a option).
 .RE
 .RE
 .RS
@@ -393,8 +394,8 @@ at any time.  It accepts a maximum of three parameters:
 \fIsortby\fR
 .RS
 Sort the output of dump by the keyword.  The keyword is the same as for the
-option -S (\fIallocations, \fIaverage\fR, \fIbytes-leaked\fR, \fIleaks\fR,
-\fIstacks\fR, \fItotal\fR, \fItsc\fR and \fIusage\fR).  See option -S for
+\-S option (\fIallocations, \fIaverage\fR, \fIbytes-leaked\fR, \fIleaks\fR,
+\fIstacks\fR, \fItotal\fR, \fItsc\fR and \fIusage\fR).  See \-S option for
 more details about the sortby keywords.  The default sort order is
 \fIallocations\fR when no sortby parameter is used.
 .RE
@@ -455,7 +456,7 @@ Scan only allocations since last scan.
 .IP "set searchpath \fIpathes\fR"
 Set the searchpath for binaries and libraries.  This is similar to to options
 -b.  To pass more the one path search path, use a colon as seperator.  For a
-detailed description about the search path see option -B.
+detailed description about the search path see \-b option.
 
 .IP "show \fI...\fR"
 Show information about

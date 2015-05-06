@@ -81,7 +81,7 @@ noinst_HEADERS = \
 dist_man1_MANS = mtrace.1
 dist_man5_MANS = mtrace.conf.5
 
-dist_doc_DATA = COPYING CREDITS INSTALL README TODO
+dist_doc_DATA = COPYING CREDITS INSTALL README TODO HOWTO
 
 EXTRA_DIST = 
 
