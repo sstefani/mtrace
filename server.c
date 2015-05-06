@@ -2,7 +2,7 @@
  * This file is part of mtrace.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
- * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich.
+ * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as

@@ -3,7 +3,7 @@
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
  *
- * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich.
+ * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -408,7 +408,7 @@ char **process_options(int argc, char **argv)
 			printf("mtrace version " PACKAGE_VERSION ".\n"
 			       "Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>.\n"
 			       "\n"
-			       "This software was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich.\n"
+			       "This software was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.\n"
 			       "\n"
 			       "This is free software; see the GNU General Public Licence\n"
 			       "version 2 or later for copying conditions. There is NO warranty.\n");
