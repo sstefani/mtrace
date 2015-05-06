@@ -6,4 +6,3 @@ dwarf caching
 invalid stack trace cache for unmapped libraries
 restore REALLOC_TRY when realloc fails
 mremap revamp
-write documentation

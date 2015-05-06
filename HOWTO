@@ -148,6 +148,8 @@ Stack (malloc):
 
 So you can see there are 15 leaked pointer in this case and the main culprit is a malloc() called from ThreadFuncA().
 
+When no C++ Code is traced or when using the libstdc++ (which calls malloc() and free() inside the allocation operators), the breakpoints for the C++ allocators can be omitted by the --nocpp option. This increases the trace performance.
+
 There is also a server mode and a client with an command line interface. This is useful when you want get information during the runtime 
 of a program, for example:
 
