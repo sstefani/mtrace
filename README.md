@@ -56,7 +56,7 @@ To get a more detailed information about the dynamic memory consumption mtrace c
 
 Restrictions
 ------------
-There is currently support for X86 (32 and 64 Bit), PowerPC (32 Bit) and ARM (32 Bit, no Thumb support).  Only Linux is now supported, but there are plans to support different operating systems and CPU's.
+There is currently support for X86 (32 and 64 Bit), PowerPC (32 Bit) and ARM (32 Bit, no Thumb support).  Only Linux is yet supported, but there are plans to support different operating systems and CPU's.
 
 
 Munich, Germany
