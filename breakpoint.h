@@ -24,6 +24,8 @@
 #ifndef _INC_BREAKPOINT_H
 #define _INC_BREAKPOINT_H
 
+#include <stdlib.h>
+
 #include "sysdep.h"
 #include "forward.h"
 

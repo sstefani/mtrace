@@ -174,8 +174,8 @@ int dwarf_arch_init_unwind(struct dwarf_addr_space *as)
 	c->loc[DWARF_PPC_FPSCR] = DWARF_REG_LOC(DWARF_PPC_FPSCR);
 	c->loc[DWARF_PPC_FRAME_POINTER] = DWARF_REG_LOC(DWARF_PPC_FRAME_POINTER);
 
-	c->ip = fetch_reg(as->task, PT_LNK);
-	c->cfa = fetch_reg(as->task, PT_R1);
+	c->ip = fetch_reg(c->task, PT_LNK);
+	c->cfa = fetch_reg(c->task, PT_R1);
 
 	c->use_prev_instr = 0;
 

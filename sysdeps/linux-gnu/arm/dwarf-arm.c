@@ -139,8 +139,8 @@ int dwarf_arch_init_unwind(struct dwarf_addr_space *as)
 	c->loc[DWARF_ARM_PC] = DWARF_REG_LOC(DWARF_ARM_PC);
 	c->loc[DWARF_ARM_CPSR] = DWARF_REG_LOC(DWARF_ARM_CPSR);
 
-	c->ip = fetch_reg(as->task, offsetof(struct pt_regs, ARM_pc));
-	c->cfa = fetch_reg(as->task, offsetof(struct pt_regs, ARM_sp));
+	c->ip = fetch_reg(c->task, offsetof(struct pt_regs, ARM_pc));
+	c->cfa = fetch_reg(c->task, offsetof(struct pt_regs, ARM_sp));
 
 	c->use_prev_instr = 0;
 
