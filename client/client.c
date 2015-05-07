@@ -572,7 +572,8 @@ static void signal_exit(int sig)
 	signal(SIGINT, SIG_IGN);
 	signal(SIGTERM, SIG_IGN);
 
-	write(pipefd[1], &signum, 1);
+	if (write(pipefd[1], &signum, 1) == -1)
+		;
 }
 
 static int scan_process(struct process *process)
