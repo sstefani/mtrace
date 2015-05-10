@@ -403,7 +403,7 @@ static inline int dwarf_readw(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 	int ret;
 
 	if (is_64bit) {
-		uint64_t u64;
+		uint64_t u64 = 0;
 
 		ret = dwarf_read64(as, addr, &u64);
 
@@ -411,7 +411,7 @@ static inline int dwarf_readw(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 			*valp = u64;
 	}
 	else {
-		uint32_t u32;
+		uint32_t u32 = 0;
 
 		ret = dwarf_read32(as, addr, &u32);
 

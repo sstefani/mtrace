@@ -70,6 +70,9 @@ static int set_breakpoint_addr(struct task *task, arch_addr_t addr, unsigned int
 		addr &= 0xffffffff;
 #endif
 
+	if (task->arch.hw_bp[n] == addr)
+		return 0;
+
 	ret = ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct user, u_debugreg[n]), addr);
 	if (ret) {
 		if (errno != ESRCH) {
@@ -77,6 +80,9 @@ static int set_breakpoint_addr(struct task *task, arch_addr_t addr, unsigned int
 			return -1;
 		}
 	}
+
+	task->arch.hw_bp[n] = addr;
+
 	return 0;
 }
 
@@ -187,6 +193,11 @@ int is_64bit(struct mt_elf *mte)
 
 int arch_task_init(struct task *task)
 {
+	unsigned int i;
+
+	for(i = 0; i < HW_BREAKPOINTS; ++i)
+		task->arch.hw_bp[i] = 0;
+
 	return _apply_hw_bp(task, 0);
 }
 

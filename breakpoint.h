@@ -34,15 +34,20 @@
 #define HW_BP_SCRATCH	2
 
 struct breakpoint {
-	int (*on_hit)(struct task *task, struct breakpoint *bp);
-	struct library_symbol *libsym;
 	arch_addr_t addr;
+
 	unsigned int enabled:1;
 	unsigned int locked:1;
 	unsigned int deleted:1;
 	unsigned int type:2;
 	unsigned int ext:8;
+
 	unsigned int refcnt;
+
+	int (*on_hit)(struct task *task, struct breakpoint *bp);
+
+	struct library_symbol *libsym;
+
 	union {
 		unsigned char orig_value[BREAKPOINT_LENGTH];
 #if HW_BREAKPOINTS > 0

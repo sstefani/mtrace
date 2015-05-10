@@ -52,6 +52,7 @@ struct context {
 
 struct arch_task_data {
 	unsigned long dr7;
+	unsigned long hw_bp[HW_BREAKPOINTS];
 };
 
 #endif

@@ -38,9 +38,17 @@
 #include "report.h"
 
 struct task {
-	struct rb_node pid_node;	/* red/black tree node for fast pid -> struct task */
+	/* red/black tree node for fast pid -> struct task */
+	struct rb_node pid_node;
 
+	/* process id */
 	pid_t pid;
+
+	/* points to the leader thread of the POSIX.1 task */
+	struct task *leader;
+
+	/* current pendig event */
+	struct event event;
 
 	unsigned int stopped:1;
 	unsigned int traced:1;
@@ -48,43 +56,11 @@ struct task {
 	unsigned int is_64bit:1;
 	unsigned int attached:1;
 	unsigned int deleted:1;
-	
-	/* Dictionary of breakpoints */
-	struct dict *breakpoints;
 
+	struct breakpoint *breakpoint;
 	struct library_symbol *libsym;
 	struct context context;		/* process context (registers, stack) */
 	struct context saved_context;	/* context for fetch_param() */
-	struct breakpoint *breakpoint;
-
-	unsigned int threads;		/* set in leader: number of threads including the leader */
-	unsigned int threads_stopped;	/* set in leader: number of stopped threads including the leader */
-
-	/* linked list of libraries, the first entry is the executable itself */
-	struct list_head libraries_list;
-
-	void *backtrace;
-
-	/* struct task chaining. */
-	struct list_head leader_list;
-
-	/* points to the leader thread of the POSIX.1 task */
-	struct task *leader;
-
-	/* Thread chaining to leader */
-	struct list_head task_list;
-
-	/* current pendig event */
-	struct event event;
-
-	/* pointer to a breakpoint which was interrupt by a signal during skip */
-	struct breakpoint *skip_bp;
-
-	/* only used in leader: bit mask for used hw breakpoints */
-	unsigned long hw_bp_mask;
-
-	/* array of addresses of hw breakpoints */
-	struct breakpoint *hw_bp[HW_BREAKPOINTS];
 
 	/* os specific task data */
 #ifdef OS_HAVE_PROCESS_DATA
@@ -95,6 +71,36 @@ struct task {
 #ifdef TASK_HAVE_PROCESS_DATA
 	struct arch_task_data arch;
 #endif
+
+	/* pointer to a breakpoint which was interrupt by a signal during skip */
+	struct breakpoint *skip_bp;
+
+	/* array of addresses of hw breakpoints */
+	struct breakpoint *hw_bp[HW_BREAKPOINTS];
+
+	/* set in leader: number of stopped threads including the leader */
+	unsigned int threads_stopped;
+
+	/* set in leader: dictionary of breakpoints */
+	struct dict *breakpoints;
+
+	/* set in leader: backtrace pimpl */
+	void *backtrace;
+
+	/* linked list of libraries, the first entry is the executable itself */
+	struct list_head libraries_list;
+
+	/* Thread chaining to leader */
+	struct list_head task_list;
+
+	/* set in leader: number of threads including the leader */
+	unsigned int threads;
+
+	/* only used in leader: bit mask for used hw breakpoints */
+	unsigned long hw_bp_mask;
+
+	/* struct task chaining. */
+	struct list_head leader_list;
 };
 
 /* PROC underwent an exec.  This is a bit like task_destroy
