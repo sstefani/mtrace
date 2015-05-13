@@ -48,7 +48,7 @@
 #define MIN_STACK	4
 #define MAX_STACK	128
 
-#define DEFAULT_STACK	6
+#define DEFAULT_STACK	15
 #define DEFAULT_PORT	4576
 
 struct options_t options;
