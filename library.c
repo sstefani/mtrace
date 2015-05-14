@@ -33,6 +33,7 @@
 #include "debug.h"
 #include "dict.h"
 #include "library.h"
+#include "options.h"
 #include "report.h"
 #include "server.h"
 #include "task.h"
@@ -202,6 +203,9 @@ void library_delete_list(struct task *leader, struct list_head *list)
 
 		debug(DEBUG_FUNCTION, "%s@%#lx", lib->filename, lib->base);
 
+		if (options.verbose > 1)
+			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, lib->filename, lib->base, lib->load_addr, lib->load_addr + lib->load_size);
+
 		library_destroy(leader, lib);
 	}
 }
@@ -220,7 +224,7 @@ static void cb_breakpoint_for_symbol(struct library_symbol *libsym, void *data)
 	}
 	bp = breakpoint_new(task, addr, libsym, libsym->func->hw_bp_min <= HW_BREAKPOINTS ? HW_BP : SW_BP);
 	if (!bp)
-		fprintf(stderr, "Couldn't insert breakpoint for %s to %d: %s.", libsym->func->name, task->pid, strerror(errno));
+		fprintf(stderr, "Couldn't insert breakpoint for %s to %d: %s", libsym->func->name, task->pid, strerror(errno));
 
 	if (server_connected())
 		breakpoint_enable(task, bp);
@@ -231,6 +235,9 @@ void library_add(struct task *leader, struct library *lib)
 	assert(leader->leader == leader);
 
 	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", lib->filename, lib->base, leader->pid);
+
+	if (options.verbose > 1)
+		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, lib->filename, lib->base, lib->load_addr, lib->load_addr + lib->load_size);
 
 	/* Insert breakpoints for all active symbols.  */
 	library_each_symbol(lib, cb_breakpoint_for_symbol, leader);

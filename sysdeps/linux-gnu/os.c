@@ -148,10 +148,6 @@ static void signal_exit(int sig)
 	mtrace_request_exit();
 }
 
-static void sigchld_handler(int signum)
-{
-}
-
 static int open_mem(pid_t pid)
 {
 	int h;
@@ -389,11 +385,9 @@ ssize_t sock_fd_write(int sock, void *buf, ssize_t buflen, int fd)
 
 int os_init(void)
 {
-	sigset_t block_sigset;
 	struct sigaction act;
 	const int siglist[] = { SIGSEGV, SIGABRT, SIGTRAP, SIGILL, SIGFPE };
 	unsigned int i;
-	int ret;
 
 	for(i = 0; i < ARRAY_SIZE(siglist); i++) {
 		act.sa_flags = SA_ONESHOT | SA_SIGINFO;
@@ -402,26 +396,14 @@ int os_init(void)
 		sigaction(siglist[i], &act, NULL);
 	}
 
-	signal(SIGINT, signal_exit);	/* Detach task_es when interrupted */
-	signal(SIGTERM, signal_exit);	/* ... or killed */
+	/* Detach task_es when interrupted */
+	if (options.interactive)
+		signal(SIGINT, SIG_IGN);
+	else
+		signal(SIGINT, signal_exit);
 
-	sigemptyset(&act.sa_mask);
-	act.sa_flags = SA_RESTART;
-	act.sa_handler = sigchld_handler;
-
-	if (sigaction(SIGCHLD, &act, NULL)) {
-		perror("sigaction(SIGCHLD)");
-		return -1;
-	}
-
-	sigemptyset(&block_sigset);
-	sigaddset(&block_sigset, SIGCHLD);
-
-	ret = pthread_sigmask(SIG_BLOCK, &block_sigset, NULL);
-	if (ret) {
-		fprintf(stderr, "pthread_sigmask %d (%s)\n", ret, strerror(ret));
-		return -1;
-	}
+	/* ... or killed */
+	signal(SIGTERM, signal_exit);
 
 	return 0;
 }

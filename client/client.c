@@ -42,6 +42,7 @@
 #include "client.h"
 #include "dump.h"
 #include "ioevent.h"
+#include "main.h"
 #include "options.h"
 #include "process.h"
 #include "readline.h"
@@ -592,7 +593,8 @@ static int signal_func(void)
 {
 	fprintf(stderr, "terminating...\n");
 	client_iterate_processes(scan_process);
-	exit(0);
+	client_close();
+	return -1;
 }
 
 int client_start(void)
@@ -624,10 +626,15 @@ int client_start(void)
 	ioevent_add_input(client_fd, client_func);
 
 	if (options.interactive) {
+		signal(SIGINT, SIG_IGN);
+		signal(SIGTERM, SIG_IGN);
+
 		readline_init();
 
 		while(ioevent_watch(-1) != -1)
 			;
+
+		readline_exit();
 	}
 	else {
 		if (pipe(pipefd) == -1) {
@@ -651,8 +658,22 @@ int client_start(void)
 
 void *client_thread(void *unused)
 {
-	while(client_fd != -1)
-		client_func();
+	if (options.interactive) {
+		ioevent_add_input(client_fd, client_func);
+
+		readline_init();
+
+		while(ioevent_watch(-1) != -1)
+			;
+
+		readline_exit();
+
+		mtrace_request_exit();
+	}
+	else {
+		while(client_fd != -1)
+			client_func();
+	}
 
 	return NULL;
 }

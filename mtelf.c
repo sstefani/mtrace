@@ -75,8 +75,10 @@ static int open_elf(struct mt_elf *mte, struct task *task, const char *filename)
 			mte->fd = open(filename, O_RDONLY);
 	}
 
-	if (mte->fd == -1)
-		return 1;
+	if (mte->fd == -1) {
+		fprintf(stderr, "could not open %s\n", filename);
+		return -1;
+	}
 
 	elf_version(EV_CURRENT);
 
@@ -88,17 +90,17 @@ static int open_elf(struct mt_elf *mte, struct task *task, const char *filename)
 
 	if (mte->elf == NULL || elf_kind(mte->elf) != ELF_K_ELF) {
 		fprintf(stderr, "\"%s\" is not an ELF file\n", filename);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	if (gelf_getehdr(mte->elf, &mte->ehdr) == NULL) {
 		fprintf(stderr, "can't read ELF header of \"%s\": %s\n", filename, elf_errmsg(-1));
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	if (mte->ehdr.e_type != ET_EXEC && mte->ehdr.e_type != ET_DYN) {
 		fprintf(stderr, "\"%s\" is neither an ELF executable" " nor a shared library\n", filename);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	if (1
@@ -113,7 +115,7 @@ static int open_elf(struct mt_elf *mte, struct task *task, const char *filename)
 #endif
 	    ) {
 		fprintf(stderr, "\"%s\" is ELF from incompatible architecture\n", filename);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	return 0;
@@ -320,13 +322,13 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 		scn = elf_getscn(mte->elf, i);
 		if (scn == NULL || gelf_getshdr(scn, &shdr) == NULL) {
 			fprintf(stderr, "Couldn't get section #%d from" " \"%s\": %s\n", i, filename, elf_errmsg(-1));
-			exit(EXIT_FAILURE);
+			return -1;
 		}
 
 		name = elf_strptr(mte->elf, mte->ehdr.e_shstrndx, shdr.sh_name);
 		if (name == NULL) {
 			fprintf(stderr, "Couldn't get name of section #%d from \"%s\": %s\n", i, filename, elf_errmsg(-1));
-			exit(EXIT_FAILURE);
+			return -1;
 		}
 
 		if (shdr.sh_type == SHT_SYMTAB) {
@@ -341,7 +343,7 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 			data = elf_getdata(scn, NULL);
 			if (data == NULL) {
 				fprintf(stderr, "Couldn't get .dynamic data from \"%s\": %s\n", filename, strerror(errno));
-				exit(EXIT_FAILURE);
+				return -1;
 			}
 
 			for(idx = 0; gelf_getdyn(data, idx, &dyn); ++idx) {
@@ -357,12 +359,12 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 
 	if (!mte->dyn_addr) {
 		fprintf(stderr, "Couldn't find .dynamic section \"%s\"\n", filename);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	if (!mte->dynsym || !mte->dynstr) {
 		fprintf(stderr, "Couldn't find .dynsym or .dynstr in \"%s\"\n", filename);
-		exit(EXIT_FAILURE);
+		return -1;
 	}
 
 	return 0;

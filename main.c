@@ -86,12 +86,14 @@ static void dump_process(struct task *leader)
 
 static void mtrace_exit(void)
 {
-	each_process(stop_threads);
+	if (!options.interactive) {
+		each_process(stop_threads);
 
-	while(server_connected()) {
-		if (task_list_empty())
-			break;
-		dump_process(get_first_process());
+		while(server_connected()) {
+			if (task_list_empty())
+				break;
+			dump_process(get_first_process());
+		}
 	}
 
 	each_process(remove_proc);

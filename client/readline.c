@@ -86,6 +86,7 @@ const char status_str[] = "status";
 const char stop_str[] = "stop";
 
 static const char *outfile;
+static int quit;
 
 static struct cmd_opt dump_opts[] = {
 	{ "allocations", 2, process_dump_sort_allocations, "sort by number of open allocations" },
@@ -202,12 +203,6 @@ static struct cmd_opt cmds[] = {
 	},
 	{ },
 };
-
-static void _quit(void)
-{
-	rl_callback_handler_remove();
-	_exit(1);
-}
 
 static inline char *skip_spaces(const char *s)
 {
@@ -663,7 +658,7 @@ static int do_proclist(struct cmd_opt *cmd, int argc, const char *argv[])
 
 static int do_quit(struct cmd_opt *cmd, int argc, const char *argv[])
 {
-	_quit();
+	quit = 1;
 
 	return 0;
 }
@@ -826,6 +821,10 @@ static int do_stop(struct cmd_opt *cmd, int argc, const char *argv[])
 static int readline_func(void)
 {
 	rl_callback_read_char();
+
+	if (quit)
+		return -1;
+
 	return 0;
 }
 
@@ -855,5 +854,10 @@ void readline_init(void)
 #endif
 
 	ioevent_add_input(0, readline_func);
+}
+
+void readline_exit(void)
+{
+	rl_callback_handler_remove();
 }
 

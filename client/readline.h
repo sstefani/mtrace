@@ -24,6 +24,7 @@
 #define _INC_CLIENT_READLINE_H
 
 void readline_init(void);
+void readline_exit(void);
 
 #endif
 

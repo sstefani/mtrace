@@ -617,7 +617,7 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 		parent = *new;
 
 		if (addr <= this->addr && addr + n > this->addr) {
-			if (options.kill || options.verbose > 1) {
+			if (options.kill || options.verbose > 2) {
 				process_dump_collision(process, this, addr, size, operation);
 
 				if (options.kill)
@@ -1128,7 +1128,7 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			break;
 
 		if (!is_mmap(block->stack_node->stack->operation)) {
-			if (options.kill || options.verbose > 1) {
+			if (options.kill || options.verbose > 2) {
 				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
 				if (options.kill)
@@ -1213,7 +1213,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (is_mmap(block->stack_node->stack->operation)) {
-			if (options.kill || options.verbose > 1) {
+			if (options.kill || options.verbose > 2) {
 				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
 				if (options.kill)
@@ -1224,7 +1224,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	}
 	else {
 		if (!process->attached) {
-			if (options.kill || options.verbose > 1) {
+			if (options.kill || options.verbose > 2) {
 				fprintf(stderr, ">>> block %#lx not found pid:%d tid:%d\n", ptr, process->pid, mt_msg->tid);
 
 				if (options.kill)
@@ -1271,7 +1271,7 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	block = process_rb_search_range(&process->block_table, ptr, size);
 	if (block) {
-		if (options.kill || options.verbose > 1) {
+		if (options.kill || options.verbose > 2) {
 			process_dump_collision(process, block, ptr, size, mt_msg->operation);
 
 			if (options.kill)
@@ -1320,6 +1320,12 @@ void process_dump_sortby(struct process *process)
 	switch(options.sort_by) {
 	case OPT_SORT_AVERAGE:
 		_process_dump(process, sort_average, skip_zero_allocations, options.output);
+		break;
+	case OPT_SORT_BYTES_LEAKED:
+		_process_dump(process, sort_bytes_leaked, skip_zero_leaks, options.output);
+		break;
+	case OPT_SORT_LEAKS:
+		_process_dump(process, sort_leaks, skip_zero_leaks, options.output);
 		break;
 	case OPT_SORT_STACKS:
 		_process_dump(process, sort_allocations, skip_none, options.output);
