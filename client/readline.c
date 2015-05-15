@@ -161,7 +161,7 @@ static struct cmd_opt cmds[] = {
 		2,
 		do_scan,
 		"scan new memory leaks",
-		"[<pid>]",
+		"[mode] [<pid>]",
 		scan_opts
 	},
 	{
@@ -689,17 +689,14 @@ static int do_scan(struct cmd_opt *cmd, int argc, const char *argv[])
 	if (!client_connected())
 		return -1;
 
-	process = get_process(argv[1]);
-	if (!process)
-		return -1;
-	
-	if (!process->tracing) {
-		fprintf(stderr, "scan can only performed in tracing state!\n");
-		return -1;
-	}
-
-	if (argc == 1)
+	if (!argv[1]) {
+		process = client_first_process();
+		if (!process) {
+			fprintf(stderr, "no process available\n");
+			return -1;
+		}
 		mode = SCAN_ALL;
+	}
 	else {
 		mode = -1;
 
@@ -713,12 +710,27 @@ static int do_scan(struct cmd_opt *cmd, int argc, const char *argv[])
 		}
 
 		if (mode < 0) {
-			fprintf(stderr, "%s: unknown scan mode\n", cmd->name);
-			return -1;
+			process = client_find_process(atoi(argv[1]));
+			if (!process) {
+				fprintf(stderr, "%s: unknown scan mode\n", cmd->name);
+				return -1;
+			}
+			mode = SCAN_ALL;
+		}
+		else {
+			process = get_process(argv[2]);
+			if (!process)
+				return -1;
 		}
 	}
 
+	if (!process->tracing) {
+		fprintf(stderr, "scan can only performed in tracing state!\n");
+		return -1;
+	}
+
 	leaks_scan(process, mode);
+
 	return 0;
 }
 

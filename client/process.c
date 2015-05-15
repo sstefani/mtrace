@@ -358,12 +358,6 @@ static void stack_resolv(struct process *process, struct stack *stack)
 	for(i = 0; i < stack->entries; ++i) {
 		unsigned long addr = process->get_ulong(addrs);
 
-		if (!addr) {
-			stack->syms[i] = NULL;
-
-			continue;
-		}
-
 		stack->syms[i] = resolv_address(process, addr);
 
 		addrs += process->ptr_size;
