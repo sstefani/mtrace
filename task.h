@@ -103,9 +103,6 @@ struct task {
 	struct list_head leader_list;
 };
 
-/* PROC underwent an exec.  This is a bit like task_destroy
- * followed by task_init, except that some state is kept and the
- * process doesn't lose it's place in the list of processes.  */
 int process_exec(struct task *task);
 
 struct task *task_new(pid_t pid, int traced);

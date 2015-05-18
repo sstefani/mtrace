@@ -122,9 +122,9 @@ ssize_t copy_from_to_proc(struct task *task, arch_addr_t addr, const void *src, 
  * to local buffer dst */
 ssize_t copy_str_from_proc(struct task *task, arch_addr_t addr, char *dst, size_t len);
 
-/* Called at some point after we have attached to PROC.  This callback
- * should insert an introspection breakpoint for handling dynamic
- * linker library loads.  */
+/* Called at some point after we have attached to the process.  This callback
+ * should insert an introspection breakpoint for handling dynamic linker
+ * library loads. */
 int linkmap_init(struct task *task, arch_addr_t dyn_addr);
 
 /* This should extract entry point address and interpreter (dynamic
