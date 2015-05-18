@@ -47,7 +47,7 @@ static unsigned int target_address_hash(unsigned long key)
 
 	union {
 		arch_addr_t addr;
-		uint8_t v[sizeof(arch_addr_t) / sizeof(uint8_t)];
+		uint16_t v[sizeof(arch_addr_t) / sizeof(uint16_t)];
 	} u = { .addr = ARCH_ADDR_T(key) };
 
 	for (i = 0; i < ARRAY_SIZE(u.v); ++i)
