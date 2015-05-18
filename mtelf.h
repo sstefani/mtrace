@@ -58,12 +58,9 @@ struct elf_image {
 	size_t size;	/* (file-) size of the image */
 };
 
-/* For now we assume that all libraries can be
- * opened via a filesystem.  BASE is ignored for ET_EXEC files.  */
 int elf_read_library(struct task *task, struct library *lib, const char *filename, GElf_Addr bias);
 
-/* Create a library object representing the main binary.  The entry
- * point address is stored to *ENTRYP.  */
+/* Create a library object representing the main binary. */
 struct library *elf_read_main_binary(struct task *task);
 
 #endif
