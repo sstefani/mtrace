@@ -29,7 +29,7 @@
 #include <sys/user.h>
 #include <sys/ptrace.h>
 
-#define BREAKPOINT_VALUE {0xcc}
+#define BREAKPOINT_VALUE { 0xcc }
 #define BREAKPOINT_LENGTH 1
 #define DECR_PC_AFTER_BREAK 1
 #define ARCH_ENDIAN_LITTLE
