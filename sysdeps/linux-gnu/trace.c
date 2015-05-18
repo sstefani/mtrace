@@ -260,6 +260,9 @@ static void process_event(struct task *task, int status)
 	if (bp) {
 		assert(bp->type != SW_BP);
 		assert(bp->hw_bp_slot == i);
+
+		if (options.verbose > 1)
+			++leader->num_hw_bp;
 	}
 	else
 #endif
@@ -268,6 +271,9 @@ static void process_event(struct task *task, int status)
 		if (!bp)
 			return;
 		assert(bp->type == SW_BP);
+
+		if (options.verbose > 1)
+			++leader->num_sw_bp;
 
 		set_instruction_pointer(task, bp->addr);
 	}

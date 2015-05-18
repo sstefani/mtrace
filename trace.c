@@ -94,6 +94,10 @@ void detach_proc(struct task *leader)
 	assert(leader->leader == leader);
 
 	breakpoint_disable_all(leader);
+
+	if (options.verbose > 1)
+		fprintf(stderr, "+++ process detach pid=%d sw-bp:%lu hw-bp:%lu +++\n", leader->pid, leader->num_sw_bp, leader->num_hw_bp);
+
 	each_task(leader, &detach_cb, NULL);
 }
 

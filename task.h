@@ -81,6 +81,9 @@ struct task {
 	/* set in leader: number of stopped threads including the leader */
 	unsigned int threads_stopped;
 
+	unsigned long num_hw_bp;
+	unsigned long num_sw_bp;
+
 	/* set in leader: dictionary of breakpoints */
 	struct dict *breakpoints;
 
