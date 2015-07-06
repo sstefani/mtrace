@@ -58,8 +58,23 @@ Restrictions
 ------------
 There is currently support for X86 (32 and 64 Bit), PowerPC (32 Bit) and ARM (32 Bit, no Thumb support).  Only Linux is yet supported, but there are plans to support different operating systems and CPU's.
 
+Thanks
+------
 
-Munich, Germany
-6. Mai 2015
+The development of this tool was financial supported and sponsored by
+Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
+
+About the author
+----------------
+
 Stefani Seibold
+Work and life in Munich/Germany
+Freelancer
+Linux Kernel Hacker (KFIFO, VDSO32 for x86)
+Linux Kernel Drivers
+System-, Embedded- and Realtime-Programmer
+Email: stefani@seibold.net
+
+6. July 2015
+Munich, Germany
 
