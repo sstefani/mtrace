@@ -28,6 +28,7 @@
 #include <stddef.h>
 #include <sys/user.h>
 #include <sys/ptrace.h>
+#include <linux/unistd.h>
 
 #define BREAKPOINT_VALUE { 0xcc }
 #define BREAKPOINT_LENGTH 1
@@ -40,7 +41,20 @@
 #ifdef __x86_64__
 #define MT_ELFCLASS2	ELFCLASS64
 #define MT_ELF_MACHINE2	EM_X86_64
+
+#ifndef __NR_process_vm_readv
+#define __NR_process_vm_readv 310
 #endif
+
+#else /* __x86_64__ */
+
+#ifndef __NR_process_vm_readv
+#define __NR_process_vm_readv 347
+#endif
+
+#endif /* __x86_64__ */
+
+#define GUESS_CALLER
 
 #define HW_BREAKPOINTS	4
 

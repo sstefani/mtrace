@@ -146,7 +146,7 @@ static void read_symbol_table(struct mt_elf *mte, const char *filename, Elf_Scn 
 	*strsp = data->d_buf;
 }
 
-static int populate_this_symtab(struct mt_elf *mte, struct library *lib, Elf_Data *symtab, const char *strtab, size_t size)
+static int populate_this_symtab(struct mt_elf *mte, struct libref *libref, Elf_Data *symtab, const char *strtab, size_t size)
 {
 	size_t i;
 
@@ -177,9 +177,9 @@ static int populate_this_symtab(struct mt_elf *mte, struct library *lib, Elf_Dat
 
 		arch_addr_t addr = ARCH_ADDR_T(sym.st_value + mte->bias);
 
-		struct library_symbol *libsym = library_find_symbol(lib, addr);
+		struct library_symbol *libsym = library_find_symbol(libref, addr);
 		if (!libsym) {
-			struct library_symbol *libsym = library_symbol_new(lib, addr, func);
+			struct library_symbol *libsym = library_symbol_new(libref, addr, func);
 
 			if (!libsym) {
 				fprintf(stderr, "couldn't init symbol: %s%s\n", name, func->name);
@@ -191,21 +191,30 @@ static int populate_this_symtab(struct mt_elf *mte, struct library *lib, Elf_Dat
 			if (libsym->func->level > func->level)
 				libsym->func = func;
 		}
+		if (options.verbose > 1)
+			fprintf(stderr, "breakpoint for %s:%s at %#lx\n", libref->filename, func->demangled_name, addr);
 	}
 
 	return 0;
 }
 
-static int populate_symtab(struct mt_elf *mte, struct library *lib)
+static int populate_symtab(struct mt_elf *mte, struct libref *libref)
 {
+	struct opt_O_t *p;
+
+	for(p = options.opt_O; p; p = p->next) {
+		if (!strcmp(p->pathname, libref->filename))
+			return 0;
+	}
+
 	if (mte->symtab != NULL && mte->strtab != NULL) {
-		int status = populate_this_symtab(mte, lib, mte->symtab, mte->strtab, mte->symtab_count);
+		int status = populate_this_symtab(mte, libref, mte->symtab, mte->strtab, mte->symtab_count);
 
 		if (status < 0)
 			return status;
 	}
 
-	return populate_this_symtab(mte, lib, mte->dynsym, mte->dynstr, mte->dynsym_count);
+	return populate_this_symtab(mte, libref, mte->dynsym, mte->dynstr, mte->dynsym_count);
 }
 
 static inline int elf_map_image(struct mt_elf *mte, void **image_addr)
@@ -223,32 +232,32 @@ static inline int elf_map_image(struct mt_elf *mte, void **image_addr)
 	return 0;
 }
 
-static int elf_lib_init(struct mt_elf *mte, struct task *task, struct library *lib)
+static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *libref)
 {
-	if (elf_map_image(mte, &lib->image_addr))
+	if (elf_map_image(mte, &libref->image_addr))
 		return -1;
 
-	lib->base = ARCH_ADDR_T(mte->base_addr);
-	lib->entry = ARCH_ADDR_T(mte->entry_addr);
-	lib->load_offset = mte->txt_hdr.p_offset;
-	lib->load_addr = mte->txt_hdr.p_vaddr + mte->bias;
-	lib->load_size = mte->txt_hdr.p_filesz;
-	lib->seg_offset = mte->eh_hdr.p_offset;
-	lib->gp = mte->pltgot;
+	libref->base = ARCH_ADDR_T(mte->base_addr);
+	libref->entry = ARCH_ADDR_T(mte->entry_addr);
+	libref->load_offset = mte->txt_hdr.p_offset;
+	libref->load_addr = mte->txt_hdr.p_vaddr + mte->bias;
+	libref->load_size = mte->txt_hdr.p_filesz;
+	libref->seg_offset = mte->eh_hdr.p_offset;
+	libref->gp = mte->pltgot;
 
 #ifdef __arm__
 	if (mte->exidx_hdr.p_filesz) {
-		lib->exidx_data = lib->image_addr + mte->exidx_hdr.p_offset;
-		lib->exidx_len = mte->exidx_hdr.p_memsz;
+		libref->exidx_data = libref->image_addr + mte->exidx_hdr.p_offset;
+		libref->exidx_len = mte->exidx_hdr.p_memsz;
 	}
 #endif
 
 	if (mte->eh_hdr.p_filesz && mte->dyn_addr) {
-		if (dwarf_get_unwind_table(task, lib, (struct dwarf_eh_frame_hdr *)(lib->image_addr - lib->load_offset + mte->eh_hdr.p_offset)) < 0)
+		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->image_addr - libref->load_offset + mte->eh_hdr.p_offset)) < 0)
 			return -1;
 	}
 
-	if (populate_symtab(mte, lib) < 0)
+	if (populate_symtab(mte, libref) < 0)
 		return -1;
 
 	return 0;
@@ -370,12 +379,12 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 	return 0;
 }
 
-int elf_read_library(struct task *task, struct library *lib, const char *filename, GElf_Addr bias)
+int elf_read_library(struct task *task, struct libref *libref, const char *filename, GElf_Addr bias)
 {
 	struct mt_elf mte = { };
 	int ret;
 
-	library_set_filename(lib, filename);
+	libref_set_filename(libref, filename);
 
 	if (elf_read(&mte, task, filename, bias) == -1)
 		return -1;
@@ -383,7 +392,7 @@ int elf_read_library(struct task *task, struct library *lib, const char *filenam
 	mte.bias = bias;
 	mte.entry_addr = mte.ehdr.e_entry + bias;
 
-	ret = elf_lib_init(&mte, task, lib);
+	ret = elf_lib_init(&mte, task, libref);
 
 	close_elf(&mte);
 
@@ -456,7 +465,7 @@ static int entry_breakpoint_on_hit(struct task *task, struct breakpoint *a)
 	return 1;
 }
 
-struct library *elf_read_main_binary(struct task *task)
+struct libref *elf_read_main_binary(struct task *task)
 {
 	char fname[PATH_MAX];
 	int ret;
@@ -464,14 +473,14 @@ struct library *elf_read_main_binary(struct task *task)
 	struct mt_elf mte = { };
 	unsigned long entry;
 	unsigned long base;
-	struct library *lib;
+	struct libref *libref;
 
 	filename = pid2name(task->pid);
 	if (!filename)
 		return NULL;
 
-	lib = library_new();
-	if (lib == NULL)
+	libref = libref_new(LIBTYPE_MAIN);
+	if (libref == NULL)
 		goto fail1;
 
 	ret = readlink(filename, fname, sizeof(fname) - 1);
@@ -480,7 +489,7 @@ struct library *elf_read_main_binary(struct task *task)
 
 	fname[ret] = 0;
 
-	library_set_filename(lib, strdup(fname));
+	libref_set_filename(libref, fname);
 
 	if (elf_read(&mte, task, filename, 0) == -1)
 		goto fail3;
@@ -497,57 +506,90 @@ struct library *elf_read_main_binary(struct task *task)
 	mte.bias = (GElf_Addr) (uintptr_t) entry - mte.ehdr.e_entry;
 	mte.entry_addr = (GElf_Addr) (uintptr_t) entry;
 
-	if (elf_lib_init(&mte, task, lib))
+	libref->key = ARCH_ADDR_T(mte.bias);
+
+	if (elf_lib_init(&mte, task, libref))
 		goto fail3;
 
 	close_elf(&mte);
 
 	report_attach(task);
 
-	library_add(task, lib);
-
-	if (!linkmap_init(task, ARCH_ADDR_T(mte.dyn_addr)))
-		return lib;
+	library_add(task, libref);
 
 	if (!mte.interp)
-		return lib;
+		return libref;
 
 	struct mt_elf mte_ld = { };
 
 	copy_str_from_proc(task, ARCH_ADDR_T(mte.interp), fname, sizeof(fname));
 
 	if (!elf_read(&mte_ld, task, fname, (GElf_Addr)base)) {
+		struct libref *libref;
+
+		libref = libref_new(LIBTYPE_LOADER);
+		if (libref == NULL)
+			goto fail4;
+
+		libref_set_filename(libref, fname);
+
 		mte_ld.bias = (GElf_Addr)base;
 		mte_ld.entry_addr = mte_ld.ehdr.e_entry + (GElf_Addr)base;
 
-		arch_addr_t addr = find_solib_break(&mte_ld);
-		if (!addr)
-			addr = ARCH_ADDR_T(entry);
+		libref->key = ARCH_ADDR_T(mte_ld.bias);
 
-		struct entry_breakpoint *entry_bp = (void *)breakpoint_new_ext(task, addr, NULL, 0, sizeof(*entry_bp) - sizeof(entry_bp->breakpoint));
-		if (!entry_bp)
+		ret = elf_lib_init(&mte_ld, task, libref);
+		if (!ret) {
+			library_add(task, libref);
+
+			if (linkmap_init(task, ARCH_ADDR_T(mte.dyn_addr))) {
+				arch_addr_t addr = find_solib_break(&mte_ld);
+				if (!addr)
+					addr = ARCH_ADDR_T(entry);
+
+				struct entry_breakpoint *entry_bp = (void *)breakpoint_new_ext(task, addr, NULL, 0, sizeof(*entry_bp) - sizeof(entry_bp->breakpoint));
+				if (!entry_bp)
+					fprintf(stderr,
+						"Couldn't initialize entry breakpoint for PID %d.\n"
+						"Tracing events may be missed.\n",
+						task->pid
+					);
+				else {
+					entry_bp->breakpoint.on_hit = entry_breakpoint_on_hit;
+					entry_bp->breakpoint.locked = 1;
+					entry_bp->dyn_addr = ARCH_ADDR_T(mte.dyn_addr);
+
+					breakpoint_enable(task, &entry_bp->breakpoint);
+				}
+			}
+		}
+		else {
 			fprintf(stderr,
-				"Couldn't initialize entry breakpoint for PID %d.\n"
-				"Some tracing events may be missed.\n",
+				"Couldn't read dynamic loader `%s` for PID %d.\n"
+				"Tracing events may be missed.\n",
+				fname,
 				task->pid
 			);
-		else {
-			entry_bp->breakpoint.on_hit = entry_breakpoint_on_hit;
-			entry_bp->breakpoint.locked = 1;
-			entry_bp->dyn_addr = ARCH_ADDR_T(mte.dyn_addr);
-
-			breakpoint_enable(task, &entry_bp->breakpoint);
 		}
+fail4:
+		close_elf(&mte_ld);
 	}
-	close_elf(&mte_ld);
+	else {
+		fprintf(stderr,
+			"Couldn't open dynamic loader `%s` for PID %d.\n"
+			"Tracing events may be missed.\n",
+			fname,
+			task->pid
+		);
+	}
 
-	return lib;
+	return libref;
 fail3:
 	close_elf(&mte);
 fail2:
-	library_destroy(task, lib);
+	libref_delete(libref);
 fail1:
 	free(filename);
-	return lib;
+	return libref;
 }
 

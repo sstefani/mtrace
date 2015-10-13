@@ -37,6 +37,7 @@
 #include <unistd.h>
 #include <sys/ptrace.h>
 #include <sys/prctl.h>
+#include <sys/uio.h>
 
 #ifdef HAVE_LIBSELINUX
 #include <selinux/selinux.h>
@@ -124,7 +125,7 @@ static int child_event(struct task *task, enum event_type ev)
 	int pid = data;
 
 	if (!pid2task(pid)) {
-		struct task *child = task_new(pid, 0);
+		struct task *child = task_new(pid);
 
 		if (!child)
 			return -1;
@@ -235,7 +236,7 @@ static void process_event(struct task *task, int status)
 	if (stop_signal == 0)
 		return;
 
-	if (stop_signal != SIGTRAP && stop_signal != SIGSEGV && stop_signal != SIGILL)
+	if (stop_signal != SIGTRAP)
 		return;
 
 	if (fetch_context(task) == -1) {
@@ -251,14 +252,15 @@ static void process_event(struct task *task, int status)
 
 	for(i = 0; i < HW_BREAKPOINTS; ++i) {
 		if (task->hw_bp[i] && task->hw_bp[i]->addr == ip) {
-			/* todo: check if this was really a hw bp */
-			bp = task->hw_bp[i];
+			if (get_hw_bp_state(task, i))
+				bp = task->hw_bp[i];
+
 			break;
 		}
 	}
 
 	if (bp) {
-		assert(bp->type != SW_BP);
+		assert(bp->type != BP_SW);
 		assert(bp->hw_bp_slot == i);
 
 		if (options.verbose > 1)
@@ -268,9 +270,15 @@ static void process_event(struct task *task, int status)
 #endif
 	{
 		bp = breakpoint_find(leader, ip - DECR_PC_AFTER_BREAK);
-		if (!bp)
+		if (!bp) {
+			task->event.type = EVENT_NONE;
+			continue_task(task, 0);
 			return;
-		assert(bp->type == SW_BP);
+		}
+#if HW_BREAKPOINTS > 0
+		assert(bp->type != BP_HW_SCRATCH);
+		assert(bp->hw == 0);
+#endif
 
 		if (options.verbose > 1)
 			++leader->num_sw_bp;
@@ -284,7 +292,7 @@ static void process_event(struct task *task, int status)
 		return;
 #endif
 	task->event.type = EVENT_BREAKPOINT;
-	task->event.e_un.breakpoint = breakpoint_ref(bp);
+	task->event.e_un.breakpoint = breakpoint_get(bp);
 
 	debug(DEBUG_EVENT, "BREAKPOINT: pid=%d, addr=%#lx", task->pid, task->event.e_un.breakpoint->addr);
 
@@ -344,7 +352,6 @@ int untrace_task(struct task *task, int signum)
 			fprintf(stderr, "PTRACE_SETOPTIONS pid=%d %s\n", task->pid, strerror(errno));
 		ret = -1;
 		goto skip;
-
 	}
 
 	signum = fix_signal(task, signum);
@@ -525,7 +532,7 @@ struct task *wait_event(void)
 
 	task = pid2task(pid);
 	if (!task) {
-		task = task_new(pid, 0);
+		task = task_new(pid);
 
 		if (task)
 			trace_setup(task, status, SIGSTOP);
@@ -552,16 +559,53 @@ void wait_event_wakeup(void)
 	pthread_mutex_unlock(&mutex);
 }
 
+#ifndef HAVE_PROCESS_VM_READV
+static ssize_t process_vm_readv(pid_t pid, const struct iovec *local_iov, unsigned long liovcnt, const struct iovec *remote_iov, unsigned long riovcnt, unsigned long flags)
+{
+#ifdef __NR_process_vm_readv
+	return syscall(__NR_process_vm_readv, pid, local_iov, liovcnt, remote_iov, riovcnt, flags);
+#else
+	errno = ENOSYS;
+	return -1;
+#endif
+}
+#endif
+
 ssize_t copy_from_proc(struct task *task, arch_addr_t addr, void *dst, size_t len)
 {
+	static int process_vm_call_nosys;
+	ssize_t num_bytes;
+	size_t n;
 	union {
 		long a;
 		char c[sizeof(long)];
 	} a;
 
-	ssize_t num_bytes = 0;
-	size_t n = sizeof(a.a);
+	if (len > sizeof(a) && !process_vm_call_nosys) {
+		struct iovec local[1];
+		struct iovec remote[1];
 
+		local[0].iov_base = dst;
+		local[0].iov_len = len;
+		remote[0].iov_base = (void *)addr;
+		remote[0].iov_len = len;
+
+		num_bytes = process_vm_readv(task->pid, local, 1, remote, 1, 0);
+		if (num_bytes != -1)
+			return num_bytes;
+
+		if (errno != EFAULT) {
+			if (errno != ENOSYS) {
+				fprintf(stderr, "%s pid=%d process_vm_readv: %s\n", __FUNCTION__, task->pid, strerror(errno));
+				return -1;
+			}
+
+			process_vm_call_nosys = 1;
+		}
+	}
+
+	num_bytes = 0;
+	n = sizeof(a.a);
 	errno = 0;
 
 	while (len) {
@@ -589,13 +633,15 @@ ssize_t copy_from_proc(struct task *task, arch_addr_t addr, void *dst, size_t le
 
 ssize_t copy_to_proc(struct task *task, arch_addr_t addr, const void *src, size_t len)
 {
+	ssize_t num_bytes;
+	size_t n;
 	union {
 		long a;
 		char c[sizeof(long)];
 	} a;
 
-	ssize_t num_bytes = 0;
-	size_t n = sizeof(a.a);
+	num_bytes = 0;
+	n = sizeof(a.a);
 
 	while (len) {
 		if (n > len) {

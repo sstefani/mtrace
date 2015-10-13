@@ -437,9 +437,11 @@ finish:
 	free(argv);
 	free(linedup);
 
+	if (quit)
+		rl_callback_handler_remove();
+
 	return;
 }
-
 
 static void split_search_patch(const char *str)
 {
@@ -870,6 +872,7 @@ void readline_init(void)
 
 void readline_exit(void)
 {
-	rl_callback_handler_remove();
+	if (!quit)
+		rl_callback_handler_remove();
 }
 

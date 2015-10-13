@@ -306,6 +306,7 @@ static int socket_read_msg(struct mt_msg *mt_msg, void **payload, unsigned int *
 	else
 		*swap_endian = 0;
 
+
 	if (mt_msg->payload_len) {
 		*payload = malloc(mt_msg->payload_len);
 
@@ -333,8 +334,10 @@ static unsigned int attached_payload(void *payload)
 void client_close(void)
 {
 	if (client_fd != -1) {
-		ioevent_del_input(client_fd);
-		shutdown(client_fd, SHUT_RDWR);
+		if (thread) {
+			ioevent_del_input(client_fd);
+			shutdown(client_fd, SHUT_RDWR);
+		}
 		close(client_fd);
 		client_fd = -1;
 	}
@@ -343,9 +346,27 @@ void client_close(void)
 static void client_broken(void)
 {
 	if (client_fd != -1) {
-		fprintf(stderr, "connection lost\n");
+		if (!options.logfile)
+			fprintf(stderr, "connection lost\n");
+
 		client_close();
 	}
+}
+
+static void client_add_process(struct process *process)
+{
+	if (!first_pid)
+		first_pid = process->pid;
+
+	process_rb_insert(&pid_table, process);
+}
+
+static void client_remove_process(struct process *process)
+{
+	process = pid_rb_delete(&pid_table, process->pid);
+
+	if (process)
+		free(process);
 }
 
 static int client_func(void)
@@ -365,7 +386,10 @@ static int client_func(void)
 
 		switch(mt_msg.operation) {
 		case MT_DISCONNECT:
-			sock_send_msg(client_fd, MT_DISCONNECT, 0, 0, NULL, 0);
+			if (!options.trace && !options.logfile) {
+				printf("server disconnected\n");
+				fflush(stdout);
+			}
 			client_close();
 			break;
 		case MT_INFO:
@@ -433,7 +457,8 @@ static int client_func(void)
 			process_exit(process);
 			break;
 		case MT_NOFOLLOW:
-			process_delete(process);
+			process_reset(process);
+			client_remove_process(process);
 			break;
 		case MT_SCAN:
 			process_scan(process, payload, mt_msg.payload_len);
@@ -470,6 +495,9 @@ void client_show_info(void)
 
 int client_wait_op(enum mt_operation op)
 {
+	if (options.logfile)
+		return -1;
+
 	for(;;) {
 		if (client_fd == -1)
 			return -1;
@@ -481,22 +509,6 @@ int client_wait_op(enum mt_operation op)
 			break;
 	}
 	return 0;
-}
-
-static int client_release_process(struct rb_node *node, void *user)
-{
-	struct rb_process *data = (struct rb_process *)node;
-
-	process_delete(data->process);
-	free(data);
-	return 0;
-}
-
-void client_finalize()
-{
-	client_close();
-
-	rb_iterate(&pid_table, client_release_process, NULL);
 }
 
 static int client_iterate_process(struct rb_node *node, void *user)
@@ -528,23 +540,6 @@ struct process *client_first_process(void)
 		return NULL;
 	return client_find_process(first_pid);
 }
-
-void client_add_process(struct process *process)
-{
-	if (!first_pid)
-		first_pid = process->pid;
-
-	process_rb_insert(&pid_table, process);
-}
-
-void client_remove_process(struct process *process)
-{
-	process = pid_rb_delete(&pid_table, process->pid);
-
-	if (process)
-		free(process);
-}
-
 
 static int client_init(int do_trace)
 {
@@ -602,14 +597,17 @@ int client_start(void)
 	if (client_init(0) < 0)
 		return -1;
 
-	client_fd = connect_to(options.client, options.port);
+	client_fd = connect_to(options.address, options.port);
 
 	if (client_fd == -1) {
-		fprintf(stderr, "could not connect: %s:%s\n", options.client, options.port);
+		fprintf(stderr, "could not connect: %s\n", options.address);
 		return -1;
 	}
 
-	client_wait_op(MT_INFO);
+	if (client_wait_op(MT_INFO) == -1) {
+		fprintf(stderr, "could not talk to server\n");
+		return -1;
+	}
 
 	if (mt_info.version != MEMTRACE_SI_VERSION) {
 		fprintf(stderr,
@@ -626,6 +624,8 @@ int client_start(void)
 	ioevent_add_input(client_fd, client_func);
 
 	if (options.interactive) {
+		int old_client_fd = client_fd;
+
 		signal(SIGINT, SIG_IGN);
 		signal(SIGTERM, SIG_IGN);
 
@@ -633,6 +633,13 @@ int client_start(void)
 
 		while(ioevent_watch(-1) != -1)
 			;
+
+		if (client_fd == -1) {
+			ioevent_del_input(old_client_fd);
+
+			while(ioevent_watch(-1) != -1)
+				;
+		}
 
 		readline_exit();
 	}
@@ -697,7 +704,12 @@ int client_start_pair(int handle)
 
 int client_send_msg(struct process *process, enum mt_operation op, void *payload, unsigned int payload_len)
 {
-	int ret = sock_send_msg(client_fd, process->val16(op), process->pid, 0, payload, payload_len);
+	int ret;
+
+	if (options.logfile)
+		return -1;
+
+	ret = sock_send_msg(client_fd, process->val16(op), process->pid, 0, payload, payload_len);
 
  	if (ret < 0)
 		client_broken();
@@ -709,16 +721,63 @@ int client_connected(void)
 	if (client_fd != -1)
 		return 1;
 
-	printf("connection lost\n");
-
 	return 0;
 }
 
 int client_stop(void)
 {
-	if (thread)
+	if (thread) {
 		thread_join(thread);
+		thread = NULL;
+	}
+
 	client_close();
+	return 0;
+}
+
+int client_logfile(void)
+{
+	const char spin[4] = "|/-\\";
+	unsigned int i;
+	const unsigned int spindepth = 14;
+
+	thread = NULL;
+
+	if (client_init(1) < 0)
+		return -1;
+
+	client_fd = open(options.logfile, O_RDONLY);
+	if (client_fd == -1)
+		fatal("could not open logfile: %s", options.logfile);
+
+	printf("processing logfile `%s'...  ", options.logfile);
+	fflush(stdout);
+
+	for(i = 0; client_fd != -1; ++i) {
+		if ((i & ((1 << spindepth) - 1)) == 0) {
+			printf("\b%c", spin[(i >> spindepth) & (ARRAY_SIZE(spin) - 1)]);
+			fflush(stdout);
+		}
+		client_func();
+	}
+
+	printf("\bdone\n");
+	fflush(stdout);
+
+	if (options.interactive) {
+		client_show_info();
+
+		signal(SIGINT, SIG_IGN);
+		signal(SIGTERM, SIG_IGN);
+
+		readline_init();
+
+		while(ioevent_watch(-1) != -1)
+			;
+
+		readline_exit();
+	}
+
 	return 0;
 }
 

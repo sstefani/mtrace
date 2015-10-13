@@ -176,12 +176,12 @@ static inline int access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void
 #ifdef DEBUG
 	if (as) {
 		struct dwarf_cursor *c = &as->cursor;
-		struct library *lib = c->lib;
+		struct libref *libref = c->libref;
 
-		if (addr < ARCH_ADDR_T(lib->image_addr))
-			fatal("invalid access mem: addr %#lx < %p", addr, lib->image_addr);
-		if (addr >= ARCH_ADDR_T(lib->image_addr + lib->load_size))
-			fatal("invalid access mem: addr %#lx >= %p", addr, lib->image_addr + lib->load_size);
+		if (addr < ARCH_ADDR_T(libref->image_addr))
+			fatal("invalid access mem: addr %#lx < %p", addr, libref->image_addr);
+		if (addr >= ARCH_ADDR_T(libref->image_addr + libref->load_size))
+			fatal("invalid access mem: addr %#lx >= %p", addr, libref->image_addr + libref->load_size);
 	}
 #endif
 
@@ -506,8 +506,8 @@ static int arm_exidx_extract(struct dwarf_addr_space *as, arch_addr_t entry, uin
 static unsigned long arm_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip, void *exidx_data, unsigned long exidx_len)
 {
 	struct dwarf_cursor *c = &as->cursor;
-	struct library *lib = c->lib;
-	unsigned long map_offset = (unsigned long)lib->image_addr + lib->load_offset - lib->load_addr;
+	struct libref *libref = c->libref;
+	unsigned long map_offset = (unsigned long)libref->image_addr + libref->load_offset - libref->load_addr;
 	unsigned long lo, hi, e, f;
 	arch_addr_t val;
 
@@ -542,12 +542,12 @@ static unsigned long arm_search_unwind_table(struct dwarf_addr_space *as, arch_a
 static int arm_exidx_step(struct dwarf_addr_space *as)
 {
 	struct dwarf_cursor *c = &as->cursor;
-	struct library *lib = c->lib;
+	struct libref *libref = c->libref;
 	arch_addr_t old_ip, old_cfa, entry;
 	uint8_t buf[32];
 	int ret;
 
-	if (!lib)
+	if (!libref)
 		return -DWARF_ENOINFO;
 
 	old_ip = c->ip;
@@ -556,7 +556,7 @@ static int arm_exidx_step(struct dwarf_addr_space *as)
 	/* mark PC unsaved */
 	c->loc[DWARF_ARM_PC] = DWARF_NULL_LOC;
 
-	entry = arm_search_unwind_table(as, c->ip, lib->exidx_data, lib->exidx_len);
+	entry = arm_search_unwind_table(as, c->ip, libref->exidx_data, libref->exidx_len);
 	if (!entry)
 		return -DWARF_ENOINFO;
 
@@ -644,5 +644,10 @@ int dwarf_arch_step(struct dwarf_addr_space *as)
 		return 0;
 
 	return -DWARF_EBADFRAME;
+}
+
+int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
+{
+	return 1;
 }
 

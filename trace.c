@@ -48,7 +48,7 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 	if (task->event.type != EVENT_NONE)
 		return 1;
 
-	if (bp->enabled && bp->type == SW_BP) {
+	if (bp->enabled && !bp->hw) {
 		int ret = 0;
 
 		breakpoint_disable(task, bp);
@@ -56,8 +56,8 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 		breakpoint_enable(task, bp);
 		if (ret) {
 			if (ret == 1) {
-				breakpoint_unref(task->skip_bp);
-				task->skip_bp = breakpoint_ref(bp);
+				breakpoint_put(task->skip_bp);
+				task->skip_bp = breakpoint_get(bp);
 			}
 			return ret;
 		}
@@ -65,6 +65,15 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 
 	continue_task(task, 0);
 	return 0;
+}
+
+void fix_about_exit(struct task *task)
+{
+	if (task->about_exit) {
+		task->about_exit = 0;
+
+		continue_task(task, 0);
+	}
 }
 
 void detach_task(struct task *task)
@@ -77,10 +86,11 @@ void detach_task(struct task *task)
 		sig = task->event.e_un.signum;
 	else
 	if (task->event.type == EVENT_BREAKPOINT)
-		breakpoint_unref(task->event.e_un.breakpoint);
+		breakpoint_put(task->event.e_un.breakpoint);
 
 	remove_event(task);
 	breakpoint_hw_destroy(task);
+	fix_about_exit(task);
 	untrace_task(task, sig);
 }
 

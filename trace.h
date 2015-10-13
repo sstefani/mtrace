@@ -25,6 +25,7 @@
 
 #include "forward.h"
 
+void fix_about_exit(struct task *task);
 void detach_task(struct task *task);
 void detach_proc(struct task *leader);
 int skip_breakpoint(struct task *task, struct breakpoint *bp);

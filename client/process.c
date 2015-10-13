@@ -56,7 +56,7 @@ struct stack {
 	void *addrs;
 	uint32_t size;
 	uint32_t entries;
-	char **syms;
+	struct rb_sym **syms;
 	enum mt_operation operation;
 	unsigned int ignore:1;
 };
@@ -78,7 +78,6 @@ struct map {
 	unsigned long addr;
 	unsigned long size;
 	char *filename;
-	char *realpath;
 	struct bin_file *binfile;
 	unsigned int ignore:1;
 };
@@ -284,7 +283,6 @@ static struct map *open_map(struct process *process, bfd_vma addr)
 		return map;
 
 	p = options.opt_b;
-
 	if (!p)
 		p = &opt_b_default;
 
@@ -294,25 +292,21 @@ static struct map *open_map(struct process *process, bfd_vma addr)
 		while(len && (p->pathname)[len - 1] == '/')
 			--len;
 
-		for(fname = map->filename; *fname == '/'; ++fname)
-			;
+		fname = map->filename;
 
 		do {
-			if (asprintf(&realpath, "%.*s/%s", len, p->pathname, fname) == -1) {
+			if (asprintf(&realpath, "%.*s%s%s", len, p->pathname, *p->pathname ? "/" : "", fname) == -1) {
 				map->ignore = 1;
 				return map;
 			}
 
-			if (!access(realpath, R_OK)) {
-				map->binfile = bin_file_new(realpath);
-
-				if (map->binfile) {
-					map->realpath = realpath;
-					return map;
-				}
-			}
+			if (!access(realpath, R_OK))
+				map->binfile = bin_file_open(realpath);
 
 			free(realpath);
+
+			if (map->binfile)
+				return map;
 
 			fname = strchr(fname + 1, '/');
 		} while(fname++);
@@ -320,27 +314,32 @@ static struct map *open_map(struct process *process, bfd_vma addr)
 		p = p->next;
 	} while(p);
 
+	fprintf(stderr, "file `%s' not found!\n", map->filename);
+
 	map->ignore = 1;
+
 	return map;
 }
 
-static char *resolv_address(struct process *process, bfd_vma addr)
+static struct rb_sym *resolv_address(struct process *process, bfd_vma addr)
 {
-	char *sym;
+	struct rb_sym *sym;
 	struct map *map = open_map(process, addr);
 
 	if (!map)
 		return NULL;
 
-	if (map->binfile) {
-		sym = bin_file_lookup(map->binfile, addr, map->addr);
-		if (sym)
-			return sym;
+	sym = bin_file_lookup(map->binfile, addr, map->addr, map->filename);
+	if (!sym) {
+		sym = malloc(sizeof(*sym));
+		if (!sym)
+			return NULL;
+
+		sym->addr = addr;
+		sym->sym = strdup(map->filename);
+		sym->refcnt = 1;
+		sym->binfile = NULL;
 	}
-
-	if (asprintf(&sym, "%s", map->filename) == -1)
-		return NULL;
-
 	return sym;
 }
 
@@ -368,7 +367,7 @@ static void stack_resolv(struct process *process, struct stack *stack)
 			struct regex_list *p;
 
 			for(p = regex_ignore_list; p; p = p->next)
-				if (stack->syms[i] && !regexec(&p->re, stack->syms[i], 0, NULL, 0)) {
+				if (stack->syms[i] && !regexec(&p->re, stack->syms[i]->sym, 0, NULL, 0)) {
 					stack->ignore = 1;
 					break;
 			}
@@ -379,14 +378,14 @@ static void stack_resolv(struct process *process, struct stack *stack)
 	}
 }
 
-static void stack_unref(struct stack *stack)
+static void stack_put(struct stack *stack)
 {
 	if (--stack->refcnt == 0) {
 		if (stack->syms) {
 			unsigned int i;
 
 			for(i = 0; i < stack->entries; ++i)
-				free(stack->syms[i]);
+				bin_file_sym_put(stack->syms[i]);
 
 			free(stack->syms);
 		}
@@ -459,8 +458,11 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 		else
 		if (ret > 0)
 			new = &((*new)->rb_right);
-		else
+		else {
+			assert(this->stack->operation == operation);
+
 			return this;
+		}
 	}
 
 	this = malloc(sizeof(*this));
@@ -511,7 +513,7 @@ static void process_dump_stack(struct process *process, struct rb_stack *this)
 		return;
 
 	for(addrs = stack->addrs, i = 0; i < stack->entries; ++i) {
-		if (dump_printf("  [0x%lx] %s\n", process->get_ulong(addrs), stack->syms[i] ? stack->syms[i] : "?") == -1)
+		if (dump_printf("  [0x%lx] %s\n", process->get_ulong(addrs), stack->syms[i] ? stack->syms[i]->sym : "?") == -1)
 			return;
 
 		addrs += process->ptr_size;
@@ -648,7 +650,7 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 	return 0;
 }
 
-static struct map *_process_add_map(struct process *process, unsigned long addr, unsigned long offset, unsigned long size, const char *filename, size_t len)
+static struct map *_process_add_map(struct process *process, unsigned long addr, unsigned long offset, unsigned long size, const char *filename, size_t len, struct bin_file *binfile)
 {
 	struct map *map = malloc(sizeof(*map));
 
@@ -656,9 +658,11 @@ static struct map *_process_add_map(struct process *process, unsigned long addr,
 	map->offset = offset;
 	map->size = size;
 	map->filename = malloc(len + 1);
-	map->realpath = NULL;
-	map->binfile = NULL;
+	map->binfile = binfile;
 	map->ignore = 0;
+
+	if (binfile)
+		bin_file_get(binfile);
 
 	safe_strncpy(map->filename, filename, len + 1);
 
@@ -669,7 +673,7 @@ static struct map *_process_add_map(struct process *process, unsigned long addr,
 
 	list_add_tail(&map->list, &process->map_list);
 
-	/* fixit: stack_add() can produce now false matches */
+	/* fixit: it is possible that stack_add() can produce false matches */
 
 	return map;
 }
@@ -682,18 +686,16 @@ void process_add_map(struct process *process, void *payload, uint32_t payload_le
 	uint64_t offset = process->val64(mt_map->offset);
 	uint64_t size = process->val64(mt_map->size);
 
-	_process_add_map(process, addr, offset, size, mt_map->filename, payload_len - sizeof(*mt_map));
+	_process_add_map(process, addr, offset, size, mt_map->filename, payload_len - sizeof(*mt_map), NULL);
 }
 
 static void _process_del_map(struct map *map)
 {
-	bin_file_free(map->binfile);
+	bin_file_put(map->binfile);
 
 	list_del(&map->list);
 
 	free(map->filename);
-	free(map->realpath);
-	free(map->binfile);
 	free(map);
 }
 
@@ -752,7 +754,7 @@ void process_reset_allocations(struct process *process)
 	process->block_table = RB_ROOT;
 
 	rbtree_postorder_for_each_entry_safe(rbs, rbs_next, &process->stack_table, node) {
-		stack_unref(rbs->stack);
+		stack_put(rbs->stack);
 		free(rbs);
 	}
 	process->stack_table = RB_ROOT;
@@ -765,7 +767,7 @@ void process_reset_allocations(struct process *process)
 	process->tsc = 0;
 }
 
-static void process_reset(struct process *process)
+void process_reset(struct process *process)
 {
 	struct list_head *it, *next;
 
@@ -808,10 +810,13 @@ void process_duplicate(struct process *process, struct process *copy)
 
 	rb_iterate(&copy->block_table, process_rb_duplicate_block, process);
 
+	assert(copy->bytes_used == process->bytes_used);
+	assert(copy->n_allocations == process->n_allocations);
+
 	list_for_each(it, &copy->map_list) {
 		struct map *map = container_of(it, struct map, list);
 
-		_process_add_map(process, map->addr, map->offset, map->size, map->filename, strlen(map->filename));
+		_process_add_map(process, map->addr, map->offset, map->size, map->filename, strlen(map->filename), map->binfile);
 	}
 
 	process->total_allocations = copy->total_allocations;
@@ -916,7 +921,7 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 
 	assert(i == process->stack_trees);
 
-	qsort(arr, process->stack_trees, sizeof(struct stack *), (void *)sortby);
+	qsort(arr, process->stack_trees, sizeof(struct rb_stack *), (void *)sortby);
 
 	if (file == stderr) {
 		unsigned long n = process->stack_trees / 2;
@@ -933,7 +938,7 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 	for(i = 0; i < process->stack_trees; ++i) {
 		struct rb_stack *stack = arr[i];
 
-		if (!stack->stack->ignore && !skipfunc(stack)) {
+		if (!skipfunc(stack)) {
 			if (dump_printf(
 				"Stack (%s):\n"
 				" bytes used: %llu\n"
@@ -1232,7 +1237,7 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 {
 	struct rb_block *block = NULL;
 	uint32_t payload_len = mt_msg->payload_len;
-	unsigned long *stack_data;
+	void *stack_data;
 	unsigned long stack_size;
 	unsigned long ptr;
 	unsigned long size;
@@ -1343,11 +1348,10 @@ void process_exit(struct process *process)
 {
 	process_set_status(process, MT_PROCESS_EXIT);
 
-	if (options.client || (!options.client && !options.verbose))
-		fprintf(stderr, "+++ process %d exited +++\n", process->pid);
-
 	if (!options.interactive)
 		process_dump_sortby(process);
+	else
+		fprintf(stderr, "+++ process %d exited +++\n", process->pid);
 }
 
 void process_about_exit(struct process *process)
@@ -1371,12 +1375,6 @@ void process_detach(struct process *process)
 		process_dump_sortby(process);
 
 	client_send_msg(process, MT_DETACH, NULL, 0);
-}
-
-void process_delete(struct process *process)
-{
-	process_reset(process);
-	free(process);
 }
 
 void process_set_status(struct process *process, enum process_status status)
@@ -1456,6 +1454,9 @@ static void set_block(struct rb_block *block, void *data)
 {
 	struct block_helper *bh = data;
 	unsigned long addr;
+
+	if (block->stack_node->stack->ignore)
+		return;
 
 	if ((block->flags & bh->fmask) != 0)
 		return;

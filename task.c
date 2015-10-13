@@ -42,6 +42,7 @@
 #include "library.h"
 #include "mtelf.h"
 #include "report.h"
+#include "server.h"
 #include "task.h"
 #include "trace.h"
 
@@ -130,7 +131,7 @@ static int leader_setup(struct task *leader)
 	return backtrace_init(leader);
 }
 
-static int task_init(struct task *task, int attached)
+static int task_init(struct task *task)
 {
 	pid_t tgid;
 
@@ -163,13 +164,15 @@ static int task_init(struct task *task, int attached)
 		list_add_tail(&task->task_list, &task->leader->task_list);
 	}
 
-	task->attached = attached;
+	task->attached = 1;
 
 	if (arch_task_init(task) < 0)
 		return -1;
 
 	if (os_task_init(task) < 0)
 		return -1;
+
+	breakpoint_hw_destroy(task);
 
 	return 0;
 }
@@ -186,6 +189,8 @@ static int leader_cleanup(struct task *leader)
 	breakpoint_clear_all(leader);
 	backtrace_destroy(leader);
 
+	list_del(&leader->leader_list);
+
 	return 1;
 }
 
@@ -194,7 +199,6 @@ static void leader_release(struct task *leader)
 	if (!leader_cleanup(leader))
 		return;
 
-	list_del(&leader->leader_list);
 	free(leader);
 }
 
@@ -220,7 +224,7 @@ static void task_destroy(struct task *task)
 	leader_release(leader);
 }
 
-struct task *task_new(pid_t pid, int traced)
+struct task *task_new(pid_t pid)
 {
 	struct task *task = malloc(sizeof(*task));
 
@@ -230,16 +234,19 @@ struct task *task_new(pid_t pid, int traced)
 	memset(task, 0, sizeof(*task));
 
 	task->pid = pid;
-	task->traced = traced;
-	task->stopped = traced;
+	task->traced = 0;
+	task->stopped = 0;
 	task->was_stopped = 0;
 
 	INIT_LIST_HEAD(&task->task_list);
 	INIT_LIST_HEAD(&task->leader_list);
+#if HW_BREAKPOINTS > 1
+	INIT_LIST_HEAD(&task->hw_bp_list);
+#endif
 
 	library_setup(task);
 
-	if (task_init(task, 1) < 0)
+	if (task_init(task) < 0)
 		goto fail1;
 
 	init_event(task);
@@ -257,7 +264,7 @@ static void remove_task_cb(struct task *task, void *data)
 	if (task != data) {
 		debug(DEBUG_FUNCTION, "clear pid=%d from leader pid=%d", task->pid, task->leader->pid);
 
-		remove_task(task);
+		task_destroy(task);
 	}
 }
 
@@ -265,21 +272,23 @@ int process_exec(struct task *task)
 {
 	struct task *leader = task->leader;
 
-	leader->threads_stopped--;
-
-	breakpoint_disable_all(leader);
 	each_task(leader, &remove_task_cb, leader);
+	breakpoint_disable_all(leader);
 
 	os_task_destroy(leader);
 	arch_task_destroy(leader);
 	leader_cleanup(leader);
 
-	if (task_init(leader, 0) < 0)
+	assert(leader->threads == 0);
+
+	if (task_init(leader) < 0)
 		goto fail;
 
-	assert(leader->leader == leader);
+	if (server_connected())
+		task->attached = 0;
 
-	leader->threads_stopped++;
+	assert(leader->leader == leader);
+	assert(leader->threads_stopped == 1);
 
 	if (leader_setup(leader) < 0)
 		goto fail;
@@ -311,7 +320,7 @@ struct task *task_create(const char *command, char **argv)
 		_exit(EXIT_FAILURE);
 	}
 
-	task = task_new(pid, 0);
+	task = task_new(pid);
 	if (!task)
 		goto fail2;
 
@@ -320,6 +329,9 @@ struct task *task_create(const char *command, char **argv)
 
 	if (trace_set_options(task) < 0)
 		goto fail2;
+
+	if (server_connected())
+		task->attached = 0;
 
 	if (leader_setup(task) < 0)
 		goto fail1;
@@ -344,6 +356,7 @@ int task_clone(struct task *task, struct task *newtask)
 	assert(newtask->backtrace == NULL);
 
 	newtask->is_64bit = task->is_64bit;
+	newtask->attached = task->attached;
 
 	breakpoint_hw_clone(newtask);
 
@@ -374,6 +387,7 @@ int task_fork(struct task *task, struct task *newtask)
 
 	newtask->libsym = task->libsym;
 	newtask->context = task->context;
+	newtask->attached = task->attached;
 
 	if (task->breakpoint)
 		newtask->breakpoint = breakpoint_find(newtask, newtask->breakpoint->addr);
@@ -381,7 +395,7 @@ int task_fork(struct task *task, struct task *newtask)
 		newtask->breakpoint = NULL;
 
 	if (task->skip_bp)
-		newtask->skip_bp = breakpoint_ref(breakpoint_find(newtask, newtask->skip_bp->addr));
+		newtask->skip_bp = breakpoint_get(breakpoint_find(newtask, newtask->skip_bp->addr));
 	else
 		newtask->skip_bp = NULL;
 
@@ -401,7 +415,7 @@ fail:
 
 void task_reset_bp(struct task *task)
 {
-	breakpoint_unref(task->skip_bp);
+	breakpoint_put(task->skip_bp);
 
 	task->breakpoint = NULL;
 	task->skip_bp = NULL;
@@ -413,7 +427,7 @@ static struct task *open_one_pid(pid_t pid)
 
 	debug(DEBUG_PROCESS, "pid=%d", pid);
 
-	task = task_new(pid, 0);
+	task = task_new(pid);
 	if (task == NULL)
 		goto fail1;
 
@@ -425,7 +439,7 @@ static struct task *open_one_pid(pid_t pid)
 
 	return task;
 fail2:
-	remove_task(task);
+	task_destroy(task);
 fail1:
 	return NULL;
 }
@@ -511,14 +525,6 @@ fail2:
 fail1:
 	if (leader)
 		remove_proc(leader);
-}
-
-struct task *get_first_process(void)
-{
-	if (list_empty(&list_of_leaders))
-		return NULL;
-
-	return container_of(list_of_leaders.next, struct task, leader_list);
 }
 
 void each_process(void (*cb)(struct task *task))

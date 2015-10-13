@@ -26,34 +26,42 @@
 
 #include <stdlib.h>
 
+#include "arch.h"
+#include "list.h"
 #include "sysdep.h"
 #include "forward.h"
 
-#define SW_BP		0
-#define HW_BP		1
-#define HW_BP_SCRATCH	2
+#define BP_REORDER_THRESHOLD	1024U
+
+#define BP_SW		0
+#define BP_HW_SCRATCH	1
+#define BP_HW		2
+#define BP_AUTO		3
 
 struct breakpoint {
-	arch_addr_t addr;
+#if HW_BREAKPOINTS > 1
+	unsigned int hwcnt;
+#endif
+	unsigned int refcnt;
+	unsigned int count;
 
+	unsigned int ext:8;
+	unsigned int type:2;
 	unsigned int enabled:1;
 	unsigned int locked:1;
 	unsigned int deleted:1;
-	unsigned int type:2;
-	unsigned int ext:8;
-
-	unsigned int refcnt;
-
-	int (*on_hit)(struct task *task, struct breakpoint *bp);
-
-	struct library_symbol *libsym;
-
+	unsigned int hw:1;
 	union {
 		unsigned char orig_value[BREAKPOINT_LENGTH];
 #if HW_BREAKPOINTS > 0
 		unsigned int hw_bp_slot;
 #endif
 	};
+
+	int (*on_hit)(struct task *task, struct breakpoint *bp);
+	arch_addr_t addr;
+	struct library_symbol *libsym;
+	struct list_head link_list;
 };
 
 /* setup the basic breakpoint support for a given leader */
@@ -92,9 +100,6 @@ struct breakpoint *breakpoint_find(struct task *leader, arch_addr_t addr);
 #if HW_BREAKPOINTS > 0
 void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp);
 void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp);
-
-void breakpoint_hw_clone(struct task *task);
-void breakpoint_hw_destroy(struct task *task);
 #else
 static inline void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
@@ -103,7 +108,14 @@ static inline void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp
 static inline void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
 }
+#endif
 
+#if HW_BREAKPOINTS > 1
+void reorder_hw_bp(struct task *task);
+
+void breakpoint_hw_clone(struct task *task);
+void breakpoint_hw_destroy(struct task *task);
+#else
 static inline void breakpoint_hw_clone(struct task *task)
 {
 }
@@ -113,22 +125,9 @@ static inline void breakpoint_hw_destroy(struct task *task)
 }
 #endif
 
-static inline struct breakpoint *breakpoint_ref(struct breakpoint *bp)
-{
-	if (bp)
-		++bp->refcnt;
-	return bp;
-}
+struct breakpoint *breakpoint_get(struct breakpoint *bp);
 
-static inline int breakpoint_unref(struct breakpoint *bp)
-{
-	if (bp) {
-		if (--bp->refcnt)
-			return 0;
-		free(bp);
-	}
-	return 1;
-}
+int breakpoint_put(struct breakpoint *bp);
 
 #endif
 

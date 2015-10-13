@@ -37,6 +37,21 @@
 #define BP_RW	2
 #define BP_W	4
 
+int get_hw_bp_state(struct task *task, unsigned int n)
+{
+	long ret;
+
+	errno = 0;
+	ret = ptrace(PTRACE_PEEKUSER, task->pid, offsetof(struct user, u_debugreg[6]), 0);
+	if (ret == -1 && errno) {
+		if (errno != ESRCH)
+			fprintf(stderr, "PTRACE_PEEKUSER u_debugreg[6] pid=%d %s\n", task->pid, strerror(errno));
+
+		return 0;
+	}
+	return (ret & (1 << n)) != 0;
+}
+
 static int _apply_hw_bp(struct task *task, uint32_t dr7)
 {
 	long ret;

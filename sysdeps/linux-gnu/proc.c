@@ -413,22 +413,22 @@ static void linkmap_add(struct task *task, struct lt_r_debug_64 *dbg)
 		)
 			continue;
 
-		struct library *lib = library_new();
+		struct libref *libref = libref_new(LIBTYPE_LIB);
 
-		if (!lib) {
+		if (!libref) {
 			fprintf(stderr, "Couldn't instance library object %s\n", lib_name);
 			continue;
 		}
 
-		if (elf_read_library(task, lib, lib_name, rlm.l_addr) < 0) {
-			library_destroy(task, lib);
+		if (elf_read_library(task, libref, lib_name, rlm.l_addr) < 0) {
+			libref_delete(libref);
 			fprintf(stderr, "Couldn't load ELF object %s\n", lib_name);
 			continue;
 		}
 
-		lib->key = ARCH_ADDR_T(rlm.l_addr);
+		libref->key = ARCH_ADDR_T(rlm.l_addr);
 
-		library_add(task, lib);
+		library_add(task, libref);
 	}
 
 	return;

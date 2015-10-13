@@ -34,6 +34,7 @@
 #include "debug.h"
 #include "library.h"
 #include "mtelf.h"
+#include "options.h"
 #include "report.h"
 #include "task.h"
 #include "trace.h"
@@ -98,52 +99,17 @@ struct breakpoint *breakpoint_find(struct task *task, arch_addr_t addr)
 }
 
 #if HW_BREAKPOINTS > 0
-#if HW_BREAKPOINTS > 1
-static int find_hw_bp_slot(struct task *leader)
-{
-	int i;
-
-	for(i = HW_BP_SCRATCH_SLOT + 1; i < HW_BREAKPOINTS; ++i)
-		if ((leader->hw_bp_mask & (1 << i)) == 0)
-			return i;
-	return -1;
-}
-#endif
-
 static void enable_hw_bp(struct task *task, struct breakpoint *bp)
 {
 	unsigned int slot = bp->hw_bp_slot;
 
-	if (bp->hw_bp_slot != HW_BP_SCRATCH_SLOT)
-		assert(task->hw_bp[slot] == NULL);
-	
+	assert(bp->type != BP_SW);
+	assert(bp->type < BP_HW || task->hw_bp[slot] == NULL);
+
 	task->hw_bp[slot] = bp;
 
 	if (set_hw_bp(task, slot, bp->addr) == -1)
 		fatal("set_hw_bp");
-}
-
-void breakpoint_hw_clone(struct task *task)
-{
-	unsigned int i;
-	struct task *leader = task->leader;
-
-	if (leader == task)
-		return;
-
-	for(i = HW_BP_SCRATCH_SLOT + 1; i < HW_BREAKPOINTS; ++i) {
-		if ((leader->hw_bp_mask & (1 << i)) == 0) {
-			assert(task->hw_bp[i] == NULL);
-			continue;
-		}
-
-		if (leader->hw_bp[i]) {
-			assert(leader->hw_bp[i]->enabled);
-			assert(leader->hw_bp[i]->hw_bp_slot == i);
-
-			enable_hw_bp(task, leader->hw_bp[i]);
-		}
-	}
 }
 
 static void disable_hw_bp(struct task *task, struct breakpoint *bp)
@@ -155,33 +121,175 @@ static void disable_hw_bp(struct task *task, struct breakpoint *bp)
 
 	assert(task->hw_bp[slot] == bp);
 
-	task->hw_bp[slot] = NULL;
-
 	if (reset_hw_bp(task, slot) == -1)
 		fatal("reset_hw_bp");
+
+	task->hw_bp[slot] = NULL;
+}
+
+#if HW_BREAKPOINTS > 1
+static void enable_hw_bp_cb(struct task *task, void *data)
+{
+	enable_hw_bp(task, data);
+}
+
+static void disable_hw_bp_cb(struct task *task, void *data)
+{
+	disable_hw_bp(task, data);
+}
+
+static void hw2sw_bp(struct task *leader, struct breakpoint *bp)
+{
+	each_task(leader, disable_hw_bp_cb, bp);
+	bp->hw = 0;
+	enable_sw_breakpoint(leader, bp);
+}
+
+static int hw_bp_sort(const void *a, const void *b)
+{
+	const struct breakpoint *p = *(const struct breakpoint **)a;
+	const struct breakpoint *q = *(const struct breakpoint **)b;
+
+	if (p->type != q->type)
+		return (p->type == BP_HW) ? -1 : 1;
+
+	return (int)(q->hwcnt - p->hwcnt);
+}
+
+void reorder_hw_bp(struct task *task)
+{
+	struct task *leader = task->leader;
+	struct list_head *it;
+	struct breakpoint *bp_list[leader->hw_bp_num + 1];
+	struct breakpoint *bp;
+	struct breakpoint **p;
+	unsigned long hw_bp_set = 0;
+	unsigned int i;
+	unsigned int n;
+
+	if (!leader->hw_bp_num)
+		return;
+
+	n = 0;
+	list_for_each(it, &leader->hw_bp_list) {
+		bp = container_of(it, struct breakpoint, link_list);
+		if (bp->enabled) {
+			assert(n < leader->hw_bp_num);
+
+			bp_list[n++] = bp;
+		}
+	}
+
+	qsort(bp_list, n, sizeof(*bp_list), hw_bp_sort);
+
+	for(i = 0; i < n; ++i) {
+		bp_list[i]->hwcnt = (i < HW_BREAKPOINTS - 1) ? BP_REORDER_THRESHOLD >> (i + 4) : 0;
+	}
+
+	if (n > HW_BREAKPOINTS - 1) 
+		n = HW_BREAKPOINTS - 1;
+
+	p = bp_list;
+	for(i = 0; i < n; ++i) {
+		if (bp_list[i]->hw) {
+			assert(bp_list[i]->hw_bp_slot != HW_BP_SCRATCH_SLOT);
+			assert(bp_list[i]->hw_bp_slot < HW_BREAKPOINTS);
+			assert((hw_bp_set & 1 << bp_list[i]->hw_bp_slot) == 0);
+
+			hw_bp_set |= 1 << bp_list[i]->hw_bp_slot;
+		}
+		else
+			*p++ = bp_list[i];
+	}
+	*p = NULL;
+
+	i = HW_BP_SCRATCH_SLOT + 1;
+	for(p = bp_list; (bp = *p); ++p) {
+		while(hw_bp_set & (1 << i))
+			++i;
+
+		stop_threads(leader);
+		disable_sw_breakpoint(leader, bp);
+
+		if (leader->hw_bp[i])
+			hw2sw_bp(leader, leader->hw_bp[i]);
+
+		bp->hw_bp_slot = i;
+		bp->hw = 1;
+
+		each_task(leader, enable_hw_bp_cb, bp);
+
+		++i;
+	}
+}
+
+static int insert_hw_bp_slot(struct task *task, struct breakpoint *bp)
+{
+	struct task *leader = task->leader;
+	unsigned int i;
+
+	for(i = HW_BP_SCRATCH_SLOT + 1; i < HW_BREAKPOINTS; ++i) {
+		if (!leader->hw_bp[i])
+			break;
+
+		if (bp->type == BP_HW && leader->hw_bp[i]->type == BP_AUTO) {
+			stop_threads(leader);
+			hw2sw_bp(leader, leader->hw_bp[i]);
+			break;
+		}
+	}
+
+	if (i >= HW_BREAKPOINTS)
+		return 1;
+
+	bp->hwcnt = 0;
+	bp->enabled = 1;
+	bp->hw_bp_slot = i;
+	bp->hw = 1;
+
+	each_task(leader, enable_hw_bp_cb, bp);
+
+	return 0;
+}
+
+void breakpoint_hw_clone(struct task *task)
+{
+	unsigned int i;
+	struct task *leader = task->leader;
+
+	if (leader == task)
+		return;
+
+	for(i = HW_BP_SCRATCH_SLOT + 1; i < HW_BREAKPOINTS; ++i) {
+		if (!leader->hw_bp[i]) {
+			assert(task->hw_bp[i] == NULL);
+			continue;
+		}
+
+		assert(leader->hw_bp[i]->enabled);
+		assert(leader->hw_bp[i]->hw_bp_slot == i);
+
+		enable_hw_bp(task, leader->hw_bp[i]);
+	}
 }
 
 void breakpoint_hw_destroy(struct task *task)
 {
 	unsigned int i;
 
-	for(i = 0; i < HW_BREAKPOINTS; ++i) {
-		if (task->hw_bp[i]) {
-			assert(task->hw_bp[i]->hw_bp_slot == i);
-
-			task->hw_bp[i] = NULL;
-		}
-	}
+	for(i = 0; i < HW_BREAKPOINTS; ++i)
+		task->hw_bp[i] = NULL;
 
 	reset_all_hw_bp(task);
 }
+#endif
 
 void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
 	if (bp->deleted)
 		return;
 
-	if (bp->type == SW_BP)
+	if (bp->type != BP_HW_SCRATCH)
 		return;
 
 	assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
@@ -190,27 +298,17 @@ void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 		enable_hw_bp(task, bp);
 }
 
-static void enable_hw_bp_cb(struct task *task, void *data)
-{
-	enable_hw_bp(task, data);
-}
-
 void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
 	if (bp->deleted)
 		return;
 
-	if (bp->type == SW_BP)
+	if (bp->type != BP_HW_SCRATCH)
 		return;
 
 	assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
 
 	disable_hw_bp(task, bp);
-}
-
-static void disable_hw_bp_cb(struct task *task, void *data)
-{
-	disable_hw_bp(task, data);
 }
 
 static void remove_hw_scratch_bp_cb(struct task *task, void *data)
@@ -239,29 +337,30 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	bp->deleted = 0;
 	bp->ext = ext;
 	bp->refcnt = 1;
+	bp->count = 0;
+#if HW_BREAKPOINTS > 1
+	bp->hwcnt = 0;
+#endif
+	bp->type = bp_type;
+
+	INIT_LIST_HEAD(&bp->link_list);
 
 	switch(bp_type) {
-	case HW_BP_SCRATCH:
+	case BP_HW_SCRATCH:
 #if HW_BREAKPOINTS > 0
-		bp->type = HW_BP_SCRATCH;
 		bp->hw_bp_slot = HW_BP_SCRATCH_SLOT;
+		bp->hw = 1;
 		break;
 #endif
-	case HW_BP:
+	case BP_AUTO:
+	case BP_HW:
 #if HW_BREAKPOINTS > 1
-	 {
-		int slot = find_hw_bp_slot(leader);
-		if (slot > 0) {
-			leader->hw_bp_mask |= (1 << slot);
-			bp->type = HW_BP;
-			bp->hw_bp_slot = slot;
-			break;
-		}
-	 }
+	 	list_add_tail(&bp->link_list, &leader->hw_bp_list);
+		leader->hw_bp_num++;
 #endif
-	case SW_BP:
-		bp->type = SW_BP;
+	case BP_SW:
 		memset(bp->orig_value, 0, sizeof(bp->orig_value));
+		bp->hw = 0;
 	}
 
 	if (dict_add(leader->breakpoints, (unsigned long)addr, bp) < 0) {
@@ -289,17 +388,21 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (!bp->enabled) {
-		stop_threads(task);
 #if HW_BREAKPOINTS > 0
-		if (bp->type != SW_BP) {
-			if (bp->type == HW_BP)
-				each_task(task->leader, enable_hw_bp_cb, bp);
+		if (bp->type == BP_HW_SCRATCH) {
+			bp->enabled = 1;
+			return;
 		}
-		else
+#if HW_BREAKPOINTS > 1
+		if (bp->type >= BP_HW) {
+			if (!insert_hw_bp_slot(task, bp))
+				return;
+		}
 #endif
-		{
-			enable_sw_breakpoint(task, bp);
-		}
+#endif
+		stop_threads(task);
+		bp->hw = 0;
+		enable_sw_breakpoint(task, bp);
 		bp->enabled = 1;
 	}
 }
@@ -312,19 +415,29 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp)
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (bp->enabled) {
-		stop_threads(task);
 #if HW_BREAKPOINTS > 0
-		if (bp->type != SW_BP) {
-			if (bp->type == HW_BP)
-				each_task(task->leader, disable_hw_bp_cb, bp);
+		if (bp->hw) {
+			struct task *leader = task->leader;
+#if HW_BREAKPOINTS > 1
+			if (bp->type != BP_HW_SCRATCH) {
+				assert(bp->hw_bp_slot != HW_BP_SCRATCH_SLOT);
+
+				each_task(leader, disable_hw_bp_cb, bp);
+				bp->hw = 0;
+			}
 			else
-				each_task(task->leader, remove_hw_scratch_bp_cb, bp);
-		}
-		else
 #endif
-		{
-			disable_sw_breakpoint(task, bp);
+			{
+				assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
+
+				each_task(leader, remove_hw_scratch_bp_cb, bp);
+			}
+			bp->enabled = 0;
+			return;
 		}
+#endif
+		stop_threads(task);
+		disable_sw_breakpoint(task, bp);
 		bp->enabled = 0;
 	}
 }
@@ -359,24 +472,29 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 
 	breakpoint_disable(task, bp);
 
-#if HW_BREAKPOINTS > 0
-	if (bp->type != SW_BP) {
-		unsigned int slot = bp->hw_bp_slot;
+#if HW_BREAKPOINTS > 1
+	if (bp->type >= BP_HW) {
+		list_del(&bp->link_list);
 
-		if (bp->type == HW_BP) {
-			assert(slot != HW_BP_SCRATCH_SLOT);
-
-			leader->hw_bp_mask &= ~(1 << slot);
-		}
-		else
-			assert(slot == HW_BP_SCRATCH_SLOT);
+		leader->hw_bp_num--;
 	}
 #endif
-	bp->deleted = 1;
-
 	dict_remove_entry(leader->breakpoints, (unsigned long)bp->addr);
 
-	breakpoint_unref(bp);
+	if (options.verbose > 1 && bp->libsym) {
+		fprintf(stderr,
+			"delete %s breakpoint %s:%s [%#lx] count=%u\n",
+				bp->type == BP_SW ? "sw" : "hw",
+				bp->libsym->libref->filename,
+				bp->libsym->func->demangled_name,
+				bp->addr,
+				bp->count);
+	}
+
+	bp->deleted = 1;
+	bp->libsym = NULL;
+
+	breakpoint_put(bp);
 }
 
 static int enable_nonlocked_bp_cb(unsigned long key, const void *value, void *data)
@@ -419,6 +537,7 @@ void breakpoint_disable_all_nonlocked(struct task *leader)
 
 	if (leader->breakpoints)
 		dict_apply_to_all(leader->breakpoints, disable_nonlocked_bp_cb, leader);
+	leader->attached = 1;
 }
 
 static int enable_bp_cb(unsigned long key, const void *value, void *data)
@@ -459,11 +578,15 @@ void breakpoint_disable_all(struct task *leader)
 
 	if (leader->breakpoints)
 		dict_apply_to_all(leader->breakpoints, disable_bp_cb, leader);
+	leader->attached = 1;
 }
 
 static int destroy_breakpoint_cb(unsigned long key, const void *value, void *data)
 {
-	free((struct breakpoint *)value);
+	struct breakpoint *bp = (struct breakpoint *)value;
+	struct task *leader = (struct task *)data;
+
+	breakpoint_delete(leader, bp);
 	return 0;
 }
 
@@ -471,6 +594,7 @@ void breakpoint_clear_all(struct task *leader)
 {
 	if (leader->breakpoints) {
 		dict_apply_to_all(leader->breakpoints, &destroy_breakpoint_cb, leader);
+		assert(leader->hw_bp_num == 0);
 		dict_clear(leader->breakpoints);
 		leader->breakpoints = NULL;
 	}
@@ -487,49 +611,66 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 {
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *new_task = (struct task *)data;
-	struct library_symbol *libsym = bp->libsym ? find_symbol(new_task, bp->libsym->addr) : NULL;
 	size_t ext = bp->ext;
 
 	if (bp->deleted)
 		return 0;
 
+#if HW_BREAKPOINTS > 0
+	if (bp->type == BP_HW_SCRATCH) {
+		assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
+
+		if (bp->hw)
+			return 0;
+	}
+#endif
+
 	struct breakpoint *new_bp = malloc(sizeof(*new_bp) + ext);
 	if (!new_bp)
 		goto fail1;
 
-	new_bp->libsym = libsym;
+	new_bp->libsym = bp->libsym;
 	new_bp->addr = bp->addr;
 	new_bp->on_hit = bp->on_hit;
 	new_bp->enabled = bp->enabled;
 	new_bp->locked = bp->locked;
+	new_bp->hw = bp->hw;
 	new_bp->type = bp->type;
 	new_bp->ext = ext;
+	new_bp->refcnt = 1;
+	new_bp->deleted = 0;
+	new_bp->count = 0;
 
-#if HW_BREAKPOINTS > 0
-	if (new_bp->type != SW_BP) {
+#if HW_BREAKPOINTS > 1
+	new_bp->hwcnt = 0;
+
+	if (new_bp->type >= BP_HW) {
+		list_add_tail(&new_bp->link_list, &new_task->hw_bp_list);
+		new_task->hw_bp_num++;
+	}
+	else
+		INIT_LIST_HEAD(&new_bp->link_list);
+
+	if (new_bp->hw) {
 		new_bp->hw_bp_slot = bp->hw_bp_slot;
 
-		if (bp->type == HW_BP) {
-			assert(new_bp->hw_bp_slot != HW_BP_SCRATCH_SLOT);
+		assert(new_bp->hw_bp_slot != HW_BP_SCRATCH_SLOT);
 
-			new_task->hw_bp[new_bp->hw_bp_slot] = new_bp;
+		new_task->hw_bp[new_bp->hw_bp_slot] = new_bp;
 
-			if (new_bp->enabled) {
-				if (set_hw_bp(new_task, new_bp->hw_bp_slot, new_bp->addr) == -1)
-					fatal("set_hw_bp");
-			}
+		if (new_bp->enabled) {
+			if (set_hw_bp(new_task, new_bp->hw_bp_slot, new_bp->addr) == -1)
+				fatal("set_hw_bp");
 		}
-		else
-			assert(new_bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
 	}
 	else
 #endif
-		memcpy(new_bp->orig_value, bp->orig_value, sizeof(bp->orig_value));
+	memcpy(new_bp->orig_value, bp->orig_value, sizeof(bp->orig_value));
 
 	if (ext)
 		memcpy((void *)new_bp + ext, (void *)bp + ext, ext);
 
-	if (dict_add(new_task->leader->breakpoints, (unsigned long)new_bp->addr, new_bp) < 0) {
+	if (dict_add(new_task->breakpoints, (unsigned long)new_bp->addr, new_bp) < 0) {
 		fprintf(stderr, "couldn't enter breakpoint %lx to dictionary\n", new_bp->addr);
 		goto fail2;
 	}
@@ -544,5 +685,25 @@ fail1:
 int breakpoint_clone_all(struct task *clone, struct task *leader)
 {
 	return dict_apply_to_all(leader->breakpoints, &clone_single_cb, clone);
+}
+
+struct breakpoint *breakpoint_get(struct breakpoint *bp)
+{
+	if (bp)
+		++bp->refcnt;
+	return bp;
+}
+
+int breakpoint_put(struct breakpoint *bp)
+{
+	if (bp) {
+		assert(bp->refcnt != 0);
+
+		if (--bp->refcnt)
+			return 0;
+
+		free(bp);
+	}
+	return 1;
 }
 

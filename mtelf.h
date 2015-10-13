@@ -58,10 +58,10 @@ struct elf_image {
 	size_t size;	/* (file-) size of the image */
 };
 
-int elf_read_library(struct task *task, struct library *lib, const char *filename, GElf_Addr bias);
+int elf_read_library(struct task *task, struct libref *libref, const char *filename, GElf_Addr bias);
 
 /* Create a library object representing the main binary. */
-struct library *elf_read_main_binary(struct task *task);
+struct libref *elf_read_main_binary(struct task *task);
 
 #endif
 

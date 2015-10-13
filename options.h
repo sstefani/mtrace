@@ -55,6 +55,11 @@ struct opt_b_t {
 	struct opt_b_t *next;
 };
 
+struct opt_O_t {
+	char *pathname;
+	struct opt_O_t *next;
+};
+
 struct options_t {
 	int auto_scan;		/* scan memory on every exit of a trace program */
 	int bt_depth;		/* how may levels of stack frames to show */
@@ -62,10 +67,11 @@ struct options_t {
 	int follow_exec;	/* follow exec system calls */
 	int interactive;	/* interactive mode */
 	FILE *output;		/* output to a specific file */
-	int server;		/* server mode flag */
+	int trace;		/* trace mode flag */
 	int kill;		/* kill on errors */
-	char *listen;		/* server listen on socket path or address */
-	char *client;		/* connect to socket path or address */
+	int server;		/* true for server listen  */
+	char *logfile;		/* logfile path */
+	char *address;		/* connect to socket path or address */
 	char *user;		/* -u: username to run command as */
 	int verbose;		/* verbose mode */
 	int wait;		/* wait for client connection */
@@ -75,6 +81,7 @@ struct options_t {
 	struct opt_p_t *opt_p;	/* attach to process with a given pid */
 	struct opt_F_t *opt_F;	/* alternate configuration file(s) */
 	struct opt_b_t *opt_b;	/* binary search path(s) */
+	struct opt_O_t *opt_O;	/* omits path list */
 	int sort_by;		/* sort dump in non interative and non server mode */
 	int debug;		/* debug */
 	int nocpp;		/* disable trace of c++ allocation operators */

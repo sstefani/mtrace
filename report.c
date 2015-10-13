@@ -25,6 +25,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "backend.h"
 #include "backtrace.h"
@@ -38,25 +41,32 @@
 #include "task.h"
 #include "trace.h"
 
-static int report_alloc64(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth)
+static int report_alloc64(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, unsigned int depth, struct library_symbol *libsym)
 {
-	int i = 0;
+	unsigned int i = 0;
 	struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc) + depth * sizeof(uint64_t));
 
 	alloc->ptr = (uint64_t)ptr;
 	alloc->size = (uint64_t)size;
 
-	if (depth && backtrace_init_unwind(task) >= 0) {
-		do {
-			alloc->data[i] = (uint64_t)backtrace_get_ip(task);
-			if (!alloc->data[i])
-				break;
+	if (depth) {
+		alloc->data[i++] = libsym->addr;
 
-			 ++i;
+		if (backtrace_init_unwind(task) >= 0) {
+			while(i < depth) {
+				if (backtrace_location_type(task) != LIBTYPE_LOADER) {
+					alloc->data[i] = (uint64_t)backtrace_get_ip(task);
 
-			if (backtrace_step(task) < 0)
-				break;
-		} while(i < depth);
+					if (!alloc->data[i])
+						break;
+
+					 ++i;
+				}
+
+				if (backtrace_step(task) < 0)
+					break;
+			}
+		}
 	}
 
 	skip_breakpoint(task, task->event.e_un.breakpoint);
@@ -64,7 +74,7 @@ static int report_alloc64(struct task *task, enum mt_operation op, unsigned long
 	return server_send_msg(op, task->leader->pid, task->pid, alloc, sizeof(*alloc) + i * sizeof(uint64_t));
 }
 
-static int report_alloc32(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth)
+static int report_alloc32(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
 {
 	int i = 0;
 	struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc) + depth * sizeof(uint32_t));
@@ -72,17 +82,24 @@ static int report_alloc32(struct task *task, enum mt_operation op, unsigned long
 	alloc->ptr = (uint32_t)ptr;
 	alloc->size = (uint32_t)size;
 
-	if (depth && backtrace_init_unwind(task) >= 0) {
-		do {
-			alloc->data[i] = (uint32_t)backtrace_get_ip(task);
-			if (!alloc->data[i])
-				break;
+	if (depth) {
+		alloc->data[i++] = libsym->addr;
 
-			++i;
+		if (backtrace_init_unwind(task) >= 0) {
+			while(i < depth) {
+				if (backtrace_location_type(task) != LIBTYPE_LOADER) {
+					alloc->data[i] = (uint32_t)backtrace_get_ip(task);
 
-			if (backtrace_step(task) < 0)
-				break;
-		} while(i < depth);
+					if (!alloc->data[i])
+						break;
+
+					++i;
+				}
+
+				if (backtrace_step(task) < 0)
+					break;
+			}
+		}
 	}
 
 	skip_breakpoint(task, task->event.e_un.breakpoint);
@@ -90,7 +107,7 @@ static int report_alloc32(struct task *task, enum mt_operation op, unsigned long
 	return server_send_msg(op, task->leader->pid, task->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
 }
 
-static int report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth)
+static int report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
 {
 	if (!ptr)
 		return 0;
@@ -101,9 +118,9 @@ static int report_alloc(struct task *task, enum mt_operation op, unsigned long p
 	debug(DEBUG_FUNCTION, "%d [%d]: %#lx %lu", op, task->pid, ptr, size);
 
 	if (task_is_64bit(task))
-		return report_alloc64(task, op, ptr, size, depth);
+		return report_alloc64(task, op, ptr, size, depth, libsym);
 	else
-		return report_alloc32(task, op, ptr, size, depth);
+		return report_alloc32(task, op, ptr, size, depth, libsym);
 }
 
 static int _null(struct task *task, struct library_symbol *libsym)
@@ -119,7 +136,7 @@ static int _report_malloc(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth);
+	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
 }
 
 static int report_free(struct task *task, struct library_symbol *libsym)
@@ -129,7 +146,7 @@ static int report_free(struct task *task, struct library_symbol *libsym)
 
 	unsigned long addr = fetch_param(task, 0);
 
-	return report_alloc(task, MT_FREE, addr, 0, 0);
+	return report_alloc(task, MT_FREE, addr, 0, 0, libsym);
 }
 
 static int _report_realloc(struct task *task, struct library_symbol *libsym)
@@ -142,9 +159,9 @@ static int _report_realloc(struct task *task, struct library_symbol *libsym)
 	unsigned long ret = fetch_retval(task);
 
 	if (ret)
-		return report_alloc(task, MT_REALLOC, ret, size, options.bt_depth);
+		return report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
 	else
-		return report_alloc(task, MT_REALLOC_FAILED, addr, 1, options.bt_depth);
+		return report_alloc(task, MT_REALLOC_FAILED, addr, 1, options.bt_depth, libsym);
 }
 
 static int report_realloc(struct task *task, struct library_symbol *libsym)
@@ -155,7 +172,7 @@ static int report_realloc(struct task *task, struct library_symbol *libsym)
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_REALLOC_ENTER, addr, size, options.bt_depth);
+	return report_alloc(task, MT_REALLOC_ENTER, addr, size, options.bt_depth, libsym);
 }
 
 static int _report_calloc(struct task *task, struct library_symbol *libsym)
@@ -166,7 +183,7 @@ static int _report_calloc(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 0) * fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth);
+	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
 }
 
 static int _report_mmap(struct task *task, struct library_symbol *libsym)
@@ -181,7 +198,7 @@ static int _report_mmap(struct task *task, struct library_symbol *libsym)
 
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth);
+	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
 }
 
 static int _report_mmap64(struct task *task, struct library_symbol *libsym)
@@ -211,7 +228,7 @@ static int _report_mmap64(struct task *task, struct library_symbol *libsym)
 	else
 		size.l = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth);
+	return report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth, libsym);
 }
 
 static int report_munmap(struct task *task, struct library_symbol *libsym)
@@ -222,7 +239,7 @@ static int report_munmap(struct task *task, struct library_symbol *libsym)
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MUNMAP, addr, size, 0);
+	return report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
 
 static int _report_memalign(struct task *task, struct library_symbol *libsym)
@@ -233,7 +250,7 @@ static int _report_memalign(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MEMALIGN, ret, size, options.bt_depth);
+	return report_alloc(task, MT_MEMALIGN, ret, size, options.bt_depth, libsym);
 }
 
 static int _report_posix_memalign(struct task *task, struct library_symbol *libsym)
@@ -260,7 +277,7 @@ static int _report_posix_memalign(struct task *task, struct library_symbol *libs
 		new_ptr = tmp;
 	}
 
-	return report_alloc(task, MT_POSIX_MEMALIGN, new_ptr, size, options.bt_depth);
+	return report_alloc(task, MT_POSIX_MEMALIGN, new_ptr, size, options.bt_depth, libsym);
 }
 
 static int _report_aligned_alloc(struct task *task, struct library_symbol *libsym)
@@ -271,7 +288,7 @@ static int _report_aligned_alloc(struct task *task, struct library_symbol *libsy
 	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_ALIGNED_ALLOC, ret, size, options.bt_depth);
+	return report_alloc(task, MT_ALIGNED_ALLOC, ret, size, options.bt_depth, libsym);
 }
 
 static int _report_valloc(struct task *task, struct library_symbol *libsym)
@@ -282,7 +299,7 @@ static int _report_valloc(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_VALLOC, ret, size, options.bt_depth);
+	return report_alloc(task, MT_VALLOC, ret, size, options.bt_depth, libsym);
 }
 
 static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
@@ -293,7 +310,7 @@ static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_PVALLOC, ret, size, options.bt_depth);
+	return report_alloc(task, MT_PVALLOC, ret, size, options.bt_depth, libsym);
 }
 
 static int report_mremap(struct task *task, struct library_symbol *libsym)
@@ -301,7 +318,7 @@ static int report_mremap(struct task *task, struct library_symbol *libsym)
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MUNMAP, addr, size, 0);
+	return report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
 
 static int _report_mremap(struct task *task, struct library_symbol *libsym)
@@ -309,33 +326,33 @@ static int _report_mremap(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 2);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth);
+	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
 }
 
 static const struct function flist[] = {
-	{ "malloc",			0,	2,	NULL,		_report_malloc },
-	{ "free",			0,	3,	report_free,	NULL },
-	{ "realloc",			0,	4,	report_realloc,	_report_realloc },
-	{ "calloc",			0,	5,	NULL,		_report_calloc },
-	{ "posix_memalign",		0,	6,	NULL,		_report_posix_memalign },
-	{ "mmap",			0,	7,	NULL,		_report_mmap },
-	{ "mmap64",			1,	8,	NULL,		_report_mmap64 },
-	{ "munmap",			0,	9,	report_munmap,	_null },
-	{ "memalign",			0,	10,	NULL,		_report_memalign },
-	{ "aligned_alloc",		1,	11,	NULL,		_report_aligned_alloc },
-	{ "valloc",			1,	12,	NULL,		_report_valloc },
-	{ "pvalloc",			1,	13,	NULL,		_report_pvalloc },
-	{ "mremap",			0,	14,	report_mremap,	_report_mremap },
-	{ "cfree",			1,	15,	report_free,	NULL },
+	{ "malloc",						"malloc",		0,	NULL,		_report_malloc },
+	{ "free",						"free",			0,	report_free,	NULL },
+	{ "realloc",						"realloc",		0,	report_realloc,	_report_realloc },
+	{ "calloc",						"calloc",		0,	NULL,		_report_calloc },
+	{ "posix_memalign",					"posix_memalign",	0,	NULL,		_report_posix_memalign },
+	{ "mmap",						"mmap",			0,	NULL,		_report_mmap },
+	{ "mmap64",						"mmap64",		1,	NULL,		_report_mmap64 },
+	{ "munmap",						"munmap",		0,	report_munmap,	_null },
+	{ "memalign",						"memalign",		0,	NULL,		_report_memalign },
+	{ "aligned_alloc",					"aligned_alloc",	1,	NULL,		_report_aligned_alloc },
+	{ "valloc",						"valloc",		1,	NULL,		_report_valloc },
+	{ "pvalloc",						"pvalloc",		1,	NULL,		_report_pvalloc },
+	{ "mremap",						"mremap",		0,	report_mremap,	_report_mremap },
+	{ "cfree",						"cfree",		1,	report_free,	NULL },
 
-	{ "_Znwm",			1,	17,	NULL,		_report_malloc }, /* operator new(unsigned long) */
-	{ "_Znam",			1,	18,	NULL,		_report_malloc }, /* operator new[](unsigned long) */
-	{ "_ZnwmRKSt9nothrow_t",	1,	19,	NULL,		_report_malloc }, /* operator new(unsigned long, std::nothrow_t const&) */
-	{ "_ZnamRKSt9nothrow_t",	1,	20,	NULL,		_report_malloc }, /* operator new[](unsigned long, std::nothrow_t const& */
-	{ "_ZdlPv",			1,	21,	report_free,	NULL }, /* operator delete(void*) */
-	{ "_ZdaPv",			1,	22,	report_free,	NULL }, /* operator delete[](void*) */
-	{ "_ZdlPvRKSt9nothrow_t",	1,	23,	report_free,	NULL }, /* operator delete(void*, std::nothrow_t const&) */
-	{ "_ZdaPvRKSt9nothrow_t",	1,	24,	report_free,	NULL }, /* operator delete[](void*, std::nothrow_t const&) */
+	{ "new(unsigned long)",					"_Znwm",		1,	NULL,		_report_malloc },
+	{ "new[](unsigned long)",				"_Znam",		1,	NULL,		_report_malloc },
+	{ "new(unsigned long, std::nothrow_t const&)",		"_ZnwmRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+	{ "new[](unsigned long, std::nothrow_t const&)",	"_ZnamRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+	{ "delete(void*)",					"_ZdlPv",		1,	report_free,	NULL },
+	{ "delete[](void*)",					"_ZdaPv",		1,	report_free,	NULL },
+	{ "delete(void*, std::nothrow_t const&)",		"_ZdlPvRKSt9nothrow_t",	1,	report_free,	NULL },
+	{ "delete[](void*, std::nothrow_t const&)",		"_ZdaPvRKSt9nothrow_t",	1,	report_free,	NULL },
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)
@@ -354,14 +371,14 @@ const struct function *flist_matches_symbol(const char *sym_name)
 
 int _report_map(struct task *task, struct library *lib, enum mt_operation op)
 {
-	size_t len = strlen(lib->filename) + 1;
+	struct libref *libref = lib->libref;
+	size_t len = strlen(libref->filename) + 1;
 	struct mt_map_payload *payload = alloca(sizeof(struct mt_map_payload) + len);
+	payload->addr = libref->load_addr;
+	payload->offset = libref->load_offset;
+	payload->size = libref->load_size;
 
-	payload->addr = lib->load_addr;
-	payload->offset = lib->load_offset;
-	payload->size = lib->load_size;
-
-	memcpy(payload->filename, lib->filename, len);
+	memcpy(payload->filename, libref->filename, len);
 
 	return server_send_msg(op, task->pid, 0, payload, sizeof(struct mt_map_payload) + len);
 }

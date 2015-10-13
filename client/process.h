@@ -78,11 +78,11 @@ struct process {
 };
 
 struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tracing);
+void process_reset(struct process *process);
 void process_reset_allocations(struct process *process);
 void process_reinit(struct process *process, unsigned int swap_endian, unsigned int is_64bit, unsigned int attached);
 void process_set_clone(struct process *process, struct process *clone);
 struct process *process_clone_of(struct process *process);
-void process_delete(struct process *process);
 void process_duplicate(struct process *process, struct process *copy);
 void process_run(struct process *process, const char *libpath, const char *path, char **args);
 void process_set_status(struct process *process, enum process_status status);

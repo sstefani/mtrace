@@ -64,14 +64,14 @@ void mtrace_request_exit(void)
 	wait_event_wakeup();
 }
 
-static void dump_process(struct task *leader)
+static void detach_process(struct task *leader)
 {
 	if (!leader)
 		return;
 
-	pid_t pid = leader->pid;
-
 	report_detach(leader);
+
+	pid_t pid = leader->pid;
 
 	while(server_handle_command() != -1) {
 		struct task *task = pid2task(pid);
@@ -88,12 +88,7 @@ static void mtrace_exit(void)
 {
 	if (!options.interactive) {
 		each_process(stop_threads);
-
-		while(server_connected()) {
-			if (task_list_empty())
-				break;
-			dump_process(get_first_process());
-		}
+		each_process(detach_process);
 	}
 
 	each_process(remove_proc);
@@ -139,24 +134,35 @@ int main(int argc, char *argv[])
 {
 	char **cmd = process_options(argc, argv);
 
-	if (options.client) {
-		if (client_start() == -1)
-			exit(EXIT_FAILURE);
-		return 0;	
-	}
+	if (options.trace) {
+		if (options.logfile) {
+			if (server_logfile() == -1)
+				exit(EXIT_FAILURE);
+		}
+		else
+		if (options.server) {
+			if (server_start() == -1)
+				exit(EXIT_FAILURE);
+		}
+		else {
+			int ret = server_start_pair();
 
-	if (options.server) {
-		if (server_start() == -1)
-			exit(EXIT_FAILURE);
+			if (ret == -1)
+				exit(EXIT_FAILURE);
+
+			if (client_start_pair(ret))
+				exit(EXIT_FAILURE);
+		}
 	}
 	else {
-		int ret = server_start_pair();
-
-		if (ret == -1)
+		if (options.logfile) {
+			if (client_logfile() == -1)
+				exit(EXIT_FAILURE);
+		}
+		else
+		if (client_start() == -1)
 			exit(EXIT_FAILURE);
-
-		if (client_start_pair(ret))
-			exit(EXIT_FAILURE);
+		return 0;
 	}
 
 	mtrace_init(cmd);

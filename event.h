@@ -53,7 +53,6 @@ struct event {
 void init_event(struct task *task);
 void remove_event(struct task *task);
 struct task *next_event(void);
-void wait_for_event(struct task *task);
 void queue_event(struct task *task);
 int handle_event(void);
 

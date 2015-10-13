@@ -470,7 +470,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 {
 	struct dwarf_addr_space *indirect_as = as;
 	arch_addr_t val, initial_addr = *addr;
-	arch_addr_t gp = as->cursor.lib->gp;
+	arch_addr_t gp = as->cursor.libref->gp;
 	int is_64bit = as->is_64bit;
 	void *tmp_ptr;
 	int ret;
@@ -486,12 +486,12 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 
 #ifdef DEBUG
 	struct dwarf_cursor *c = &as->cursor;
-	struct library *lib = c->lib;
+	struct libref *libref = c->libref;
 
-	if (*addr < ARCH_ADDR_T(lib->image_addr))
-		fatal("invalid access mem: addr %#lx < %p", *addr, lib->image_addr);
-	if (*addr >= ARCH_ADDR_T(lib->image_addr + lib->load_size))
-		fatal("invalid access mem: addr %#lx >= %p", *addr, lib->image_addr + lib->load_size);
+	if (*addr < ARCH_ADDR_T(libref->image_addr))
+		fatal("invalid access mem: addr %#lx < %p", *addr, libref->image_addr);
+	if (*addr >= ARCH_ADDR_T(libref->image_addr + libref->load_size))
+		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->image_addr + libref->load_size);
 #endif
 
 	memset(&tmp, 0, sizeof(tmp));
@@ -877,9 +877,9 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 	return 0;
 }
 
-static inline int lib_addr_match(struct library *lib, arch_addr_t ip)
+static inline int lib_addr_match(struct libref *libref, arch_addr_t ip)
 {
-	return ip >= lib->load_addr && ip < lib->load_addr + lib->load_size;
+	return ip >= libref->load_addr && ip < libref->load_addr + libref->load_size;
 }
 
 int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
@@ -888,25 +888,28 @@ int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 	struct task *leader;
 	struct list_head *it;
 
-	if (as->cursor.lib) {
-		if (lib_addr_match(as->cursor.lib, ip))
+	if (c->use_prev_instr)
+		ip -= 1;
+
+	if (as->cursor.libref) {
+		if (lib_addr_match(as->cursor.libref, ip))
 			return 0;
 	}
 
 	leader = c->task->leader;
 
-	as->cursor.lib = NULL;
+	as->cursor.libref = NULL;
 
 	list_for_each(it, &leader->libraries_list) {
-		struct library *lib = container_of(it, struct library, list);
+		struct libref *libref = container_of(it, struct library, list)->libref;
 
-		if (lib_addr_match(lib, ip)) {
-			as->cursor.lib = lib;
+		if (lib_addr_match(libref, ip)) {
+			as->cursor.libref = libref;
 			break;
 		}
 	}
 
-	if (!as->cursor.lib) {
+	if (!as->cursor.libref) {
 		debug(DEBUG_DWARF, "no mapping found for IP %#lx", ip);
 		return -DWARF_ENOINFO;
 	}
@@ -947,21 +950,21 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 	void *fde_addr;
 	int ret;
 	struct dwarf_cie_info *dci = &as->cursor.dci;
-	struct library *lib = as->cursor.lib;
+	struct libref *libref = as->cursor.libref;
 
-	e = lookup(table_data, table_len, ip - lib->load_addr - lib->seg_offset);
+	e = lookup(table_data, table_len, ip - libref->load_addr - libref->seg_offset);
 	if (!e) {
 		/* IP is inside this table's range, but there is no explicit unwind info. */
 		debug(DEBUG_DWARF, "no unwind info found for IP %#lx", ip);
 		return -DWARF_ENOINFO;
 	}
 
-	fde_addr = lib->image_addr - lib->load_offset + e->fde_offset + lib->seg_offset;
+	fde_addr = libref->image_addr - libref->load_offset + e->fde_offset + libref->seg_offset;
 
 	if ((ret = dwarf_extract_cfi_from_fde(as, fde_addr)) < 0)
 		return ret;
 
-	dci->start_ip -= ARCH_ADDR_T(lib->image_addr) - lib->load_addr;
+	dci->start_ip -= ARCH_ADDR_T(libref->image_addr) - libref->load_addr;
 
 	if (!as->is_64bit)
 		dci->start_ip &= 0xffffffff;
@@ -1824,10 +1827,10 @@ static int apply_reg_state(struct dwarf_addr_space *as, struct dwarf_reg_state *
 static int fetch_proc_info(struct dwarf_addr_space *as, arch_addr_t ip)
 {
 	struct dwarf_cursor *c = &as->cursor;
-	struct library *lib = c->lib;
+	struct libref *libref = c->libref;
 	int ret;
 
-	ret = dwarf_search_unwind_table(as, ip, lib->table_data, lib->table_len);
+	ret = dwarf_search_unwind_table(as, ip, libref->table_data, libref->table_len);
 	if (ret < 0)
 		return ret;
 
@@ -1840,13 +1843,14 @@ static int fetch_proc_info(struct dwarf_addr_space *as, arch_addr_t ip)
 int dwarf_init_unwind(struct dwarf_addr_space *as, struct task *task)
 {
 	struct dwarf_cursor *c = &as->cursor;
+	int ret;
 
 	c->cfa = 0;
 	c->ip = 0;
 	c->ret_addr_column = 0;
 	c->use_prev_instr = 0;
 	c->valid = 1;
-	c->lib = NULL;
+	c->libref = NULL;
 	c->task = task;
 
 	as->addr = 0;
@@ -1854,7 +1858,11 @@ int dwarf_init_unwind(struct dwarf_addr_space *as, struct task *task)
 
 	memset(&c->dci, 0, sizeof(c->dci));
 
-	return dwarf_arch_init_unwind(as);
+	ret = dwarf_arch_init_unwind(as);
+	if (!ret)
+		ret = dwarf_locate_map(as, c->ip);
+
+	return ret;
 }
 
 void *dwarf_init(int is_64bit)
@@ -1887,6 +1895,18 @@ void dwarf_destroy(struct dwarf_addr_space *as)
 	free(as);
 }
 
+#ifdef GUESS_CALLER
+static arch_addr_t get32val(unsigned char *buf)
+{
+	return *(uint32_t *)buf;
+}
+
+static arch_addr_t get64val(unsigned char *buf)
+{
+	return *(uint64_t *)buf;
+}
+#endif
+
 int dwarf_step(struct dwarf_addr_space *as)
 {
 	int ret;
@@ -1899,6 +1919,10 @@ int dwarf_step(struct dwarf_addr_space *as)
 
 	ip = c->ip;
 	cfa = c->cfa;
+
+	ret = dwarf_locate_map(as, ip);
+	if (ret < 0)
+		goto fail;
 
 	/* The 'ip' can point either to the previous or next instruction
 	   depending on what type of frame we have: normal call or a place
@@ -1918,10 +1942,6 @@ int dwarf_step(struct dwarf_addr_space *as)
 	if (c->use_prev_instr)
 		--ip;
 
-	ret = dwarf_locate_map(as, ip);
-	if (ret < 0)
-		goto fail;
-
 	ret = fetch_proc_info(as, ip);
 	if (ret < 0)
 		goto fail;
@@ -1936,34 +1956,57 @@ int dwarf_step(struct dwarf_addr_space *as)
 	if (ret < 0)
 		goto fail;
 
-	return 0;
+	ret = dwarf_locate_map(as, c->ip);
+	if (ret < 0)
+		goto fail;
 
+	return 0;
 fail:
+	c->ip = ip;
+
 	if (ret == -DWARF_ENOINFO) {
 		debug(DEBUG_DWARF, "try arch specific step");
 
 		ret = dwarf_arch_step(as);
 		if (!ret) {
-			if (dwarf_locate_map(as, c->use_prev_instr ? c->ip - 1 : c->ip))
+			if (dwarf_locate_map(as, c->ip) < 0)
 				ret = -DWARF_ENOINFO;
 		}
 	}
 
 	if (ret) {
-		unsigned int i;
+#ifdef GUESS_CALLER
+		ssize_t n;
+		unsigned char buf[4096];
 
-		for(i = 0; i < 16; ++i) {
-			if (dwarf_readw(as, &cfa, &ip, as->is_64bit))
-				break;
+		n = copy_from_proc(c->task, cfa, &buf, ARRAY_SIZE(buf));
+		if (n > 0) {
+			arch_addr_t (*getval)(unsigned char *buf);
+			ssize_t i;
+			ssize_t addr_size = DWARF_ADDR_SIZE(as);
 
-			if (!dwarf_locate_map(as, ip)) {
-				c->cfa = cfa;
-				c->ip = ip;
+			if (addr_size == 8)
+				getval = get64val;
+			else
+				getval = get32val;
 
-				return 0;
+			for(i = 0; i + addr_size <= n ; i += addr_size) {
+				ip = getval(&buf[i]);
+
+#if 0
+				if (c->ip - ip < 16384)
+					continue;
+#endif
+
+				if (!dwarf_locate_map(as, ip) && dwarf_arch_check_call(as, ip)) {
+					c->cfa = cfa + i + addr_size;
+					c->ip = ip;
+
+					return 0;
+				}
 			}
 		}
-
+#endif
 		debug(DEBUG_DWARF, "error %d", ret);
 
 		c->valid = 0;
@@ -1982,7 +2025,7 @@ arch_addr_t dwarf_get_ip(struct dwarf_addr_space *as)
 	return c->ip;
 }
 
-int dwarf_get_unwind_table(struct task *task, struct library *lib, struct dwarf_eh_frame_hdr *hdr)
+int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr)
 {
 	arch_addr_t addr, fde_count;
 	int ret;
@@ -1991,7 +2034,7 @@ int dwarf_get_unwind_table(struct task *task, struct library *lib, struct dwarf_
 	memset(&tmp_as, 0, sizeof(tmp_as));
 
 	tmp_as.is_64bit = task->is_64bit;
-	tmp_as.cursor.lib = lib;
+	tmp_as.cursor.libref = libref;
 	tmp_as.cursor.task = task;
 
 	if (hdr->version != DW_EH_VERSION) {
@@ -2014,9 +2057,19 @@ int dwarf_get_unwind_table(struct task *task, struct library *lib, struct dwarf_
 		return -DWARF_EINVAL;
 	}
 
-	lib->table_data = (void *)addr;
-	lib->table_len = fde_count;
+	libref->table_data = (void *)addr;
+	libref->table_len = fde_count;
 
 	return 0;
+}
+
+int dwarf_location_type(struct dwarf_addr_space *as)
+{
+	struct libref *libref = as->cursor.libref;
+
+	if (!libref)
+		return -1;
+
+	return libref->type;
 }
 

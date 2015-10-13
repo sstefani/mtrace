@@ -72,3 +72,11 @@ int backtrace_step(struct task *task)
 	return dwarf_step(task->leader->backtrace);
 }
 
+int backtrace_location_type(struct task *task)
+{
+	assert(task->leader);
+	assert(task->leader->backtrace);
+
+	return dwarf_location_type(task->leader->backtrace);
+}
+

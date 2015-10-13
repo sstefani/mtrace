@@ -31,21 +31,18 @@
 #include "list.h"
 #include "mtelf.h"
 
+#define LIBTYPE_LIB	0
+#define LIBTYPE_MAIN	1
+#define LIBTYPE_LOADER	2
+
 struct library_symbol {
 	struct list_head list;
-	struct library *lib;
+	struct libref *libref;
 	const struct function *func;
 	arch_addr_t addr;
 };
 
-struct library_symbol *library_symbol_new(struct library *lib, arch_addr_t addr, const struct function *func);
-
-struct library {
-	struct list_head list;
-	/* Symbols associated with the library.  This includes a
-	 * symbols that don't have a breakpoint attached (yet).  */
-	struct list_head sym_list;
-
+struct libref {
 	/* Unique key. Two library objects are considered equal, if
 	 * they have the same key.  */
 	arch_addr_t key;
@@ -74,24 +71,36 @@ struct library {
 	unsigned long seg_offset;
 	void *table_data;
 	unsigned long table_len;
+	unsigned int type;
+
 #ifdef __arm__
 	void *exidx_data;
 	unsigned long exidx_len;
 #endif
+
+	unsigned int refcnt;
+
+	/* Symbols associated with the library.  This includes a
+	 * symbols that don't have a breakpoint attached (yet).  */
+	struct list_head sym_list;
 };
 
-/* Init LIB.  */
-struct library *library_new(void);
+struct library {
+	/* link list of libraries associated with the task */
+	struct list_head list;
 
-/* Destroy library.  Doesn't free LIB itself.  Symbols are destroyed
- * and freed.  */
-void library_destroy(struct task *leader, struct library *lib);
+	/* pointer to the real library refernce */
+	struct libref *libref;
+};
 
-/* Set library filename.  Frees the old name if necessary.  */
-void library_set_filename(struct library *lib, const char *new_name);
+/* create a new symbol */
+struct library_symbol *library_symbol_new(struct libref *libref, arch_addr_t addr, const struct function *func);
+
+/* Delete library. Symbols are destroyed and freed. */
+void library_delete(struct task *leader, struct library *lib);
 
 /* Add a library to the list of the thread leader libraries.  */
-void library_add(struct task *leader, struct library *lib);
+struct library *library_add(struct task *leader, struct libref *libref);
 
 /* delete a given list of libraries */
 void library_delete_list(struct task *leader, struct list_head *list);
@@ -109,13 +118,19 @@ void library_setup(struct task *leader);
 const char *library_execname(struct task *leader);
 
 /* Iterate through list of symbols of library. */
-struct library_symbol *library_find_symbol(struct library *lib, arch_addr_t addr);
+struct library_symbol *library_find_symbol(struct libref *libref, arch_addr_t addr);
 
 /* find a library with a given key */
 struct library *library_find_with_key(struct list_head *list, arch_addr_t key);
 
-/* Iterate through list all symbols of leader task. */
-struct library_symbol *find_symbol(struct task *leader, arch_addr_t addr);
+/* create a library reference. */
+struct libref *libref_new(unsigned int type);
+
+/* delete a library reference. */
+void libref_delete(struct libref *libref);
+
+/* Set library filename.  Frees the old name if necessary.  */
+void libref_set_filename(struct libref *libref, const char *new_name);
 
 #endif
 

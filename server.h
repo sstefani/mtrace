@@ -34,6 +34,7 @@ int server_handle_command(void);
 int server_connected(void);
 int server_stop(void);
 int server_poll(void);
+int server_logfile(void);
 
 #endif
 

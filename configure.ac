@@ -24,7 +24,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.65)
 
-AC_INIT([mtrace],[0.1],[stefani@seibold.net])
+AC_INIT([mtrace],[0.2],[stefani@seibold.net])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR(main.c)
 AC_CONFIG_MACRO_DIR([config/m4])
@@ -152,6 +152,8 @@ int main () {
 	AC_DEFINE([HAVE_ELF_C_READ_MMAP], [1], [we have read mmap support])
 	AC_MSG_RESULT([yes])],[
 	AC_MSG_RESULT([no])])
+CPPFLAGS="${saved_CPPFLAGS}"
+LDFLAGS="${saved_LDFLAGS}"
 
 saved_CFLAGS="${CFLAGS}"
 CFLAGS="${CFLAGS} -Wall -Werror"
@@ -214,6 +216,7 @@ AC_CHECK_FUNCS([ \
 	strerror \
 	strtol \
 	strtoul \
+	process_vm_readv \
 ])
 
 

@@ -61,12 +61,6 @@ void queue_event(struct task *task)
 	}
 }
 
-void wait_for_event(struct task *task)
-{
-	while(task->event.type == EVENT_NONE)
-		queue_event(wait_event());
-}
-
 struct task *next_event(void)
 {
 	if (!list_empty(&event_head)) {
@@ -113,7 +107,7 @@ static void show_clone(struct task *task, enum event_type type)
 	fprintf(stderr, "+++ process pid=%d %s (newpid=%d) +++\n", task->pid, str, task->event.e_un.newpid);
 }
 
-static struct task *handle_clone(struct task *task, enum event_type type)
+static void handle_clone(struct task *task, enum event_type type)
 {
 	struct task *newtask;
 	int newpid = task->event.e_un.newpid;
@@ -135,7 +129,7 @@ static struct task *handle_clone(struct task *task, enum event_type type)
 
 		if (!options.follow) {
 			remove_proc(newtask);
-			return task;
+			return;
 		}
 
 		report_fork(newtask, task);
@@ -147,21 +141,23 @@ static struct task *handle_clone(struct task *task, enum event_type type)
 
 	continue_task(newtask, newtask->event.e_un.signum);
 
-	return task;
+	return;
 fail:
 	fprintf(stderr,
 		"Error during init of tracing process %d\n"
 		"This process won't be traced.\n",
 		newpid
 	);
-
-	return task;
 }
 
-static struct task *handle_signal(struct task *task)
+static void handle_signal(struct task *task)
 {
+	if (options.verbose > 1) {
+		if (task->event.e_un.signum && (task->event.e_un.signum != SIGSTOP || !task->was_stopped))
+			fprintf(stderr, "+++ process pid=%d signal %d: %s +++\n", task->pid, task->event.e_un.signum, strsignal(task->event.e_un.signum));
+	}
+
 	continue_task(task, task->event.e_un.signum);
-	return task;
 }
 
 static void show_exit(struct task *task)
@@ -171,17 +167,18 @@ static void show_exit(struct task *task)
 
 }
 
-static struct task *handle_about_exit(struct task *task)
+static void handle_about_exit(struct task *task)
 {
-	if (task->leader == task)
-		report_about_exit(task);
-	else
-		continue_task(task, 0);
-
-	return task;
+	if (task->leader == task) {
+		if (report_about_exit(task) != -1) {
+			task->about_exit = 1;
+			return;
+		}
+	}
+	continue_task(task, 0);
 }
 
-static struct task *handle_exit(struct task *task)
+static void handle_exit(struct task *task)
 {
 	show_exit(task);
 
@@ -189,13 +186,12 @@ static struct task *handle_exit(struct task *task)
 		report_exit(task);
 		remove_proc(task);
 	}
-	else
+	else {
 		remove_task(task);
-
-	return NULL;
+	}
 }
 
-static struct task *handle_exit_signal(struct task *task)
+static void handle_exit_signal(struct task *task)
 {
 	if (options.verbose)
 		fprintf(stderr, "+++ process pid=%d killed by signal %s (%d) +++\n", task->pid, strsignal(task->event.e_un.signum), task->event.e_un.signum);
@@ -204,13 +200,12 @@ static struct task *handle_exit_signal(struct task *task)
 		report_exit(task);
 		remove_proc(task);
 	}
-	else
+	else {
 		remove_task(task);
-
-	return NULL;
+	}
 }
 
-static struct task *handle_exec(struct task *task)
+static void handle_exec(struct task *task)
 {
 	debug(DEBUG_FUNCTION, "pid=%d", task->pid);
 
@@ -226,12 +221,11 @@ static struct task *handle_exec(struct task *task)
 		fprintf(stderr, "+++ process pid=%d exec (%s) +++\n", task->pid, library_execname(task));
 
 	continue_task(task, 0);
-	return task;
+	return;
 nofollow:
 	report_nofollow(task);
 untrace:
 	remove_proc(task);
-	return NULL;
 }
 
 static int handle_call_after(struct task *task, struct breakpoint *bp)
@@ -247,11 +241,21 @@ static int handle_call_after(struct task *task, struct breakpoint *bp)
 	return 0;
 }
 
-static struct task *handle_breakpoint(struct task *task)
+static void handle_breakpoint(struct task *task)
 {
 	struct breakpoint *bp = task->event.e_un.breakpoint;
 	
 	debug(DEBUG_FUNCTION, "pid=%d, addr=%#lx", task->pid, bp->addr);
+
+#if HW_BREAKPOINTS > 1
+	if (bp->type >= BP_HW) {
+		if (++bp->hwcnt >= (BP_REORDER_THRESHOLD << bp->hw))
+			reorder_hw_bp(task);
+	}
+#endif
+
+	if (options.verbose)
+		++bp->count;
 
 	if (bp->deleted) {
 		struct breakpoint *nbp = breakpoint_find(task, bp->addr);
@@ -264,7 +268,7 @@ static struct task *handle_breakpoint(struct task *task)
 	}
 
 	if (task->skip_bp == bp) {
-		breakpoint_unref(task->skip_bp);
+		breakpoint_put(task->skip_bp);
 		task->skip_bp = NULL;
 		skip_breakpoint(task, bp);
 		goto end;
@@ -281,7 +285,7 @@ static struct task *handle_breakpoint(struct task *task)
 		save_param_context(task);
 
 		if (libsym->func->report_out) {
-			task->breakpoint = breakpoint_insert(task, get_return_addr(task), NULL, HW_BP_SCRATCH);
+			task->breakpoint = breakpoint_insert(task, get_return_addr(task), NULL, BP_HW_SCRATCH);
 			if (task->breakpoint) {
 				task->libsym = libsym;
 				task->breakpoint->on_hit = handle_call_after;
@@ -298,9 +302,7 @@ static struct task *handle_breakpoint(struct task *task)
 		skip_breakpoint(task, bp);
 
 end:
-	breakpoint_unref(bp);
-
-	return task;
+	breakpoint_put(bp);
 }
 
 int handle_event(void)
@@ -322,33 +324,33 @@ int handle_event(void)
 		break;
 	case EVENT_SIGNAL:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event signal %d", task->pid, event->e_un.signum);
-		task = handle_signal(task);
+		handle_signal(task);
 		break;
 	case EVENT_ABOUT_EXIT:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event exit %d", task->pid, event->e_un.ret_val);
-		task = handle_about_exit(task);
+		handle_about_exit(task);
 		break;
 	case EVENT_EXIT:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event exit %d", task->pid, event->e_un.ret_val);
-		task = handle_exit(task);
+		handle_exit(task);
 		break;
 	case EVENT_EXIT_SIGNAL:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event exit signal %d", task->pid, event->e_un.signum);
-		task = handle_exit_signal(task);
+		handle_exit_signal(task);
 		break;
 	case EVENT_FORK:
 	case EVENT_VFORK:
 	case EVENT_CLONE:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event clone (%u)", task->pid, event->e_un.newpid);
-		task = handle_clone(task, type);
+		handle_clone(task, type);
 		break;
 	case EVENT_EXEC:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event exec()", task->pid);
-		task = handle_exec(task);
+		handle_exec(task);
 		break;
 	case EVENT_BREAKPOINT:
 		debug(DEBUG_EVENT_HANDLER, "pid=%d, event breakpoint %#lx", task->pid, event->e_un.breakpoint->addr);
-		task = handle_breakpoint(task);
+		handle_breakpoint(task);
 		break;
 	default:
 		fprintf(stderr, "Error! unknown event?\n");

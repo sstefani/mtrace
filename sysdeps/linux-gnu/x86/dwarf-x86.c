@@ -31,6 +31,7 @@
 #include "backend.h"
 #include "debug.h"
 #include "dwarf.h"
+#include "library.h"
 #include "task.h"
 
 struct arch_reg {
@@ -266,7 +267,7 @@ int dwarf_arch_step(struct dwarf_addr_space *as)
 			c->loc[arch_reg->bp] = DWARF_MEM_LOC(rbp);
 			c->loc[arch_reg->ip] = DWARF_MEM_LOC(rbp + DWARF_ADDR_SIZE(as));
 			c->cfa = rbp + DWARF_ADDR_SIZE(as) * 2;
-			c->use_prev_instr = 1;
+			c->use_prev_instr = 0;
 		}
 	}
 
@@ -302,5 +303,47 @@ int dwarf_arch_map_reg(struct dwarf_addr_space *as, unsigned int reg)
 		return -DWARF_EBADREG;
 
 	return dwarf_to_regnum_map32[reg];
+}
+
+static struct call_op {
+	unsigned int	off;
+	unsigned int	len;
+	unsigned char	*mask;
+	unsigned char	*op;
+} call_op[] =
+{
+	{ 5, 1, (unsigned char [1]){ 0xff },       (unsigned char [1]){ 0xe8 } },	/* call */
+	{ 3, 2, (unsigned char [2]){ 0xff, 0xff }, (unsigned char [2]){ 0xff, 0x14 } },	/* call *(sp) */
+	{ 2, 2, (unsigned char [2]){ 0xff, 0xfc }, (unsigned char [2]){ 0xff, 0x10 } },	/* call *(reg) */
+	{ 4, 2, (unsigned char [2]){ 0xff, 0xff }, (unsigned char [2]){ 0xff, 0x54 } },	/* call *off8(reg, idx, scale) */
+	{ 3, 2, (unsigned char [2]){ 0xff, 0xfc }, (unsigned char [2]){ 0xff, 0x50 } },	/* call *off8 */
+	{ 7, 2, (unsigned char [2]){ 0xff, 0xff }, (unsigned char [2]){ 0xff, 0x94 } },	/* call *off32(reg, idx, scale) */
+	{ 6, 2, (unsigned char [2]){ 0xff, 0xfc }, (unsigned char [2]){ 0xff, 0x90 } },	/* call *off32 */
+	{ 2, 2, (unsigned char [2]){ 0xff, 0xfc }, (unsigned char [2]){ 0xff, 0xd0 } },	/* call *reg */
+	{ 0 }
+};
+
+int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
+{
+	static struct call_op *p;
+	struct dwarf_cursor *c = &as->cursor;
+	struct libref *libref = c->libref;
+
+	for(p = call_op; p->len; ++p) {
+		if (ip - ARCH_ADDR_T(libref->load_addr) >= p->off) {
+			unsigned int i;
+			unsigned char *addr = libref->image_addr + ip - p->off - libref->load_addr;
+
+			for(i = 0; i < call_op[i].len; ++i) {
+				if ((addr[i] & p->mask[i]) != p->op[i])
+					break;
+			}
+
+			if (i == p->len)
+				return 1;
+		}
+	}
+
+	return 0;
 }
 

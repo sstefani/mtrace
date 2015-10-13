@@ -27,13 +27,9 @@
 
 struct process;
 
-void client_finalize();
-
 struct process *client_first_process(void);
 struct process *client_find_process(pid_t pid);
 void client_iterate_processes(int (*func)(struct process *process));
-void client_add_process(struct process *process);
-void client_remove_process(struct process *process);
 void client_show_info(void);
 int client_wait_op(enum mt_operation op);
 void client_close(void);
@@ -42,6 +38,7 @@ int client_connected(void);
 int client_start(void);
 int client_start_pair(int handle);
 int client_stop(void);
+int client_logfile(void);
 
 #endif
 

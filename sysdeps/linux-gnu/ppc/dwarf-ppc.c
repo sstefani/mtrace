@@ -269,3 +269,8 @@ unsigned int dwarf_to_regnum(unsigned int num)
 	return ~0;
 }
 
+int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
+{
+	return 1;
+}
+

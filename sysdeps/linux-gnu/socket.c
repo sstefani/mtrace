@@ -113,13 +113,16 @@ int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, uint32_t tid, cons
 	return ret;
 }
 
-static int sock_unix(const char *path, struct sock_u_descr *descr)
+static int sock_unix(const char *path, struct sock_u_descr *descr, int create)
 {
 	struct stat statbuf;
 
 	if (stat(path, &statbuf) >= 0) {
 		if (!S_ISSOCK(statbuf.st_mode))
 			return -1;
+
+		if (create)
+			unlink(path);
 	}
 
 	descr->addr.sun_family = AF_UNIX;
@@ -160,7 +163,7 @@ int connect_to(const char *node, const char *service)
 	if (*node == '/' || *node == '.') {
 		struct sock_u_descr descr;
 
-		sfd = sock_unix(node, &descr);
+		sfd = sock_unix(node, &descr, 0);
 		if (sfd == -1)
 			return -1;
 
@@ -201,7 +204,7 @@ int bind_to(const char *node, const char *service)
 	if (is_named(node)) {
 		struct sock_u_descr descr;
 
-		sfd = sock_unix(node, &descr);
+		sfd = sock_unix(node, &descr, 1);
 		if (sfd == -1)
 			return -1;
 
@@ -218,6 +221,9 @@ int bind_to(const char *node, const char *service)
 			if (sfd == -1)
 				continue;
 
+			if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &const_int_1, sizeof(const_int_1)))
+				fatal("setsockopt (%s)", strerror(errno));
+
 			if (bind(sfd, rp->ai_addr, rp->ai_addrlen) == 0)
 				break;
 
@@ -227,9 +233,6 @@ int bind_to(const char *node, const char *service)
 		if (!rp)
 			return -1;
 	}
-
-	if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &const_int_1, sizeof(const_int_1)))
-		fatal("setsockopt (%s)", strerror(errno));
 
 	return sfd;
 }

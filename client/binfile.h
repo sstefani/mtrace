@@ -24,16 +24,31 @@
 #define _INC_CLIENT_BINFILE_H
 
 #include "bfdinc.h"
+#include "list.h"
+#include "rbtree.h"
 
-struct bin_file {
-	bfd *abfd;
-	asymbol **syms;
-	unsigned int refcnt;
+struct rb_sym {
+	struct rb_node node;
+	bfd_vma addr;
+	char *sym;
+	struct bin_file *binfile;
+	unsigned long refcnt;
 };
 
-struct bin_file *bin_file_new(const char *filename);
-struct bin_file *bin_file_clone(struct bin_file *binfile);
-void bin_file_free(struct bin_file *binfile);
-char *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off);
+struct bin_file {
+	struct list_head list;
+	bfd *abfd;
+	asymbol **syms;
+	struct rb_root sym_table;
+	unsigned long refcnt;
+	char *filename;
+};
+
+struct bin_file *bin_file_open(const char *filename);
+void bin_file_put(struct bin_file *binfile);
+void bin_file_get(struct bin_file *binfile);
+struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off, const char *filename);
+void bin_file_sym_get(struct rb_sym *sym);
+void bin_file_sym_put(struct rb_sym *sym);
 
 #endif

@@ -25,9 +25,12 @@
 #include <execinfo.h>
 #include <link.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "binfile.h"
 #include "process.h"
+
+static LIST_HEAD(list_of_binfiles);
 
 /* These variables are used to pass information between
    translate_addresses and find_address_in_section.  */
@@ -50,7 +53,7 @@ static long slurp_symtab(struct bin_file *binfile)
 		return 0;
 
 	storage = bfd_get_symtab_upper_bound(binfile->abfd);
-	if (storage == 0) {
+	if (!storage) {
 		storage = bfd_get_dynamic_symtab_upper_bound(binfile->abfd);
 		dynamic = TRUE;
 	}
@@ -98,19 +101,34 @@ static void find_address_in_section(bfd *abfd, asection *section, void *data __a
 	psi->found = bfd_find_nearest_line(abfd, section, psi->syms, psi->pc - vma, &psi->filename, &psi->functionname, &psi->line);
 }
 
-char *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off)
+struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off, const char *filename)
 {
 	struct sym_info si = { 0 };
-	char *ret_buf = NULL;
+	char *sym_buf = NULL;
+	struct rb_root *root = &binfile->sym_table;
+	struct rb_node **new = &(root->rb_node), *parent = NULL;
+	struct rb_sym *this;
 
 	if (!binfile)
 		return NULL;
 
-	if (!binfile->abfd)
-		return NULL;
+	/* Figure out where to put new node */
+	while (*new) {
+		this = container_of(*new, struct rb_sym, node);
 
-	if (!binfile->syms)
-		return NULL;
+		parent = *new;
+
+		if (addr < this->addr)
+			new = &((*new)->rb_left);
+		else
+		if (addr > this->addr)
+			new = &((*new)->rb_right);
+		else {
+			bin_file_sym_get(this);
+
+			return this;
+		}
+	}
 
 	si.pc = (binfile->abfd->flags & EXEC_P) ? addr : addr - off;
 	si.syms = binfile->syms;
@@ -120,8 +138,8 @@ char *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off)
 	bfd_map_over_sections(binfile->abfd, find_address_in_section, &si);
 
 	if (!si.found) {
-		if (asprintf(&ret_buf, "%s", bfd_get_filename(binfile->abfd)) == -1)
-			ret_buf = NULL;
+		if (asprintf(&sym_buf, "%s", filename) == -1)
+			sym_buf = NULL;
 	} else {
 		const char *name;
 
@@ -141,16 +159,16 @@ char *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off)
 					name = alloc;
 			}
 
-			if (ret_buf)
-				free(ret_buf);
+			if (sym_buf)
+				free(sym_buf);
 
 			if (si.line) {
-				if (asprintf(&ret_buf, "%s:%u %s", si.filename ? si.filename : bfd_get_filename(binfile->abfd), si.line, name) == -1)
-					ret_buf = NULL;
+				if (asprintf(&sym_buf, "%s:%u %s", si.filename ? si.filename : filename, si.line, name) == -1)
+					sym_buf = NULL;
 			}
 			else {
-				if (asprintf(&ret_buf, "%s %s", si.filename ? si.filename : bfd_get_filename(binfile->abfd), name) == -1)
-					ret_buf = NULL;
+				if (asprintf(&sym_buf, "%s %s", si.filename ? si.filename : filename, name) == -1)
+					sym_buf = NULL;
 			}
 
 			if (alloc)
@@ -160,72 +178,119 @@ char *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off)
 		} while (si.found);
 	}
 
-	return ret_buf;
+	this = malloc(sizeof(*this));
+	if (!this)
+		return NULL;
+
+	this->addr = addr;
+	this->sym = sym_buf;
+	this->refcnt = 1;
+	this->binfile = binfile;
+
+	++binfile->refcnt;
+
+	/* Add new node and rebalance tree. */
+	rb_link_node(&this->node, parent, new);
+	rb_insert_color(&this->node, root);
+
+	return this;
 }
 
-struct bin_file *bin_file_new(const char *filename)
+struct bin_file *bin_file_open(const char *filename)
 {
-	bfd *abfd;
 	char **matching;
 	struct bin_file *binfile;
+	struct list_head *it;
 
 	if (!filename)
 		return NULL;
+
+	list_for_each(it, &list_of_binfiles) {
+		binfile = container_of(it, struct bin_file, list);
+
+		if (!strcmp(filename, binfile->filename)) {
+			bin_file_get(binfile);
+			return binfile;
+		}
+	}
 
 	binfile = malloc(sizeof(struct bin_file));
 	if (!binfile)
 		return NULL;
 
-	abfd = bfd_openr(filename, NULL);
-	if (!abfd)
+	binfile->filename = strdup(filename);
+	binfile->refcnt = 1;
+	binfile->sym_table = RB_ROOT;
+	binfile->abfd = bfd_openr(binfile->filename, NULL);
+
+	if (!binfile->abfd)
 		goto error;
 
-	/* Decompress sections.  */
-//	abfd->flags |= BFD_DECOMPRESS;
-
-	if (bfd_check_format(abfd, bfd_archive))
+	if (bfd_check_format(binfile->abfd, bfd_archive))
 		goto error;
 
-	if (!bfd_check_format_matches(abfd, bfd_object, &matching))
+	if (!bfd_check_format_matches(binfile->abfd, bfd_object, &matching))
 		goto error;
-
-	binfile->abfd = abfd;
 
 	if (slurp_symtab(binfile) <= 0)
 		goto error;
 
-	binfile->refcnt = 1;
+	list_add_tail(&binfile->list, &list_of_binfiles);
 
 	return binfile;
 error:
-	if (abfd)
-		bfd_close(abfd);
+	if (binfile->abfd)
+		bfd_close(binfile->abfd);
+	free(binfile->filename);
 	free(binfile);
 
 	return NULL;
 }
 
-struct bin_file *bin_file_clone(struct bin_file *binfile)
+void bin_file_get(struct bin_file *binfile)
 {
-	if (!binfile)
-		return NULL;
-
-	binfile->refcnt++;
-
-	return binfile;
+	++binfile->refcnt;
 }
 
-void bin_file_free(struct bin_file *binfile)
+void bin_file_put(struct bin_file *binfile)
 {
 	if (!binfile)
 		return;
 
-	if (--binfile->refcnt > 0)
-		return;
+	if (!--binfile->refcnt) {
+		list_del(&binfile->list);
 
-	if (binfile->syms)
-		free(binfile->syms);
+		if (binfile->syms)
+			free(binfile->syms);
 
-	if (binfile->abfd)
-		bfd_close(binfile->abfd);
+		if (binfile->abfd)
+			bfd_close(binfile->abfd);
+
+		free(binfile->filename);
+		free(binfile);
+	}
 }
+
+void bin_file_sym_get(struct rb_sym *sym)
+{
+	struct bin_file *binfile = sym->binfile;
+
+	++sym->refcnt;
+	++binfile->refcnt;
+}
+
+void bin_file_sym_put(struct rb_sym *sym)
+{
+	struct bin_file *binfile = sym->binfile;
+
+	if (!--sym->refcnt) {
+		free(sym->sym);
+
+		if (!binfile)
+			return;
+
+		rb_erase(&sym->node, &binfile->sym_table);
+	}
+	bin_file_put(binfile);
+}
+

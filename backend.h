@@ -84,6 +84,10 @@ int handle_singlestep(struct task *task, int (*singlestep)(struct task *task));
  * function returns.  */
 arch_addr_t get_return_addr(struct task *task);
 
+#if HW_BREAKPOINTS > 0
+/* returns true if the hw breakpoint is pendig */
+int get_hw_bp_state(struct task *task, unsigned int n);
+
 /* set instruction hw breakpoint */
 int set_hw_bp(struct task *task, unsigned int n, arch_addr_t addr);
 
@@ -92,6 +96,7 @@ int reset_hw_bp(struct task *task, unsigned int n);
 
 /* remove all instruction hw breakpoints */
 int reset_all_hw_bp(struct task *task);
+#endif
 
 /* save the process context (state, registers, stack pointer) */
 int fetch_context(struct task *task);

@@ -28,6 +28,7 @@
 struct event;
 struct task;
 struct breakpoint;
+struct libref;
 struct library;
 struct library_symbol;
 struct mt_elf;

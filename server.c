@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <sys/sysinfo.h>
 #include <semaphore.h>
+#include <netinet/tcp.h>
 
 #include "backend.h"
 #include "breakpoint.h"
@@ -83,10 +84,13 @@ int server_connected(void)
 static void server_close(void)
 {
 	if (server_connected()) {
-		shutdown(server_fd, SHUT_RDWR);
+		if (!options.logfile)
+			shutdown(server_fd, SHUT_RDWR);
+
 		close(server_fd);
 		server_fd = -1;
 		each_process(&stop_trace);
+		each_pid(&fix_about_exit);
 	}
 }
 
@@ -94,10 +98,11 @@ int server_poll(void)
 {
 	int ret = 0;
 
+
  	if (command_pending) {
 		ret = server_handle_command();
 
-		if (options.server)
+		if (options.trace)
 			ret = 0;
 
 		command_pending = 0;
@@ -119,10 +124,15 @@ int server_handle_command(void)
 {
 	int ret;
 	struct mt_msg cmd;
-	void *payload = NULL;
+	void *payload;
 	struct task *task;
-	unsigned int mode = server_mode;
+	unsigned int mode;
 
+	if (options.logfile)
+		return -1;
+
+	payload = NULL;
+	mode = server_mode;
 	server_mode = MODE_NONE;
 
 	switch(mode) {
@@ -154,7 +164,7 @@ int server_handle_command(void)
 		}
 		server_close();
 
-		return options.server ? 0: -1;
+		return options.trace ? 0: -1;
 	}
 
 	if (cmd.payload_len) {
@@ -250,27 +260,25 @@ int server_start(void)
 	if (!thread)
 		return -1;
 
-	listen_fd = bind_to(options.listen, options.port);
+	server_mode = MODE_NONE;
+
+	listen_fd = bind_to(options.address, options.port);
 	if (listen_fd < 0)
-		fatal("colud not bind socket: %s:%s", options.listen, options.port);
+		fatal("could not bind socket: %s", options.address);
 
 	if (listen(listen_fd, 1) < 0)
 		fatal("listen (%s)", strerror(errno));
 
 	if (options.wait) {
-		fprintf(stderr, "waiting for client connection...\n");
+		fprintf(stderr, "waiting for client connection... ");
 
 		server_fd = TEMP_FAILURE_RETRY(accept(listen_fd, NULL, 0));
 		if (server_fd < 0)
 			fatal("accept (%s)", strerror(errno));
 
+		fprintf(stderr, "connected!\n");
+		server_mode = MODE_ACCEPTED;
 		report_info(1);
-		report_processes();
-
-		each_process(&start_trace);
-	}
-	else {
-		each_process(&stop_trace);
 	}
 
 	sem_init(&sem, 0, 1);
@@ -308,6 +316,9 @@ int server_start_pair(void)
 {
 	int sv[2];
 
+	server_mode = MODE_NONE;
+	listen_fd = -1;
+
 	thread = thread_new();
 	if (!thread)
 		return -1;
@@ -332,23 +343,59 @@ int server_start_pair(void)
 
 int server_send_msg(enum mt_operation op, uint32_t pid, uint32_t tid, const void *payload, unsigned int payload_len)
 {
+	if (options.logfile) {
+		struct iovec io[2];
+		struct mt_msg mt_msg;
+		int ret;
+
+		mt_msg.operation = op;
+		mt_msg.pid = pid;
+		mt_msg.tid = tid;
+		mt_msg.payload_len = payload_len;
+
+		io[0].iov_base = &mt_msg;
+		io[0].iov_len = sizeof(mt_msg);
+
+		io[1].iov_base = (void *)payload;
+		io[1].iov_len = payload_len;
+
+		ret = writev(server_fd, io, ARRAY_SIZE(io));
+
+		if ((size_t)ret != io[0].iov_len + io[1].iov_len)
+			return -1;
+
+		return ret;
+	}
+
 	return sock_send_msg(server_fd, op, pid, tid, payload, payload_len);
 }
 
 int server_stop(void)
 {
-	thread_cancel(thread);
-	if (thread)
-		thread_join(thread);
-
 	server_close();
 
 	if (listen_fd != -1) {
-		if (is_named(options.listen))
-			unlink(options.listen);
+		thread_cancel(thread);
+		if (thread)
+			thread_join(thread);
+
+		if (is_named(options.address))
+			unlink(options.address);
+
 		close(listen_fd);
 		listen_fd = -1;
 	}
+
+	return 0;
+}
+
+int server_logfile(void)
+{
+	listen_fd = -1;
+
+	server_fd = open(options.logfile, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR);
+	if (server_fd == -1)
+		fatal("could not open logfile: %s", options.logfile);
 
 	return 0;
 }

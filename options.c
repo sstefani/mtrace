@@ -46,16 +46,19 @@
 #endif
 
 #define MIN_STACK	4
-#define MAX_STACK	128
+#define MAX_STACK	64
 
 #define DEFAULT_STACK	15
 #define DEFAULT_PORT	4576
+
+static char *sockdef;
 
 struct options_t options;
 
 static struct opt_F_t *opt_F_last;
 static struct opt_p_t *opt_p_last;
 static struct opt_b_t *opt_b_last;
+static struct opt_O_t *opt_O_last;
 
 static char *progname;		/* Program name (`mtrace') */
 
@@ -74,8 +77,7 @@ static void usage(void)
 		"\n"
 		" -a, --autoscan      scan memory on exit of a traced program\n"
 		" -b, --binpath=path  binary search path (may be repeated)\n"
-		" -c, --client=addr   connect to socket (path or address)\n"
-		" -C, --cwd=path      use as current working directory for traced process\n"
+		" -c, --cwd=path      use as current working directory for traced process\n"
 #ifdef DEBUG
 		" -D, --debug=MASK    enable debugging (see -Dh or --debug=help)\n"
 		" -Dh, --debug=help   show help on debugging\n"
@@ -86,15 +88,17 @@ static void usage(void)
 		" -f, --follow-fork   trace forked children\n"
 		" -h, --help          display this help and exit\n"
 		" -i, --interactive   interactive client mode\n"
+		" -O, --omit=FILE     do not place breakpoint in this file\n"
 		" -k, --kill          abort mtrace on unexpected error conditon\n"
-		" -l, --listen        listen on socket path or address in server mode\n"
+		" -l, --logfile       use log file instead of socket connection\n"
 		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
 		" -o, --output=FILE   write the trace output to file with given name\n"
 		" -p, --pid=PID       attach to the process with the process ID pid (may be repeated)\n"
 		" -P, --port=PORT     socket port (default: " STR(DEFAULT_PORT) ")\n"
-		" -s, --server        server mode\n"
-		" -S, --sort-by=type  sort dump by type:\n"
+		" -r, --remote=addr   remote use address (path, address or host)\n"
+		" -s, --sort-by=type  sort dump by type:\n"
 		"                      allocations, average, bytes-leaked, leaks, stacks, total, tsc, usage\n"
+		" -t, --trace         trace mode\n"
 		" -u, --user=USERNAME run command with the userid, groupid of username\n"
 		" -V, --version       output version information and exit\n"
 		" -v, --verbose       verbose mode (repeat for higher verbosity)\n"
@@ -228,8 +232,8 @@ static int parse_int(const char *optarg, char opt, int min, int max)
 {
 	char *endptr;
 	long int l = strtol(optarg, &endptr, 0);
-	if (l < min || (max != 0 && l > max)
-	    || *optarg == 0 || *endptr != 0) {
+
+	if (l < min || (max != 0 && l > max) || *optarg == 0 || *endptr != 0) {
 		const char *fmt = max != 0 ? "Invalid argument to -%c: '%s'.  Use integer %d..%d.\n" : "Invalid argument to -%c: '%s'.  Use integer >=%d.\n";
 		fprintf(stderr, fmt, opt, optarg, min, max);
 		exit(1);
@@ -240,6 +244,10 @@ static int parse_int(const char *optarg, char opt, int min, int max)
 char **process_options(int argc, char **argv)
 {
 	char *output = NULL;
+	char *cwd = NULL;
+
+	if (!sockdef)
+		asprintf(&sockdef, "/tmp/mtrace%u.sock", getuid());
 
 	progname = argv[0];
 
@@ -252,15 +260,17 @@ char **process_options(int argc, char **argv)
 	options.interactive = 0;
 	options.verbose = 0;
 	options.wait = 0;
-	options.client = NULL;
+	options.address = NULL;
+	options.trace = 0;
 	options.server = 0;
-	options.listen = NULL;
+	options.logfile = NULL;
 	options.user = NULL;
 	options.command = NULL;
 	options.cwd = -1;
 	options.opt_p = NULL;
 	options.opt_F = NULL;
 	options.opt_b = NULL;
+	options.opt_O = NULL;
 	options.sort_by = -1;
 	options.debug = 0;
 	options.kill = 0;
@@ -272,9 +282,8 @@ char **process_options(int argc, char **argv)
 		static const struct option long_options[] = {
 			{ "auto_scan", 0, 0, 'a' },
 			{ "binpath", 1, 0, 'b' },
-			{ "client", 1, 0, 'c' },
 			{ "config", 1, 0, 'F' },
-			{ "cwd", 1, 0, 'C' },
+			{ "cwd", 1, 0, 'c' },
 			{ "debug", 1, 0, 'D' },
 			{ "depth", 1, 0, 'd' },
 			{ "help", 0, 0, 'h' },
@@ -282,22 +291,25 @@ char **process_options(int argc, char **argv)
 			{ "follow-exec", 0, 0, 'e' },
 			{ "interactive", 0, 0, 'i' },
 			{ "kill", 0, 0, 'k' },
-			{ "listen", 1, 0, 'l' },
+			{ "logfile", 1, 0, 'l' },
 			{ "nocpp", 1, 0, 'n' },
 			{ "output", 1, 0, 'o' },
+			{ "omit", 1, 0, 'O' },
 			{ "pid", 1, 0, 'p' },
 			{ "port", 1, 0, 'P' },
-			{ "server", 0, 0, 's' },
-			{ "sort-by", 1, 0, 'S' },
+			{ "remote", 1, 0, 'r' },
+			{ "sort-by", 1, 0, 's' },
+			{ "trace", 0, 0, 't' },
 			{ "user", 1, 0, 'u' },
 			{ "version", 0, 0, 'V' },
 			{ "verbose", 0, 0, 'v' },
 			{ "wait", 0, 0, 'w' },
 			{ 0, 0, 0, 0 }
 		};
+
 		c = getopt_long(argc, argv,
-				"+aefhiknsVvw"
-				"b:c:C:D:F:l:o:p:P:u:d:S:",
+				"+aefhikLntVvw"
+				"b:c:d:D:F:l:o:O:p:P:r:s:u:",
 				long_options,
 				&option_index);
 
@@ -328,15 +340,10 @@ char **process_options(int argc, char **argv)
 				break;
 			}
 		case 'c':
-			options.client = optarg;
+			cwd = optarg;
 			break;
-		case 'C':
-			options.cwd = open(optarg, O_RDONLY|O_DIRECTORY);
-
-			if (options.cwd == -1) {
-				fprintf(stderr, "%s: `%s' %s\n", progname, optarg, strerror(errno));
-				exit(1);
-			}
+		case 'd':
+			options.bt_depth = parse_int(optarg, 'd', 1, 0);
 			break;
 		case 'D':
 			{
@@ -354,28 +361,52 @@ char **process_options(int argc, char **argv)
 #endif
 				break;
 			}
+		case 'e':
+			options.follow_exec = 1;
+			break;
 		case 'f':
 			options.follow = 1;
 			break;
 		case 'F':
-			if (add_opt_F(strdup(optarg)) == -1) {
+			if (add_opt_F(optarg) == -1) {
 				fprintf(stderr, "config file not found %s\n", optarg);
 				exit(1);
 			}
 			break;
 		case 'h':
-
 			usage();
 			exit(0);
 		case 'i':
 			options.interactive = 1;
 			break;
+		case 'k':
+			options.kill = 1;
+			break;
 		case 'l':
-			options.listen = optarg;
+			options.logfile = optarg;
 			break;
 		case 'o':
 			output = optarg;
 			break;
+		case 'O':
+			{
+				struct opt_O_t *tmp = malloc(sizeof(*tmp));
+
+				if (!tmp) {
+					fprintf(stderr, "%s\n", strerror(errno));
+					exit(1);
+				}
+				tmp->pathname = strdup(optarg);
+				tmp->next = NULL;
+
+				if (opt_O_last)
+					opt_O_last->next = tmp;
+				opt_O_last = tmp;
+
+				if (!options.opt_O)
+					options.opt_O = tmp;
+				break;
+			}
 		case 'n':
 			options.nocpp = 1;
 			break;
@@ -401,37 +432,10 @@ char **process_options(int argc, char **argv)
 		case 'P':
 			options.port = optarg;
 			break;
-		case 'u':
-			options.user = optarg;
-			break;
-		case 'V':
-			printf("mtrace version " PACKAGE_VERSION ".\n"
-			       "Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>.\n"
-			       "\n"
-			       "This software was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.\n"
-			       "\n"
-			       "This is free software; see the GNU General Public Licence\n"
-			       "version 2 or later for copying conditions. There is NO warranty.\n");
-			exit(0);
-		case 'd':
-			options.bt_depth = parse_int(optarg, 'd', 1, 0);
-			break;
-		case 'e':
-			options.follow_exec = 1;
-			break;
-		case 'k':
-			options.kill = 1;
-			break;
-		case 'v':
-			options.verbose++;
-			break;
-		case 'w':
-			options.wait = 1;
+		case 'r':
+			options.address = optarg;
 			break;
 		case 's':
-			options.server = 1;
-			break;
-		case 'S':
 			if (!strncmp(optarg, "allocations", 2))
 				options.sort_by = OPT_SORT_ALLOCATIONS;
 			else
@@ -460,6 +464,27 @@ char **process_options(int argc, char **argv)
 				exit(1);
 			}
 			break;
+		case 't':
+			options.trace = 1;
+			break;
+		case 'u':
+			options.user = optarg;
+			break;
+		case 'V':
+			printf("mtrace version " PACKAGE_VERSION ".\n"
+			       "Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>.\n"
+			       "\n"
+			       "This software was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.\n"
+			       "\n"
+			       "This is free software; see the GNU General Public Licence\n"
+			       "version 2 or later for copying conditions. There is NO warranty.\n");
+			exit(0);
+		case 'v':
+			options.verbose++;
+			break;
+		case 'w':
+			options.wait = 1;
+			break;
 		default:
 			err_usage();
 		}
@@ -471,68 +496,118 @@ char **process_options(int argc, char **argv)
 	if (argc > 0)
 		options.command = search_for_command(argv[0]);
 
-	if (options.sort_by == OPT_SORT_LEAKS || options.sort_by == OPT_SORT_BYTES_LEAKED)
-		options.auto_scan = 1;
 
-	if (!options.client && !options.opt_p && argc < 1) {
-		fprintf(stderr, "%s: too few arguments\n", progname);
+	if (options.address && options.logfile) {
+		fprintf(stderr, "%s: either logfile or remote address is valid\n", progname);
 		err_usage();
 	}
 
-	if (!options.server && options.listen) {
-		fprintf(stderr, "%s: listen mode can only valid in server mode\n", progname);
-		err_usage();
-	}
+	if (options.trace) {
+		if (!options.opt_p && !options.command) {
+			fprintf(stderr, "%s: trace requires -p or executable\n", progname);
+			err_usage();
+		}
 
-	if (options.client && (options.opt_p || argc > 0)) {
-		fprintf(stderr, "%s: client mode does not require -p nor executable\n", progname);
-		err_usage();
-	}
+		if (options.auto_scan) {
+			fprintf(stderr, "%s: scan option can not passed in when trace mode\n", progname);
+			err_usage();
+		}
 
-	if (options.client && options.nocpp) {
-		fprintf(stderr, "%s: client mode does not require -n\n", progname);
-		err_usage();
-	}
+		if (options.sort_by != -1) {
+			fprintf(stderr, "%s: sort-by can not passed in trace mode\n", progname);
+			err_usage();
+		}
 
-	if (options.client && options.server) {
-		fprintf(stderr, "%s: choose between client and server mode\n", progname);
-		err_usage();
-	}
+		if (options.opt_b) {
+			fprintf(stderr, "%s: binpath can only used in client mode\n", progname);
+			err_usage();
+		}
 
-	if (options.opt_b && !options.client) {
-		fprintf(stderr, "%s: binpath can only used in client mode\n", progname);
-		err_usage();
+		if (options.address) {
+			if (!strcmp(options.address, "."))
+				options.address = sockdef;
+
+			options.server = 1;
+		}
+	}
+	else {
+		if (options.opt_p || options.command) {
+			fprintf(stderr, "%s: client mode does not require -p nor executable\n", progname);
+			err_usage();
+		}
+
+		if (options.nocpp) {
+			fprintf(stderr, "%s: client mode does not require -n\n", progname);
+			err_usage();
+		}
+
+		if (options.user) {
+			fprintf(stderr, "%s: user can only passed in trace mode\n", progname);
+			err_usage();
+		}
+
+		if (!options.address)
+			options.address = sockdef;
 	}
 
 	if (options.interactive) {
-		if ((!options.client && !options.opt_p) || options.command) {
-			fprintf(stderr, "%s: interactive mode can only invoked in -p or -c mode\n", progname);
+		if (options.server) {
+			fprintf(stderr, "%s: interactive mode not available in server mode\n", progname);
 			err_usage();
 		}
-		output = NULL;
 
-		if (options.auto_scan)
+		if (options.trace) {
+			if (options.command) {
+				fprintf(stderr, "%s: cannot execute process and interactive console at the same time in trace mode\n", progname);
+				err_usage();
+			}
+
+			if (!options.opt_p) {
+				fprintf(stderr, "%s: interactive console requieres -p in trace mode\n", progname);
+				err_usage();
+			}
+		}
+
+
+		if (options.auto_scan) {
 			fprintf(stderr, "%s: auto scan ignored in interactive mode\n", progname);
+			options.auto_scan = 0;
+		}
+
+		if (options.sort_by != -1) {
+			fprintf(stderr, "%s: sort-by ignored in interactive mode\n", progname);
+			options.sort_by = -1;
+		}
 	}
 
-	if (options.auto_scan && options.server) {
-		fprintf(stderr, "%s: scan option can not passed in -s mode\n", progname);
-		err_usage();
+	if (output) {
+		if (options.interactive) {
+			fprintf(stderr, "%s: output not valid in interactive mode\n", progname);
+			err_usage();
+		}
+
+		if (options.logfile) {
+			fprintf(stderr, "%s: either logfile or output is valid\n", progname);
+			err_usage();
+		}
+
+		if (options.server) {
+			fprintf(stderr, "%s: output not valid in server mode\n", progname);
+			err_usage();
+		}
 	}
 
 	if (options.port) {
-		if (!options.client && !options.server) {
-			fprintf(stderr, "%s: Port only valid in client or server mode \n", progname);
+		if (!options.address) {
+			fprintf(stderr, "%s: port only valid in client or trace mode\n", progname);
 			err_usage();
 		}
 	}
 	else
 		options.port = STR(DEFAULT_PORT);
 
-	if (options.sort_by != -1 && options.server) {
-		fprintf(stderr, "%s: sort-by can not passed in -s mode\n", progname);
-		err_usage();
-	}
+	if (options.sort_by == OPT_SORT_LEAKS || options.sort_by == OPT_SORT_BYTES_LEAKED)
+		options.auto_scan = 1;
 
 	if (options.bt_depth < MIN_STACK)
 		options.bt_depth = MIN_STACK;
@@ -552,6 +627,15 @@ char **process_options(int argc, char **argv)
 		}
 		setvbuf(options.output, (char *)NULL, _IOLBF, 0);
 		fcntl(fileno(options.output), F_SETFD, FD_CLOEXEC);
+	}
+
+	if (cwd) {
+		options.cwd = open(cwd, O_RDONLY|O_DIRECTORY);
+
+		if (options.cwd == -1) {
+			fprintf(stderr, "%s: `%s' %s\n", progname, optarg, strerror(errno));
+			exit(1);
+		}
 	}
 
 	return &argv[0];

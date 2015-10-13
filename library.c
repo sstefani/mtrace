@@ -38,145 +38,111 @@
 #include "server.h"
 #include "task.h"
 
-struct library_symbol *library_symbol_new(struct library *lib, arch_addr_t addr, const struct function *func)
+struct libref *libref_new(unsigned int type)
+{
+	struct libref *libref = malloc(sizeof(*libref));
+
+	if (!libref)
+		return NULL;
+
+	memset(libref, 0, sizeof(*libref));
+
+	libref->refcnt = 0;
+	libref->type = type;
+
+	INIT_LIST_HEAD(&libref->sym_list);
+
+	return libref;
+}
+
+
+void libref_delete(struct libref *libref)
+{
+	struct list_head *it, *next;
+
+	list_for_each_safe(it, next, &libref->sym_list) {
+		struct library_symbol *sym = container_of(it, struct library_symbol, list);
+
+		list_del(&sym->list);
+		free(sym);
+	}
+
+	if (libref->image_addr)
+		munmap(libref->image_addr, libref->load_size);
+
+	free((void *)libref->filename);
+	free(libref);
+}
+
+static void libref_put(struct libref *libref)
+{
+	assert(libref->refcnt != 0);
+
+	if (!--libref->refcnt)
+		libref_delete(libref);
+}
+
+static struct libref *libref_get(struct libref *libref)
+{
+	assert(libref);
+
+	++libref->refcnt;
+
+	return libref;
+}
+
+void libref_set_filename(struct libref *libref, const char *new_name)
+{
+	free((void *)libref->filename);
+	libref->filename = new_name ? strdup(new_name) : NULL;
+}
+
+struct library_symbol *library_symbol_new(struct libref *libref, arch_addr_t addr, const struct function *func)
 {
 	struct library_symbol *libsym = malloc(sizeof(*libsym));
 
 	if (!libsym)
 		return NULL;
 
-	INIT_LIST_HEAD(&libsym->list);
-	libsym->lib = NULL;
+	libsym->libref = libref;
 	libsym->func = func;
 	libsym->addr = addr;
 
-	list_add_tail(&libsym->list, &lib->sym_list);
+	list_add_tail(&libsym->list, &libref->sym_list);
 
 	return libsym;
 }
 
-static void library_symbol_destroy(struct task *task, struct library_symbol *libsym)
-{
-	struct breakpoint *bp = breakpoint_find(task, libsym->addr);
-
-	if (bp)
-		breakpoint_delete(task, bp);
-
-	list_del(&libsym->list);
-	free(libsym);
-}
-
-static struct library_symbol *library_symbol_clone(struct library *lib, struct library_symbol *libsym)
-{
-	struct library_symbol *retp = library_symbol_new(lib, libsym->addr, libsym->func);
-	if (!retp)
-		return NULL;
-
-	return retp;
-}
-
-struct library *library_new(void)
-{
-	struct library *lib = malloc(sizeof(*lib));
-
-	if (lib == NULL)
-		return NULL;
-
-	memset(lib, 0, sizeof(*lib));
-
-	INIT_LIST_HEAD(&lib->list);
-	INIT_LIST_HEAD(&lib->sym_list);
-
-	return lib;
-}
-
-void library_destroy(struct task *task, struct library *lib)
+void library_delete(struct task *task, struct library *lib)
 {
 	if (lib == NULL)
 		return;
 
 	struct list_head *it, *next;
+	struct libref *libref = lib->libref;
 
-	list_for_each_safe(it, next, &lib->sym_list) {
-		struct library_symbol *sym = container_of(it, struct library_symbol, list);
+	list_for_each_safe(it, next, &libref->sym_list) {
+		struct breakpoint *bp = breakpoint_find(task, container_of(it, struct library_symbol, list)->addr);
 
-		library_symbol_destroy(task, sym);
+		if (bp)
+			breakpoint_delete(task, bp);
 	}
 
 	list_del(&lib->list);
-
-	if (lib->image_addr)
-		munmap(lib->image_addr, lib->load_size);
-
 	free(lib);
+
+	libref_put(libref);
 }
 
-void library_set_filename(struct library *lib, const char *new_name)
-{
-	free((void *)lib->filename);
-	lib->filename = new_name ? strdup(new_name) : NULL;
-}
-
-static struct library *library_clone(struct task *clone, struct library *lib)
-{
-	struct list_head *it;
-	struct library *retp = library_new();
-
-	if (!retp)
-		return NULL;
-
-	library_set_filename(retp, lib->filename);
-
-	retp->key = lib->key;
-
-	/* Clone symbols.  */
-	list_for_each(it, &lib->sym_list) {
-		if (!library_symbol_clone(retp, container_of(it, struct library_symbol, list)))
-			goto fail;
-	}
-
-	return retp;
-fail:
-	/* Release what we managed to allocate.  */
-	library_destroy(clone, retp);
-	return NULL;
-}
-
-static void library_each_symbol(struct library *lib, void (*cb)(struct library_symbol *, void *), void *data)
-{
-	struct list_head *it, *next;
-
-	list_for_each_safe(it, next, &lib->sym_list) {
-		struct library_symbol *sym = container_of(it, struct library_symbol, list);
-
-		(*cb) (sym, data);
-	}
-}
-
-struct library_symbol *library_find_symbol(struct library *lib, arch_addr_t addr)
+struct library_symbol *library_find_symbol(struct libref *libref, arch_addr_t addr)
 {
 	struct list_head *it;
 
-	list_for_each(it, &lib->sym_list) {
+	list_for_each(it, &libref->sym_list) {
 		struct library_symbol *sym = container_of(it, struct library_symbol, list);
 
 		if (sym->addr == addr)
 			return sym;
-	}
-	return NULL;
-}
-
-struct library_symbol *find_symbol(struct task *leader, arch_addr_t addr)
-{
-	/* Clone symbols first so that we can clone and relink breakpoints. */
-	struct list_head *it;
-
-	list_for_each(it, &leader->libraries_list) {
-		struct library *lib = container_of(it, struct library, list);
-		struct library_symbol *libsym = library_find_symbol(lib, addr);
-
-		if (libsym)
-			return libsym;
 	}
 	return NULL;
 }
@@ -188,7 +154,7 @@ struct library *library_find_with_key(struct list_head *list, arch_addr_t key)
 	list_for_each(it, list) {
 		struct library *lib = container_of(it, struct library, list);
 
-		if (lib->key == key)
+		if (lib->libref->key == key)
 			return lib;
 	}
 	return NULL;
@@ -200,13 +166,14 @@ void library_delete_list(struct task *leader, struct list_head *list)
 
 	list_for_each_safe(it, next, list) {
 		struct library *lib = container_of(it, struct library, list);
+		struct libref *libref = lib->libref;
 
-		debug(DEBUG_FUNCTION, "%s@%#lx", lib->filename, lib->base);
+		debug(DEBUG_FUNCTION, "%s@%#lx", libref->filename, libref->base);
 
 		if (options.verbose > 1)
-			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, lib->filename, lib->base, lib->load_addr, lib->load_addr + lib->load_size);
+			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
 
-		library_destroy(leader, lib);
+		library_delete(leader, lib);
 	}
 }
 
@@ -222,7 +189,7 @@ static void cb_breakpoint_for_symbol(struct library_symbol *libsym, void *data)
 		bp->libsym = libsym;
 		return;
 	}
-	bp = breakpoint_new(task, addr, libsym, libsym->func->hw_bp_min <= HW_BREAKPOINTS ? HW_BP : SW_BP);
+	bp = breakpoint_new(task, addr, libsym, BP_AUTO);
 	if (!bp)
 		fprintf(stderr, "Couldn't insert breakpoint for %s to %d: %s", libsym->func->name, task->pid, strerror(errno));
 
@@ -230,21 +197,50 @@ static void cb_breakpoint_for_symbol(struct library_symbol *libsym, void *data)
 		breakpoint_enable(task, bp);
 }
 
-void library_add(struct task *leader, struct library *lib)
+static void library_each_symbol(struct libref *libref, void (*cb)(struct library_symbol *, void *), void *data)
 {
+	struct list_head *it, *next;
+
+	list_for_each_safe(it, next, &libref->sym_list) {
+		struct library_symbol *sym = container_of(it, struct library_symbol, list);
+
+		(*cb) (sym, data);
+	}
+}
+
+static struct library *_library_add(struct task *leader, struct libref *libref)
+{
+	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", libref->filename, libref->base, leader->pid);
+
 	assert(leader->leader == leader);
 
-	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", lib->filename, lib->base, leader->pid);
+	struct library *lib = malloc(sizeof(*lib));
 
-	if (options.verbose > 1)
-		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, lib->filename, lib->base, lib->load_addr, lib->load_addr + lib->load_size);
+	if (lib == NULL)
+		return NULL;
 
-	/* Insert breakpoints for all active symbols.  */
-	library_each_symbol(lib, cb_breakpoint_for_symbol, leader);
+	memset(lib, 0, sizeof(*lib));
+
+	lib->libref = libref_get(libref);
 
 	list_add_tail(&lib->list, &leader->libraries_list);
 
+	if (options.verbose > 1)
+		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
+
+	return lib;
+}
+
+struct library *library_add(struct task *leader, struct libref *libref)
+{
+	struct library *lib = _library_add(leader, libref);
+
+	/* Insert breakpoints for all active symbols.  */
+	library_each_symbol(libref, cb_breakpoint_for_symbol, leader);
+
 	report_add_map(leader, lib);
+
+	return lib;
 }
 
 void library_clear_all(struct task *leader)
@@ -258,12 +254,8 @@ int library_clone_all(struct task *clone, struct task *leader)
 
 	list_for_each(it, &leader->libraries_list) {
 		struct library *lib = container_of(it, struct library, list);
-		struct library *nlibp = library_clone(clone, lib);
 
-		if (!nlibp)
-			return -1;
-
-		list_add_tail(&nlibp->list, &clone->libraries_list);
+		_library_add(clone, lib->libref);
 	}
 	return 0;
 }
@@ -278,6 +270,6 @@ const char *library_execname(struct task *leader)
 	if (list_empty(&leader->libraries_list))
 		return NULL;
 
-	return container_of(leader->libraries_list.next, struct library, list)->filename;
+	return container_of(leader->libraries_list.next, struct library, list)->libref->filename;
 }
 

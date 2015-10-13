@@ -40,5 +40,8 @@ unsigned long backtrace_get_ip(struct task *task);
 /* step to next backtrace given task */
 int backtrace_step(struct task *task);
 
+/* get backtrace location type of given task */
+int backtrace_location_type(struct task *task);
+
 #endif
 

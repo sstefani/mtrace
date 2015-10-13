@@ -89,7 +89,7 @@ struct dwarf_cursor {
 	arch_addr_t ret_addr_column;	/* column for return-address */
 	unsigned int use_prev_instr:1;	/* use previous (= call) or current (= signal) instruction? */
 	unsigned int valid:1;
-	struct library *lib;
+	struct libref *libref;
 	struct dwarf_cie_info dci;
 	struct dwarf_loc *loc;
 };
@@ -119,12 +119,15 @@ int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip);
 
 int dwarf_get(struct dwarf_addr_space *as, struct dwarf_loc loc, arch_addr_t *valp);
 
-int dwarf_get_unwind_table(struct task *task, struct library *lib, struct dwarf_eh_frame_hdr *hdr);
+int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr);
+
+int dwarf_location_type(struct dwarf_addr_space *as);
 
 int dwarf_arch_init(struct dwarf_addr_space *as);
 int dwarf_arch_init_unwind(struct dwarf_addr_space *as);
 int dwarf_arch_step(struct dwarf_addr_space *as);
 int dwarf_arch_map_reg(struct dwarf_addr_space *as, unsigned int reg);
+int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip);
 
 #ifdef DWARF_TO_REGNUM
 unsigned int dwarf_to_regnum(unsigned int reg);

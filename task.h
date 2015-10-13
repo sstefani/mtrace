@@ -56,6 +56,7 @@ struct task {
 	unsigned int is_64bit:1;
 	unsigned int attached:1;
 	unsigned int deleted:1;
+	unsigned int about_exit:1;
 
 	struct breakpoint *breakpoint;
 	struct library_symbol *libsym;
@@ -74,9 +75,6 @@ struct task {
 
 	/* pointer to a breakpoint which was interrupt by a signal during skip */
 	struct breakpoint *skip_bp;
-
-	/* array of addresses of hw breakpoints */
-	struct breakpoint *hw_bp[HW_BREAKPOINTS];
 
 	/* set in leader: number of stopped threads including the leader */
 	unsigned int threads_stopped;
@@ -99,16 +97,26 @@ struct task {
 	/* set in leader: number of threads including the leader */
 	unsigned int threads;
 
-	/* only used in leader: bit mask for used hw breakpoints */
-	unsigned long hw_bp_mask;
-
 	/* struct task chaining. */
 	struct list_head leader_list;
+
+#if HW_BREAKPOINTS > 1
+	/* set in leader: list of hw breakpoints */
+	struct list_head hw_bp_list;
+
+	/* set in leader: number of registered hw breakpoints */
+	unsigned long hw_bp_num;
+#endif
+
+#if HW_BREAKPOINTS > 0
+	/* array of active hw breakpoints */
+	struct breakpoint *hw_bp[HW_BREAKPOINTS];
+#endif
 };
 
 int process_exec(struct task *task);
 
-struct task *task_new(pid_t pid, int traced);
+struct task *task_new(pid_t pid);
 
 struct task *task_create(const char *command, char **argv);
 
@@ -124,9 +132,6 @@ int task_fork(struct task *task, struct task *newtask);
 
 /* reset all breakpoints for task */
 void task_reset_bp(struct task *task);
-
-/* get first process of leader list */
-struct task *get_first_process(void);
 
 /* Iterate through the leader tasks that mtrace currently traces. */
 void each_process(void (*cb)(struct task *task));
