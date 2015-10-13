@@ -1330,7 +1330,7 @@ void process_dump_sortby(struct process *process)
 		_process_dump(process, sort_allocations, skip_none, options.output);
 		break;
 	case OPT_SORT_TOTAL:
-		_process_dump(process, sort_total, skip_zero_allocations, options.output);
+		_process_dump(process, sort_total, skip_none, options.output);
 		break;
 	case OPT_SORT_TSC:
 		_process_dump(process, sort_tsc, skip_zero_allocations, options.output);

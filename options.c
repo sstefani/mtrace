@@ -508,26 +508,26 @@ char **process_options(int argc, char **argv)
 			err_usage();
 		}
 
-		if (options.auto_scan) {
-			fprintf(stderr, "%s: scan option can not passed in when trace mode\n", progname);
-			err_usage();
-		}
-
-		if (options.sort_by != -1) {
-			fprintf(stderr, "%s: sort-by can not passed in trace mode\n", progname);
-			err_usage();
-		}
-
-		if (options.opt_b) {
-			fprintf(stderr, "%s: binpath can only used in client mode\n", progname);
-			err_usage();
-		}
-
 		if (options.address) {
 			if (!strcmp(options.address, "."))
 				options.address = sockdef;
 
 			options.server = 1;
+
+			if (options.auto_scan) {
+				fprintf(stderr, "%s: scan option can not passed in when trace mode\n", progname);
+				err_usage();
+			}
+
+			if (options.sort_by != -1) {
+				fprintf(stderr, "%s: sort-by can not passed in trace mode\n", progname);
+				err_usage();
+			}
+
+			if (options.opt_b) {
+				fprintf(stderr, "%s: binpath can only used in client mode\n", progname);
+				err_usage();
+			}
 		}
 	}
 	else {

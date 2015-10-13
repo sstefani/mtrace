@@ -1,6 +1,6 @@
 ﻿The easiest way for using mtrace is simply run a program under the control of mtrace:
 
-mtrace -d 10 a.out
+mtrace -t -d 10 a.out
 
 This will run a.out and records all memory allocations. When the program exits or mtrace is terminated, it dumps all open memory allocations for each different stack backtrace:
 
@@ -30,7 +30,7 @@ In this case you see for the last stack backtrace which calls malloc() by functi
 
 The default sort order is "allocations", which sorts the output by the number of open allocations. The lowest value is printed out first and the highest value at last. So the most interesting values are always in view. If you wish a different sort order und can pass a -S option, for example.
 
-mtrace -d 10 -s usage a.out
+mtrace -t -d 10 -s usage a.out
 
 This will sort by the total sum of bytes used:
 
@@ -83,19 +83,19 @@ In this case it is not possible to identifiy which function has been called pthr
 
 It is also possible to write the output to a file instead to stderr, for example: 
 
-mtrace -d 10 -o /tmp/mtrace.out a.out
+mtrace -t -d 10 -o /tmp/mtrace.out a.out
 
 In this case the dump will written to /tmp/mtrace.out after the program exits or mtrace is terminated. Note that in the case the sort order is inverted, the highest value is written first to the file and the lowest value at last. So the most interesting values are always in view when opening the file with an editor. 
 
 It is also possible to attach to an already running program:
 
-mtrace -d 10 -o /tmp/mtrace.out $(pidof -s a.out)
+mtrace -t -d 10 -o /tmp/mtrace.out -p $(pidof -s a.out)
 
 This is e.g. useful when you not want do trace the whole startup of the program or you want to test only a specific function of a program. Imaging a test scenario where a leak is assumed. So attached mtrace, run the tests (more then once is better) and then terminated mtrace by Ctrl-C. One of last dump stack backtraces should show the culprit.
 
 A more sophisticate way to find a memory leak is to scan for lost pointer values, e.g.
 
-mtrace -a -S leaks -d 10 -o /tmp/mtrace.out $(pidof -s a.out)
+mtrace -a -s leaks -d 10 -o /tmp/mtrace.out -p $(pidof -s a.out)
 
 After attach and run the tests and terminating mtrace by Ctrl-C, the memory will be scanned for lost pointer. The dump output will then sorted by the number of leaked allocations:
 
@@ -153,13 +153,13 @@ When no C++ Code is traced or when using the libstdc++ (which calls malloc() and
 There is also a server mode and a client with an command line interface. This is useful when you want get information during the runtime 
 of a program, for example:
 
-mtrace -w -s -d 10 a.out
+mtrace -f -r 0.0.0.0 -w -s -d 10 a.out
 
 This start the client waiting for a client connection before running the program a.out.
 
 Then you can connect the client using an other terminal or on an other computer:
 
-mtrace -c 127.0.0.1
+mtrace -r 127.0.0.1
 memtrace info:
  follow fork: no
  follow exec: no
