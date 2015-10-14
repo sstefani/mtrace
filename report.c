@@ -345,10 +345,16 @@ static const struct function flist[] = {
 	{ "mremap",						"mremap",		0,	report_mremap,	_report_mremap },
 	{ "cfree",						"cfree",		1,	report_free,	NULL },
 
+	{ "new(unsigned int)",					"_Znwj",		1,	NULL,		_report_malloc },
+	{ "new[](unsigned int)",				"_Znaj",		1,	NULL,		_report_malloc },
+	{ "new(unsigned int, std::nothrow_t const&)",		"_ZnwjRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+	{ "new[](unsigned int, std::nothrow_t const&)",		"_ZnajRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+
 	{ "new(unsigned long)",					"_Znwm",		1,	NULL,		_report_malloc },
 	{ "new[](unsigned long)",				"_Znam",		1,	NULL,		_report_malloc },
 	{ "new(unsigned long, std::nothrow_t const&)",		"_ZnwmRKSt9nothrow_t",	1,	NULL,		_report_malloc },
 	{ "new[](unsigned long, std::nothrow_t const&)",	"_ZnamRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+
 	{ "delete(void*)",					"_ZdlPv",		1,	report_free,	NULL },
 	{ "delete[](void*)",					"_ZdaPv",		1,	report_free,	NULL },
 	{ "delete(void*, std::nothrow_t const&)",		"_ZdlPvRKSt9nothrow_t",	1,	report_free,	NULL },

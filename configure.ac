@@ -24,7 +24,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.65)
 
-AC_INIT([mtrace],[0.2],[stefani@seibold.net])
+AC_INIT([mtrace],[0.3],[stefani@seibold.net])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR(main.c)
 AC_CONFIG_MACRO_DIR([config/m4])
