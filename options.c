@@ -246,8 +246,12 @@ char **process_options(int argc, char **argv)
 	char *output = NULL;
 	char *cwd = NULL;
 
-	if (!sockdef)
-		asprintf(&sockdef, "/tmp/mtrace%u.sock", getuid());
+	if (!sockdef) {
+		if (asprintf(&sockdef, "/tmp/mtrace%u.sock", getuid()) == -1) {
+			fprintf(stderr, "%s\n", strerror(errno));
+			exit(1);
+		}
+	}
 
 	progname = argv[0];
 

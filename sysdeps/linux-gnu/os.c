@@ -272,7 +272,7 @@ void *mem_scan(struct task *task, struct mt_msg *cmd, void *payload, unsigned lo
 			}
 
 			if (do_peek) {
-				if (copy_from_proc(task, ARCH_ADDR_T(start), page_buf, sizeof(page_buf)) != sizeof(page_buf)) {
+				if (copy_from_proc(task, ARCH_ADDR_T(start), page_buf, sizeof(page_buf)) != (int)sizeof(page_buf)) {
 					fprintf(stderr, "ptrace (%s)\n", strerror(errno));
 					break;
 				}
