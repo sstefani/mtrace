@@ -109,6 +109,7 @@ void process_dump_sort_bytes_leaked(struct process *process, const char *outfile
 void process_dump_sort_allocations(struct process *process, const char *outfile);
 void process_dump_sort_total(struct process *process, const char *outfile);
 void process_dump_sort_tsc(struct process *process, const char *outfile);
+void process_dump_sort_mismatched(struct process *process, const char *outfile);
 void process_dump_stacks(struct process *process, const char *outfile);
 
 void add_ignore_regex(regex_t *re);

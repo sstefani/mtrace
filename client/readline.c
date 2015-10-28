@@ -93,6 +93,7 @@ static struct cmd_opt dump_opts[] = {
 	{ "average", 2, process_dump_sort_average, "sort by average allocation of bytes (usage / allocations)" },
 	{ "bytes-leaked", 1, process_dump_sort_bytes_leaked, "sort by number of leaked bytes" },
 	{ "leaks", 1, process_dump_sort_leaks, "sort by number of detected leaks" },
+	{ "mismatched", 1, process_dump_sort_mismatched, "sort by number of mismatched releases" },
 	{ "stacks", 1, process_dump_stacks, "dump all stack sort by number of total allocations" },
 	{ "total", 2, process_dump_sort_total, "sort by number of total allocations" },
 	{ "tsc", 2, process_dump_sort_tsc, "sort by time stamp counter" },

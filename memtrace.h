@@ -65,6 +65,10 @@ enum mt_operation {
 	MT_STOP,
 	MT_START,
 	MT_DETACH,
+	MT_NEW,
+	MT_NEW_ARRAY,
+	MT_DELETE,
+	MT_DELETE_ARRAY,
 };
 
 struct mt_msg {

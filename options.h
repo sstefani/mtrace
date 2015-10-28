@@ -37,6 +37,7 @@
 #define OPT_SORT_TOTAL		5
 #define OPT_SORT_TSC		6
 #define OPT_SORT_USAGE		7
+#define OPT_SORT_MISMATCHED	8
 
 struct options_t options;
 
@@ -83,8 +84,10 @@ struct options_t {
 	struct opt_b_t *opt_b;	/* binary search path(s) */
 	struct opt_O_t *opt_O;	/* omits path list */
 	int sort_by;		/* sort dump in non interative and non server mode */
+	int sanity;		/* check mismatching operations against new/new[] allocations */
 	int debug;		/* debug */
 	int nocpp;		/* disable trace of c++ allocation operators */
+	int nohwbp;		/* disable hardware breakpoint support */
 };
 
 char **process_options(int argc, char **argv);

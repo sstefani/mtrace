@@ -50,7 +50,8 @@ static int report_alloc64(struct task *task, enum mt_operation op, unsigned long
 	alloc->size = (uint64_t)size;
 
 	if (depth) {
-		alloc->data[i++] = libsym->addr;
+		if (libsym)
+			alloc->data[i++] = libsym->addr;
 
 		if (backtrace_init_unwind(task) >= 0) {
 			while(i < depth) {
@@ -83,7 +84,8 @@ static int report_alloc32(struct task *task, enum mt_operation op, unsigned long
 	alloc->size = (uint32_t)size;
 
 	if (depth) {
-		alloc->data[i++] = libsym->addr;
+		if (libsym)
+			alloc->data[i++] = libsym->addr;
 
 		if (backtrace_init_unwind(task) >= 0) {
 			while(i < depth) {
@@ -128,7 +130,7 @@ static int _null(struct task *task, struct library_symbol *libsym)
 	return 0;
 }
 
-static int _report_malloc(struct task *task, struct library_symbol *libsym)
+static int _report_alloc_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
 {
 	if (!server_connected())
 		return -1;
@@ -136,17 +138,47 @@ static int _report_malloc(struct task *task, struct library_symbol *libsym)
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
+	return report_alloc(task, op, ret, size, options.bt_depth, libsym);
 }
 
-static int report_free(struct task *task, struct library_symbol *libsym)
+static int _report_malloc(struct task *task, struct library_symbol *libsym)
+{
+	return _report_alloc_op(task, libsym, MT_MALLOC);
+}
+
+static int _report_new(struct task *task, struct library_symbol *libsym)
+{
+	return _report_alloc_op(task, libsym, options.sanity ? MT_NEW : MT_MALLOC);
+}
+
+static int _report_new_array(struct task *task, struct library_symbol *libsym)
+{
+	return _report_alloc_op(task, libsym, options.sanity ? MT_NEW_ARRAY : MT_MALLOC);
+}
+
+static int _report_free_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
 {
 	if (!server_connected())
 		return -1;
 
 	unsigned long addr = fetch_param(task, 0);
 
-	return report_alloc(task, MT_FREE, addr, 0, 0, libsym);
+	return report_alloc(task, op, addr, 0, options.sanity ? options.bt_depth : 0, NULL);
+}
+
+static int report_free(struct task *task, struct library_symbol *libsym)
+{
+	return _report_free_op(task, libsym, MT_FREE);
+}
+
+static int report_delete(struct task *task, struct library_symbol *libsym)
+{
+	return _report_free_op(task, libsym, options.sanity ? MT_DELETE : MT_FREE);
+}
+
+static int report_delete_array(struct task *task, struct library_symbol *libsym)
+{
+	return _report_free_op(task, libsym, options.sanity ? MT_DELETE_ARRAY : MT_FREE);
 }
 
 static int _report_realloc(struct task *task, struct library_symbol *libsym)
@@ -330,35 +362,35 @@ static int _report_mremap(struct task *task, struct library_symbol *libsym)
 }
 
 static const struct function flist[] = {
-	{ "malloc",						"malloc",		0,	NULL,		_report_malloc },
-	{ "free",						"free",			0,	report_free,	NULL },
-	{ "realloc",						"realloc",		0,	report_realloc,	_report_realloc },
-	{ "calloc",						"calloc",		0,	NULL,		_report_calloc },
-	{ "posix_memalign",					"posix_memalign",	0,	NULL,		_report_posix_memalign },
-	{ "mmap",						"mmap",			0,	NULL,		_report_mmap },
-	{ "mmap64",						"mmap64",		1,	NULL,		_report_mmap64 },
-	{ "munmap",						"munmap",		0,	report_munmap,	_null },
-	{ "memalign",						"memalign",		0,	NULL,		_report_memalign },
-	{ "aligned_alloc",					"aligned_alloc",	1,	NULL,		_report_aligned_alloc },
-	{ "valloc",						"valloc",		1,	NULL,		_report_valloc },
-	{ "pvalloc",						"pvalloc",		1,	NULL,		_report_pvalloc },
-	{ "mremap",						"mremap",		0,	report_mremap,	_report_mremap },
-	{ "cfree",						"cfree",		1,	report_free,	NULL },
+	{ "malloc",						"malloc",		0,	NULL,			_report_malloc },
+	{ "free",						"free",			0,	report_free,		NULL },
+	{ "realloc",						"realloc",		0,	report_realloc,		_report_realloc },
+	{ "calloc",						"calloc",		0,	NULL,			_report_calloc },
+	{ "posix_memalign",					"posix_memalign",	0,	NULL,			_report_posix_memalign },
+	{ "mmap",						"mmap",			0,	NULL,			_report_mmap },
+	{ "mmap64",						"mmap64",		1,	NULL,			_report_mmap64 },
+	{ "munmap",						"munmap",		0,	report_munmap,		_null },
+	{ "memalign",						"memalign",		0,	NULL,			_report_memalign },
+	{ "aligned_alloc",					"aligned_alloc",	1,	NULL,			_report_aligned_alloc },
+	{ "valloc",						"valloc",		1,	NULL,			_report_valloc },
+	{ "pvalloc",						"pvalloc",		1,	NULL,			_report_pvalloc },
+	{ "mremap",						"mremap",		0,	report_mremap,		_report_mremap },
+	{ "cfree",						"cfree",		1,	report_free,		NULL },
 
-	{ "new(unsigned int)",					"_Znwj",		1,	NULL,		_report_malloc },
-	{ "new[](unsigned int)",				"_Znaj",		1,	NULL,		_report_malloc },
-	{ "new(unsigned int, std::nothrow_t const&)",		"_ZnwjRKSt9nothrow_t",	1,	NULL,		_report_malloc },
-	{ "new[](unsigned int, std::nothrow_t const&)",		"_ZnajRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+	{ "new(unsigned int)",					"_Znwj",		1,	NULL,			_report_new },
+	{ "new[](unsigned int)",				"_Znaj",		1,	NULL,			_report_new_array },
+	{ "new(unsigned int, std::nothrow_t const&)",		"_ZnwjRKSt9nothrow_t",	1,	NULL,			_report_new },
+	{ "new[](unsigned int, std::nothrow_t const&)",		"_ZnajRKSt9nothrow_t",	1,	NULL,			_report_new_array },
 
-	{ "new(unsigned long)",					"_Znwm",		1,	NULL,		_report_malloc },
-	{ "new[](unsigned long)",				"_Znam",		1,	NULL,		_report_malloc },
-	{ "new(unsigned long, std::nothrow_t const&)",		"_ZnwmRKSt9nothrow_t",	1,	NULL,		_report_malloc },
-	{ "new[](unsigned long, std::nothrow_t const&)",	"_ZnamRKSt9nothrow_t",	1,	NULL,		_report_malloc },
+	{ "new(unsigned long)",					"_Znwm",		1,	NULL,			_report_new },
+	{ "new[](unsigned long)",				"_Znam",		1,	NULL,			_report_new_array },
+	{ "new(unsigned long, std::nothrow_t const&)",		"_ZnwmRKSt9nothrow_t",	1,	NULL,			_report_new },
+	{ "new[](unsigned long, std::nothrow_t const&)",	"_ZnamRKSt9nothrow_t",	1,	NULL,			_report_new_array },
 
-	{ "delete(void*)",					"_ZdlPv",		1,	report_free,	NULL },
-	{ "delete[](void*)",					"_ZdaPv",		1,	report_free,	NULL },
-	{ "delete(void*, std::nothrow_t const&)",		"_ZdlPvRKSt9nothrow_t",	1,	report_free,	NULL },
-	{ "delete[](void*, std::nothrow_t const&)",		"_ZdaPvRKSt9nothrow_t",	1,	report_free,	NULL },
+	{ "delete(void*)",					"_ZdlPv",		1,	report_delete,		NULL },
+	{ "delete[](void*)",					"_ZdaPv",		1,	report_delete_array,	NULL },
+	{ "delete(void*, std::nothrow_t const&)",		"_ZdlPvRKSt9nothrow_t",	1,	report_delete,		NULL },
+	{ "delete[](void*, std::nothrow_t const&)",		"_ZdaPvRKSt9nothrow_t",	1,	report_delete_array,	NULL },
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)

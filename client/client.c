@@ -427,10 +427,14 @@ static int client_func(void)
 		case MT_PVALLOC:
 		case MT_MMAP:
 		case MT_MMAP64:
+		case MT_NEW:
+		case MT_NEW_ARRAY:
 			process_alloc(process, &mt_msg, payload);
 			break;
 		case MT_REALLOC_ENTER:
 		case MT_FREE:
+		case MT_DELETE:
+		case MT_DELETE_ARRAY:
 			process_free(process, &mt_msg, payload);
 			break;
 		case MT_MUNMAP:

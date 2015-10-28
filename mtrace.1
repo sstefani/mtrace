@@ -42,6 +42,8 @@ mtrace \- A dynamic memory allocation tracer
 [\-i|\-\-interactive]
 [\-l|\-\-logfile \fIfilename\fR]
 [\-n|\-\-nocpp]
+[\-N|\-\-nohwbp]
+[\-S|\-\-sanity]
 [\-O|\-\-omit \fIfilename\fR]
 [\-u|\-\-user \fIusername\fR]
 [\-v|\-\-verbose]
@@ -70,6 +72,8 @@ mtrace \- A dynamic memory allocation tracer
 [\-D|\-\-debug \fImask\fR]
 [\-l|\-\-logfile \fIfilename\fR]
 [\-n|\-\-nocpp]
+[\-N|\-\-nohwbp]
+[\-S|\-\-sanity]
 [\-O|\-\-omit \fIfilename\fR]
 [\-u|\-\-user \fIusername\fR]
 [\-v|\-\-verbose]
@@ -266,6 +270,9 @@ since the trace will be split into to different actions.
 .IP "\-n, \-\-nocpp"
 Disable the trace of C++ allocation operators.  This is safe and faster for libstdc++,
 since this library does call malloc() and free() inside the allocation operators.
+.IP "\-N, \-\-nohwbp"
+Disable the usage of hardware breakpoints. This options is intended for some
+virtual machines, where hardware breakpoints not working.
 .IP "\-p, \-\-pid \fIpid"
 Attach to the process with the process ID \fIpid\fR and begin tracing.
 This option can be used together with passing a command to execute.
@@ -301,6 +308,12 @@ Sort by number of bytes leaked (only useful with \-a option).
 .RE
 .RE
 .RS
+\fImismatched\fR
+.RS
+Sort by number of mismatched releases (only useful with \-S option).
+.RE
+.RE
+.RS
 \fIleaks\fR
 .RS
 Sort by number of leaked allocations (only useful with \-a option).
@@ -330,6 +343,9 @@ Sort by the pseudo time stamp counter.  Each stack backtrace will get an increme
 Sort by number of bytes in use of all open allocations.
 .RE
 .RE
+.IP "\-S, \-\-sanity"
+Check mismatching operations against new/new[] allocations. This options also
+sets the sort-by options to mismatched.
 .IP "\-t, \-\-trace"
 Run \fBmtrace\fR in trace mode.  In this mode all attached processes will run under
 the control of \fBmtrace\fR and all dynamic memory function calls will be traced.
@@ -380,9 +396,9 @@ at any time.  It accepts a maximum of three parameters:
 .RS
 Sort the output of dump by the keyword.  The keyword is the same as for the
 \-S option (\fIallocations, \fIaverage\fR, \fIbytes-leaked\fR, \fIleaks\fR,
-\fIstacks\fR, \fItotal\fR, \fItsc\fR and \fIusage\fR).  See \-S option for
-more details about the sortby keywords.  The default sort order is
-\fIallocations\fR when no sortby parameter is used.
+\fImismatched\fR, \fIstacks\fR, \fItotal\fR, \fItsc\fR and \fIusage\fR).  See
+\-S option for more details about the sortby keywords.  The default sort order
+is \fIallocations\fR when no sortby parameter is used.
 .RE
 .RE
 .RS

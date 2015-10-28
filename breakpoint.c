@@ -329,6 +329,9 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	if (bp == NULL)
 		goto fail1;
 
+	if (options.nohwbp)
+		bp_type = BP_SW;
+
 	bp->on_hit = NULL;
 	bp->libsym = libsym;
 	bp->addr = addr;

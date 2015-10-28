@@ -48,7 +48,7 @@
 #define MIN_STACK	4
 #define MAX_STACK	64
 
-#define DEFAULT_STACK	15
+#define DEFAULT_STACK	16
 #define DEFAULT_PORT	4576
 
 static char *sockdef;
@@ -89,15 +89,17 @@ static void usage(void)
 		" -h, --help          display this help and exit\n"
 		" -i, --interactive   interactive client mode\n"
 		" -O, --omit=FILE     do not place breakpoint in this file\n"
-		" -k, --kill          abort mtrace on unexpected error conditon\n"
+		" -k, --kill          abort mtrace due unexpected error conditon\n"
 		" -l, --logfile       use log file instead of socket connection\n"
 		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
+		" -N, --nohwbp        disable hardware breakpoint support\n"
 		" -o, --output=FILE   write the trace output to file with given name\n"
 		" -p, --pid=PID       attach to the process with the process ID pid (may be repeated)\n"
 		" -P, --port=PORT     socket port (default: " STR(DEFAULT_PORT) ")\n"
 		" -r, --remote=addr   remote use address (path, address or host)\n"
 		" -s, --sort-by=type  sort dump by type:\n"
 		"                      allocations, average, bytes-leaked, leaks, stacks, total, tsc, usage\n"
+		" -S, --sanity        check mismatching operations against new/new[] allocations\n"
 		" -t, --trace         trace mode\n"
 		" -u, --user=USERNAME run command with the userid, groupid of username\n"
 		" -V, --version       output version information and exit\n"
@@ -276,9 +278,11 @@ char **process_options(int argc, char **argv)
 	options.opt_b = NULL;
 	options.opt_O = NULL;
 	options.sort_by = -1;
+	options.sanity = 0;
 	options.debug = 0;
 	options.kill = 0;
 	options.nocpp = 0;
+	options.nohwbp = 0;
 
 	for(;;) {
 		int c;
@@ -296,13 +300,15 @@ char **process_options(int argc, char **argv)
 			{ "interactive", 0, 0, 'i' },
 			{ "kill", 0, 0, 'k' },
 			{ "logfile", 1, 0, 'l' },
-			{ "nocpp", 1, 0, 'n' },
+			{ "nocpp", 0, 0, 'n' },
+			{ "nohwbp", 0, 0, 'N' },
 			{ "output", 1, 0, 'o' },
 			{ "omit", 1, 0, 'O' },
 			{ "pid", 1, 0, 'p' },
 			{ "port", 1, 0, 'P' },
 			{ "remote", 1, 0, 'r' },
 			{ "sort-by", 1, 0, 's' },
+			{ "sanity", 0, 0, 'S' },
 			{ "trace", 0, 0, 't' },
 			{ "user", 1, 0, 'u' },
 			{ "version", 0, 0, 'V' },
@@ -312,7 +318,7 @@ char **process_options(int argc, char **argv)
 		};
 
 		c = getopt_long(argc, argv,
-				"+aefhikLntVvw"
+				"+aefhikLnNStVvw"
 				"b:c:d:D:F:l:o:O:p:P:r:s:u:",
 				long_options,
 				&option_index);
@@ -414,6 +420,9 @@ char **process_options(int argc, char **argv)
 		case 'n':
 			options.nocpp = 1;
 			break;
+		case 'N':
+			options.nohwbp = 1;
+			break;
 		case 'p':
 			{
 				struct opt_p_t *tmp = malloc(sizeof(*tmp));
@@ -452,6 +461,9 @@ char **process_options(int argc, char **argv)
 			if (!strncmp(optarg, "leaks", 1))
 				options.sort_by = OPT_SORT_LEAKS;
 			else
+			if (!strncmp(optarg, "mismatched", 1))
+				options.sort_by = OPT_SORT_MISMATCHED;
+			else
 			if (!strncmp(optarg, "stacks", 1))
 				options.sort_by = OPT_SORT_STACKS;
 			else
@@ -467,6 +479,9 @@ char **process_options(int argc, char **argv)
 				fprintf(stderr, "invalid sort paramter: %s\n", optarg);
 				exit(1);
 			}
+			break;
+		case 'S':
+			options.sanity = 1;
 			break;
 		case 't':
 			options.trace = 1;
@@ -545,6 +560,16 @@ char **process_options(int argc, char **argv)
 			err_usage();
 		}
 
+		if (options.nohwbp) {
+			fprintf(stderr, "%s: client mode does not require -N\n", progname);
+			err_usage();
+		}
+
+		if (options.sanity) {
+			fprintf(stderr, "%s: client mode does not require -S\n", progname);
+			err_usage();
+		}
+
 		if (options.user) {
 			fprintf(stderr, "%s: user can only passed in trace mode\n", progname);
 			err_usage();
@@ -582,6 +607,10 @@ char **process_options(int argc, char **argv)
 			fprintf(stderr, "%s: sort-by ignored in interactive mode\n", progname);
 			options.sort_by = -1;
 		}
+	}
+	else {
+		if (options.sanity)
+			options.sort_by = OPT_SORT_MISMATCHED;
 	}
 
 	if (output) {

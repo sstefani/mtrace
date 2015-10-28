@@ -70,6 +70,7 @@ struct rb_stack {
 	unsigned long long bytes_used;
 	unsigned long long bytes_leaked;
 	unsigned long long tsc;
+	unsigned long long n_mismatched;
 };
 
 struct map {
@@ -139,6 +140,14 @@ static const char *str_operation(enum mt_operation operation)
 		return "free";
 	case MT_MUNMAP:
 		return "munmap";
+	case MT_NEW:
+		return "new";
+	case MT_NEW_ARRAY:
+		return "new[]";
+	case MT_DELETE:
+		return "delete";
+	case MT_DELETE_ARRAY:
+		return "delete[]";
 	default:
 		break;
 	}
@@ -422,6 +431,7 @@ static struct rb_stack *stack_clone(struct process *process, struct rb_stack *st
 
 	this->leaks = stack_node->leaks;
 	this->n_allocations = stack_node->n_allocations;
+	this->n_mismatched = stack_node->n_mismatched;
 	this->total_allocations = stack_node->total_allocations;
 	this->bytes_used = stack_node->bytes_used;
 	this->bytes_leaked = stack_node->bytes_leaked;
@@ -486,6 +496,7 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 	memcpy(stack->addrs, addrs, stack_size);
 
 	this->n_allocations = 0;
+	this->n_mismatched = 0;
 	this->total_allocations = 0;
 	this->bytes_used = 0;
 	this->leaks = 0;
@@ -832,6 +843,15 @@ static int sort_tsc(const struct rb_stack **p, const struct rb_stack **q)
 	return 0;
 }
 
+static int sort_mismatched(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->n_mismatched > (*q)->n_mismatched)
+		return -1;
+	if ((*p)->n_mismatched < (*q)->n_mismatched)
+		return 1;
+	return 0;
+}
+
 static int sort_usage(const struct rb_stack **p, const struct rb_stack **q)
 {
 	if ((*p)->bytes_used > (*q)->bytes_used)
@@ -939,20 +959,31 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 		struct rb_stack *stack = arr[i];
 
 		if (!skipfunc(stack)) {
-			if (dump_printf(
-				"Stack (%s):\n"
-				" bytes used: %llu\n"
-				" number of open allocations: %llu\n"
-				" total number of allocations: %llu\n",
-					str_operation(stack->stack->operation),
-					stack->bytes_used,
-					stack->n_allocations,
-					stack->total_allocations
-			) == -1)
-				break;
+			if (!stack->n_mismatched) {
+				if (dump_printf(
+					"Stack (%s):\n"
+					" bytes used: %llu\n"
+					" number of open allocations: %llu\n"
+					" total number of allocations: %llu\n",
+						str_operation(stack->stack->operation),
+						stack->bytes_used,
+						stack->n_allocations,
+						stack->total_allocations
+				) == -1)
+					break;
 
-			if (stack->leaks) {
-				if (dump_printf( " leaked allocations: %lu (%llu bytes)\n", stack->leaks, stack->bytes_leaked) == -1)
+				if (stack->leaks) {
+					if (dump_printf( " leaked allocations: %lu (%llu bytes)\n", stack->leaks, stack->bytes_leaked) == -1)
+						break;
+				}
+			}
+			else {
+				if (dump_printf(
+					"Stack (%s):\n"
+					" total number of mismatches: %llu\n",
+						str_operation(stack->stack->operation),
+						stack->n_mismatched
+				) == -1)
 					break;
 			}
 
@@ -995,6 +1026,11 @@ static int skip_zero_allocations(struct rb_stack *stack)
 	return !stack->n_allocations;
 }
 
+static int skip_non_mismatched(struct rb_stack *stack)
+{
+	return !stack->n_mismatched;
+}
+
 static int skip_zero_leaks(struct rb_stack *stack)
 {
 	return !stack->leaks;
@@ -1033,6 +1069,11 @@ void process_dump_sort_total(struct process *process, const char *outfile)
 void process_dump_sort_tsc(struct process *process, const char *outfile)
 {
 	process_dump(process, sort_tsc, skip_zero_allocations, outfile);
+}
+
+void process_dump_sort_mismatched(struct process *process, const char *outfile)
+{
+	process_dump(process, sort_mismatched, skip_non_mismatched, outfile);
 }
 
 void process_dump_stacks(struct process *process, const char *outfile)
@@ -1188,10 +1229,43 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 	} while(size);
 }
 
+static int is_sane(struct rb_block *block, enum mt_operation op)
+{
+	switch(block->stack_node->stack->operation) {
+	case MT_MALLOC:
+	case MT_REALLOC:
+	case MT_REALLOC_FAILED:
+	case MT_MEMALIGN:
+	case MT_POSIX_MEMALIGN:
+	case MT_ALIGNED_ALLOC:
+	case MT_VALLOC:
+	case MT_PVALLOC:
+		if (op != MT_FREE && op != MT_REALLOC_ENTER)
+			return 0;
+		break;
+	case MT_NEW:
+		if (op != MT_DELETE)
+			return 0;
+		break;
+	case MT_NEW_ARRAY:
+		if (op != MT_DELETE_ARRAY)
+			return 0;
+		break;
+	case MT_MMAP:
+	case MT_MMAP64:
+	default:
+		return 0;
+	}
+	return 1;
+}
+
 void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 {
 	struct rb_block *block = NULL;
+	uint32_t payload_len = mt_msg->payload_len;
 	unsigned long ptr;
+	void *stack_data;
+	unsigned long stack_size;
 
 	if (!process->tracing)
 		return;
@@ -1200,11 +1274,17 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 		struct mt_alloc_payload_64 *mt_alloc = payload;
 
 		ptr = process->get_ulong(&mt_alloc->ptr);
+
+		stack_data = payload + sizeof(*mt_alloc);
+		stack_size = (payload_len - sizeof(*mt_alloc));
 	}
 	else {
 		struct mt_alloc_payload_32 *mt_alloc = payload;
 
 		ptr = process->get_ulong(&mt_alloc->ptr);
+
+		stack_data = payload + sizeof(*mt_alloc);
+		stack_size = (payload_len - sizeof(*mt_alloc));
 	}
 
 	debug(DEBUG_FUNCTION, "ptr=%#lx", ptr);
@@ -1219,6 +1299,14 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 					abort();
 			}
 		}
+
+		if (!is_sane(block, mt_msg->operation)) {
+			struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+
+			stack->n_mismatched++;
+			stack->tsc = process->tsc++;
+		}
+
 		process_rb_delete_block(process, block);
 	}
 	else {
@@ -1337,6 +1425,9 @@ void process_dump_sortby(struct process *process)
 		break;
 	case OPT_SORT_USAGE:
 		_process_dump(process, sort_usage, skip_zero_allocations, options.output);
+		break;
+	case OPT_SORT_MISMATCHED:
+		_process_dump(process, sort_mismatched, skip_non_mismatched, options.output);
 		break;
 	default:
 		_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
