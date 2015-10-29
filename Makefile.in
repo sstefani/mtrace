@@ -108,6 +108,8 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
+@DISABLE_CLIENT_FALSE@am__append_1 = client
+@DISABLE_CLIENT_FALSE@am__append_2 = libclient.la
 bin_PROGRAMS = mtrace$(EXEEXT)
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -137,7 +139,7 @@ am_mtrace_OBJECTS = breakpoint.$(OBJEXT) common.$(OBJEXT) \
 	options.$(OBJEXT) rbtree.$(OBJEXT) report.$(OBJEXT) \
 	server.$(OBJEXT) task.$(OBJEXT) trace.$(OBJEXT)
 mtrace_OBJECTS = $(am_mtrace_OBJECTS)
-mtrace_DEPENDENCIES = libclient.la sysdeps/libos.la
+mtrace_DEPENDENCIES = sysdeps/libos.la $(am__append_2)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
 am__v_lt_0 = --silent
@@ -253,7 +255,7 @@ am__define_uniq_tagged_files = \
 ETAGS = etags
 CTAGS = ctags
 CSCOPE = cscope
-DIST_SUBDIRS = $(SUBDIRS)
+DIST_SUBDIRS = sysdeps client .
 am__DIST_COMMON = $(dist_man1_MANS) $(dist_man5_MANS) \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
 	$(top_srcdir)/config/autoconf/compile \
@@ -433,11 +435,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 ACLOCAL_AMFLAGS = -I config/m4
-SUBDIRS = \
-	client \
-	sysdeps \
-	.
-
+SUBDIRS = sysdeps $(am__append_1) .
 mtrace_SOURCES = \
 	breakpoint.c \
 	common.c \
@@ -455,11 +453,7 @@ mtrace_SOURCES = \
 	task.c \
 	trace.c
 
-mtrace_LDADD = \
-	$(libelf_LIBS) \
-	libclient.la \
-	sysdeps/libos.la
-
+mtrace_LDADD = $(libelf_LIBS) sysdeps/libos.la $(am__append_2)
 noinst_HEADERS = \
 	backend.h \
 	backtrace.h \

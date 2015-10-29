@@ -38,7 +38,9 @@
 #include <sys/types.h>
 #include <dlfcn.h>
 #include <execinfo.h>
+#ifndef DISABLE_CLIENT
 #include <bfd.h>
+#endif
 #include <pwd.h>
 #include <grp.h>
 
@@ -59,6 +61,9 @@ struct map {
  
 static void report_fault(int signo, siginfo_t* siginf, void* arg)
 {
+	fprintf(stderr, "fault signal %d (%s)\n", signo, strsignal(signo));
+
+#ifndef DISABLE_CLIENT
 	int nptrs;
 	int i;
 	void *trace[48];
@@ -69,8 +74,6 @@ static void report_fault(int signo, siginfo_t* siginf, void* arg)
 	asymbol **syms = 0;
 	asection *text = 0;
 	int l;
-
-	fprintf(stderr, "fault signal %d (%s)\n", signo, strsignal(signo));
 
 	l = readlink("/proc/self/exe", linkname, sizeof(linkname));
  	if (l == -1) {
@@ -134,6 +137,7 @@ skip:
 	}
 
 	free(strings);
+#endif
 
 	fflush(stderr);
 

@@ -58,6 +58,22 @@ LT_INIT
 AM_INIT_AUTOMAKE([foreign no-exeext dist-bzip2])
 AM_MAINTAINER_MODE
 
+AC_MSG_CHECKING([whether to disable client support])
+AC_ARG_ENABLE(client,
+    AC_MSG_WARN( hallo)
+    AS_HELP_STRING([--disable-client], [disable client @<:@default=no@:>@]),
+	[case "$enableval" in
+	n | no) CONFIG_DISABLE_CLIENT=yes ;;
+        *) CONFIG_DISABLE_CLIENT=no ;;
+    esac],
+    [CONFIG_DISABLE_CLIENT=no])
+AC_MSG_RESULT([${CONFIG_DISABLE_CLIENT}])
+if test "${CONFIG_DISABLE_CLIENT}" = "yes"; then
+	AC_DEFINE(DISABLE_CLIENT, 1, [disable client])
+fi
+AM_CONDITIONAL(DISABLE_CLIENT, [test "${CONFIG_DISABLE_CLIENT}" = "yes"])
+
+
 AC_ARG_WITH([libelf],
   AS_HELP_STRING([--with-libelf], [Prefix of libelf headers/library]),
   [case "${withval}" in
@@ -91,14 +107,25 @@ AC_CHECK_LIB([elf], [elf_begin],,
 CPPFLAGS="${saved_CPPFLAGS}"
 LDFLAGS="${saved_LDFLAGS}"
 
+# libreadline
+if test "${CONFIG_DISABLE_CLIENT}" != "yes"; then
+	AC_CHECK_HEADERS([readline/readline.h],,
+		[AC_MSG_ERROR([*** readline.h not found on your system])]
+	)
+	AC_CHECK_LIB([readline], [rl_callback_read_char],,
+		[AC_MSG_ERROR([*** libreadline not found on your system])]
+	)
+fi
 
 # libbfd
-AC_CHECK_HEADERS([bfd.h],,
-	[AC_MSG_ERROR([*** bfd.h not found on your system])]
-)
-AC_CHECK_LIB([bfd], [bfd_openr],,
-	[AC_MSG_ERROR([*** libbfd not found on your system])]
-)
+if test "${CONFIG_DISABLE_CLIENT}" != "yes"; then
+	AC_CHECK_HEADERS([bfd.h],,
+		[AC_MSG_ERROR([*** bfd.h not found on your system])]
+	)
+	AC_CHECK_LIB([bfd], [bfd_openr],,
+		[AC_MSG_ERROR([*** libbfd not found on your system])]
+	)
+fi
 
 # libpthread
 AC_CHECK_HEADERS([pthread.h],,
@@ -121,14 +148,6 @@ AC_CHECK_LIB([dl], [dladdr],,
 #	[AC_MSG_ERROR([*** termcap.h not found on your system])]
 #)
 AC_CHECK_LIB([termcap], [tgetflag],,
-)
-
-# libreadline
-AC_CHECK_HEADERS([readline/readline.h],,
-	[AC_MSG_ERROR([*** readline.h not found on your system])]
-)
-AC_CHECK_LIB([readline], [rl_callback_read_char],,
-	[AC_MSG_ERROR([*** libreadline not found on your system])]
 )
 
 

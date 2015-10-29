@@ -18,10 +18,13 @@
 
 ACLOCAL_AMFLAGS = -I config/m4
 
-SUBDIRS = \
-	client \
-	sysdeps \
-	.
+SUBDIRS = sysdeps
+
+if !DISABLE_CLIENT
+SUBDIRS += client
+endif
+
+SUBDIRS += .
 
 AM_CPPFLAGS += \
 	$(libelf_CFLAGS) \
@@ -49,9 +52,11 @@ mtrace_SOURCES = \
 
 mtrace_LDADD = \
 	$(libelf_LIBS) \
-	libclient.la \
 	sysdeps/libos.la
 
+if !DISABLE_CLIENT
+mtrace_LDADD += libclient.la
+endif
 
 bin_PROGRAMS = \
 	mtrace

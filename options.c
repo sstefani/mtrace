@@ -75,8 +75,10 @@ static void usage(void)
 		"\n"
 		"Trace memory allocation library calls of a given program.\n"
 		"\n"
+#ifndef DISABLE_CLIENT
 		" -a, --autoscan      scan memory on exit of a traced program\n"
 		" -b, --binpath=path  binary search path (may be repeated)\n"
+#endif
 		" -c, --cwd=path      use as current working directory for traced process\n"
 #ifdef DEBUG
 		" -D, --debug=MASK    enable debugging (see -Dh or --debug=help)\n"
@@ -87,18 +89,24 @@ static void usage(void)
 		" -F, --config=FILE   load alternate configuration file (may be repeated)\n"
 		" -f, --follow-fork   trace forked children\n"
 		" -h, --help          display this help and exit\n"
+#ifndef DISABLE_CLIENT
 		" -i, --interactive   interactive client mode\n"
+#endif
 		" -O, --omit=FILE     do not place breakpoint in this file\n"
 		" -k, --kill          abort mtrace due unexpected error conditon\n"
 		" -l, --logfile       use log file instead of socket connection\n"
 		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
 		" -N, --nohwbp        disable hardware breakpoint support\n"
+#ifndef DISABLE_CLIENT
 		" -o, --output=FILE   write the trace output to file with given name\n"
+#endif
 		" -p, --pid=PID       attach to the process with the process ID pid (may be repeated)\n"
 		" -P, --port=PORT     socket port (default: " STR(DEFAULT_PORT) ")\n"
 		" -r, --remote=addr   remote use address (path, address or host)\n"
+#ifndef DISABLE_CLIENT
 		" -s, --sort-by=type  sort dump by type:\n"
 		"                      allocations, average, bytes-leaked, leaks, stacks, total, tsc, usage\n"
+#endif
 		" -S, --sanity        check mismatching operations against new/new[] allocations\n"
 		" -t, --trace         trace mode\n"
 		" -u, --user=USERNAME run command with the userid, groupid of username\n"
@@ -267,7 +275,11 @@ char **process_options(int argc, char **argv)
 	options.verbose = 0;
 	options.wait = 0;
 	options.address = NULL;
+#ifdef DISABLE_CLIENT
+	options.trace = 1;
+#else
 	options.trace = 0;
+#endif
 	options.server = 0;
 	options.logfile = NULL;
 	options.user = NULL;
@@ -288,8 +300,10 @@ char **process_options(int argc, char **argv)
 		int c;
 		int option_index = 0;
 		static const struct option long_options[] = {
+#ifndef DISABLE_CLIENT
 			{ "auto_scan", 0, 0, 'a' },
 			{ "binpath", 1, 0, 'b' },
+#endif
 			{ "config", 1, 0, 'F' },
 			{ "cwd", 1, 0, 'c' },
 			{ "debug", 1, 0, 'D' },
@@ -297,17 +311,23 @@ char **process_options(int argc, char **argv)
 			{ "help", 0, 0, 'h' },
 			{ "follow-fork", 0, 0, 'f'},
 			{ "follow-exec", 0, 0, 'e' },
+#ifndef DISABLE_CLIENT
 			{ "interactive", 0, 0, 'i' },
+#endif
 			{ "kill", 0, 0, 'k' },
 			{ "logfile", 1, 0, 'l' },
 			{ "nocpp", 0, 0, 'n' },
 			{ "nohwbp", 0, 0, 'N' },
+#ifndef DISABLE_CLIENT
 			{ "output", 1, 0, 'o' },
+#endif
 			{ "omit", 1, 0, 'O' },
 			{ "pid", 1, 0, 'p' },
 			{ "port", 1, 0, 'P' },
 			{ "remote", 1, 0, 'r' },
+#ifndef DISABLE_CLIENT
 			{ "sort-by", 1, 0, 's' },
+#endif
 			{ "sanity", 0, 0, 'S' },
 			{ "trace", 0, 0, 't' },
 			{ "user", 1, 0, 'u' },
@@ -318,8 +338,27 @@ char **process_options(int argc, char **argv)
 		};
 
 		c = getopt_long(argc, argv,
-				"+aefhikLnNStVvw"
-				"b:c:d:D:F:l:o:O:p:P:r:s:u:",
+				"+"
+#ifndef DISABLE_CLIENT
+				"a"
+#endif
+				"efh"
+#ifndef DISABLE_CLIENT
+				"i"
+#endif
+				"kLnNStVvw"
+#ifndef DISABLE_CLIENT
+				"b:"
+#endif
+				"c:d:D:F:l:"
+#ifndef DISABLE_CLIENT
+				"o:"
+#endif
+				"O:p:P:r:"
+#ifndef DISABLE_CLIENT
+				"s:"
+#endif
+				"u:",
 				long_options,
 				&option_index);
 

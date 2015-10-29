@@ -3,6 +3,9 @@
 /* debugging */
 #undef DEBUG
 
+/* disable client */
+#undef DISABLE_CLIENT
+
 /* elf_hash() takes char* (as opposed to unsigned char *) */
 #undef ELF_HASH_TAKES_CHARP
 

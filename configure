@@ -640,6 +640,8 @@ AM_LDFLAGS
 AM_CFLAGS
 AM_CPPFLAGS
 LIBOBJS
+DISABLE_CLIENT_FALSE
+DISABLE_CLIENT_TRUE
 MAINT
 MAINTAINER_MODE_FALSE
 MAINTAINER_MODE_TRUE
@@ -772,6 +774,7 @@ enable_libtool_lock
 enable_dependency_tracking
 enable_silent_rules
 enable_maintainer_mode
+enable_client
 with_libelf
 enable_debug
 enable_werror
@@ -1418,6 +1421,9 @@ Optional Features:
   --enable-maintainer-mode
                           enable make rules and dependencies not useful (and
                           sometimes confusing) to the casual installer
+{ $as_echo "$as_me:${as_lineno-$LINENO}: WARNING: hallo" >&5
+$as_echo "$as_me: WARNING: hallo" >&2;}
+      --disable-client        disable client [default=no]
   --enable-debug          enable debugging [default=no]
   --disable-werror        disable use of -Werror
 
@@ -12245,6 +12251,35 @@ fi
 
 
 
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking whether to disable client support" >&5
+$as_echo_n "checking whether to disable client support... " >&6; }
+# Check whether --enable-client was given.
+if test "${enable_client+set}" = set; then :
+  enableval=$enable_client; case "$enableval" in
+	n | no) CONFIG_DISABLE_CLIENT=yes ;;
+        *) CONFIG_DISABLE_CLIENT=no ;;
+    esac
+else
+  CONFIG_DISABLE_CLIENT=no
+fi
+
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: ${CONFIG_DISABLE_CLIENT}" >&5
+$as_echo "${CONFIG_DISABLE_CLIENT}" >&6; }
+if test "${CONFIG_DISABLE_CLIENT}" = "yes"; then
+
+$as_echo "#define DISABLE_CLIENT 1" >>confdefs.h
+
+fi
+ if test "${CONFIG_DISABLE_CLIENT}" = "yes"; then
+  DISABLE_CLIENT_TRUE=
+  DISABLE_CLIENT_FALSE='#'
+else
+  DISABLE_CLIENT_TRUE='#'
+  DISABLE_CLIENT_FALSE=
+fi
+
+
+
 
 # Check whether --with-libelf was given.
 if test "${with_libelf+set}" = set; then :
@@ -12339,9 +12374,76 @@ fi
 CPPFLAGS="${saved_CPPFLAGS}"
 LDFLAGS="${saved_LDFLAGS}"
 
+# libreadline
+if test "${CONFIG_DISABLE_CLIENT}" != "yes"; then
+	for ac_header in readline/readline.h
+do :
+  ac_fn_c_check_header_mongrel "$LINENO" "readline/readline.h" "ac_cv_header_readline_readline_h" "$ac_includes_default"
+if test "x$ac_cv_header_readline_readline_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_READLINE_READLINE_H 1
+_ACEOF
+
+else
+  as_fn_error $? "*** readline.h not found on your system" "$LINENO" 5
+
+fi
+
+done
+
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for rl_callback_read_char in -lreadline" >&5
+$as_echo_n "checking for rl_callback_read_char in -lreadline... " >&6; }
+if ${ac_cv_lib_readline_rl_callback_read_char+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lreadline  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char rl_callback_read_char ();
+int
+main ()
+{
+return rl_callback_read_char ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_readline_rl_callback_read_char=yes
+else
+  ac_cv_lib_readline_rl_callback_read_char=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_readline_rl_callback_read_char" >&5
+$as_echo "$ac_cv_lib_readline_rl_callback_read_char" >&6; }
+if test "x$ac_cv_lib_readline_rl_callback_read_char" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_LIBREADLINE 1
+_ACEOF
+
+  LIBS="-lreadline $LIBS"
+
+else
+  as_fn_error $? "*** libreadline not found on your system" "$LINENO" 5
+
+fi
+
+fi
 
 # libbfd
-for ac_header in bfd.h
+if test "${CONFIG_DISABLE_CLIENT}" != "yes"; then
+	for ac_header in bfd.h
 do :
   ac_fn_c_check_header_mongrel "$LINENO" "bfd.h" "ac_cv_header_bfd_h" "$ac_includes_default"
 if test "x$ac_cv_header_bfd_h" = xyes; then :
@@ -12356,7 +12458,7 @@ fi
 
 done
 
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for bfd_openr in -lbfd" >&5
+	{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for bfd_openr in -lbfd" >&5
 $as_echo_n "checking for bfd_openr in -lbfd... " >&6; }
 if ${ac_cv_lib_bfd_bfd_openr+:} false; then :
   $as_echo_n "(cached) " >&6
@@ -12404,6 +12506,7 @@ else
 
 fi
 
+fi
 
 # libpthread
 for ac_header in pthread.h
@@ -12581,71 +12684,6 @@ if test "x$ac_cv_lib_termcap_tgetflag" = xyes; then :
 _ACEOF
 
   LIBS="-ltermcap $LIBS"
-
-fi
-
-
-# libreadline
-for ac_header in readline/readline.h
-do :
-  ac_fn_c_check_header_mongrel "$LINENO" "readline/readline.h" "ac_cv_header_readline_readline_h" "$ac_includes_default"
-if test "x$ac_cv_header_readline_readline_h" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_READLINE_READLINE_H 1
-_ACEOF
-
-else
-  as_fn_error $? "*** readline.h not found on your system" "$LINENO" 5
-
-fi
-
-done
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for rl_callback_read_char in -lreadline" >&5
-$as_echo_n "checking for rl_callback_read_char in -lreadline... " >&6; }
-if ${ac_cv_lib_readline_rl_callback_read_char+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-  ac_check_lib_save_LIBS=$LIBS
-LIBS="-lreadline  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char rl_callback_read_char ();
-int
-main ()
-{
-return rl_callback_read_char ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"; then :
-  ac_cv_lib_readline_rl_callback_read_char=yes
-else
-  ac_cv_lib_readline_rl_callback_read_char=no
-fi
-rm -f core conftest.err conftest.$ac_objext \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_readline_rl_callback_read_char" >&5
-$as_echo "$ac_cv_lib_readline_rl_callback_read_char" >&6; }
-if test "x$ac_cv_lib_readline_rl_callback_read_char" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_LIBREADLINE 1
-_ACEOF
-
-  LIBS="-lreadline $LIBS"
-
-else
-  as_fn_error $? "*** libreadline not found on your system" "$LINENO" 5
 
 fi
 
@@ -13403,6 +13441,10 @@ fi
 
 if test -z "${MAINTAINER_MODE_TRUE}" && test -z "${MAINTAINER_MODE_FALSE}"; then
   as_fn_error $? "conditional \"MAINTAINER_MODE\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${DISABLE_CLIENT_TRUE}" && test -z "${DISABLE_CLIENT_FALSE}"; then
+  as_fn_error $? "conditional \"DISABLE_CLIENT\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

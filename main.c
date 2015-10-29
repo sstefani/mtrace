@@ -145,6 +145,10 @@ int main(int argc, char *argv[])
 				exit(EXIT_FAILURE);
 		}
 		else {
+#if DISABLE_CLIENT
+			fprintf(stderr, "direct mode not supported\n");
+			exit(EXIT_FAILURE);
+#else
 			int ret = server_start_pair();
 
 			if (ret == -1)
@@ -152,9 +156,14 @@ int main(int argc, char *argv[])
 
 			if (client_start_pair(ret))
 				exit(EXIT_FAILURE);
+#endif
 		}
 	}
 	else {
+#if DISABLE_CLIENT
+		fprintf(stderr, "direct mode not supported\n");
+		exit(EXIT_FAILURE);
+#else
 		if (options.logfile) {
 			if (client_logfile() == -1)
 				exit(EXIT_FAILURE);
@@ -163,6 +172,7 @@ int main(int argc, char *argv[])
 		if (client_start() == -1)
 			exit(EXIT_FAILURE);
 		return 0;
+#endif
 	}
 
 	mtrace_init(cmd);
@@ -171,7 +181,9 @@ int main(int argc, char *argv[])
 
 	report_disconnect();
 
+#if !DISABLE_CLIENT
 	client_stop();
+#endif
 	server_stop();
 
 	return 0;
