@@ -41,6 +41,7 @@ mtrace-ng \- A dynamic memory allocation tracer
 [\-D|\-\-debug \fImask\fR]
 [\-i|\-\-interactive]
 [\-l|\-\-logfile \fIfilename\fR]
+[\-L|\-\-long]
 [\-n|\-\-nocpp]
 [\-N|\-\-nohwbp]
 [\-S|\-\-sanity]
@@ -71,6 +72,7 @@ mtrace-ng \- A dynamic memory allocation tracer
 [\-C|\-\-cwd \fIpath\fR]
 [\-D|\-\-debug \fImask\fR]
 [\-l|\-\-logfile \fIfilename\fR]
+[\-L|\-\-long]
 [\-n|\-\-nocpp]
 [\-N|\-\-nohwbp]
 [\-S|\-\-sanity]
@@ -267,12 +269,14 @@ Use a given logfile instead of a socket connection.  In trace mode all data will
 be written into the logfile.  In the non trace mode the data will be retrieved
 from the logfile.  This option can improve the performance of the trace
 since the trace will be split into to different actions.
+.IP "\-L, \-\-long"
+Do a long dump which includes map file as well.
 .IP "\-n, \-\-nocpp"
 Disable the trace of C++ allocation operators.  This is safe and faster for libstdc++,
 since this library does call malloc() and free() inside the allocation operators.
 .IP "\-N, \-\-nohwbp"
 Disable the usage of hardware breakpoints. This options is intended for some
-virtual machines, where hardware breakpoints not working.
+virtual machines, where hardware breakpoints do not work well.
 .IP "\-p, \-\-pid \fIpid"
 Attach to the process with the process ID \fIpid\fR and begin tracing.
 This option can be used together with passing a command to execute.

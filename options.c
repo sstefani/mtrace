@@ -95,7 +95,7 @@ static void usage(void)
 		" -O, --omit=FILE     do not place breakpoint in this file\n"
 		" -k, --kill          abort mtrace-ng due unexpected error conditon\n"
 		" -l, --logfile       use log file instead of socket connection\n"
-		" -L, --long          long dump including map filename\n"
+		" -L, --long          long dump includes map filename\n"
 		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
 		" -N, --nohwbp        disable hardware breakpoint support\n"
 #ifndef DISABLE_CLIENT
@@ -106,7 +106,8 @@ static void usage(void)
 		" -r, --remote=addr   remote use address (path, address or host)\n"
 #ifndef DISABLE_CLIENT
 		" -s, --sort-by=type  sort dump by type:\n"
-		"                      allocations, average, bytes-leaked, leaks, stacks, total, tsc, usage\n"
+		"                      allocations, average, bytes-leaked, leaks,\n"
+		"                      mismatched, stacks, total, tsc, usage\n"
 #endif
 		" -S, --sanity        check mismatching operations against new/delete\n"
 		" -t, --trace         trace mode\n"
