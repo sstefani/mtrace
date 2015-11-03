@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -310,7 +310,7 @@ static struct map *open_map(struct process *process, bfd_vma addr)
 			}
 
 			if (!access(realpath, R_OK))
-				map->binfile = bin_file_open(realpath);
+				map->binfile = bin_file_open(realpath, map->filename);
 
 			free(realpath);
 
@@ -335,20 +335,22 @@ static struct rb_sym *resolv_address(struct process *process, bfd_vma addr)
 	struct rb_sym *sym;
 	struct map *map = open_map(process, addr);
 
-	if (!map)
+	if (map) {
+		sym = bin_file_lookup(map->binfile, addr, map->addr);
+		if (sym)
+			return sym;
+	}
+
+	sym = malloc(sizeof(*sym));
+	if (!sym)
 		return NULL;
 
-	sym = bin_file_lookup(map->binfile, addr, map->addr, map->filename);
-	if (!sym) {
-		sym = malloc(sizeof(*sym));
-		if (!sym)
-			return NULL;
+	sym->addr = addr;
+	sym->sym = strdup(map->filename);
+	sym->refcnt = 1;
+	sym->binfile = NULL;
+	sym->si_info = 0;
 
-		sym->addr = addr;
-		sym->sym = strdup(map->filename);
-		sym->refcnt = 1;
-		sym->binfile = NULL;
-	}
 	return sym;
 }
 
@@ -376,7 +378,7 @@ static void stack_resolv(struct process *process, struct stack *stack)
 			struct regex_list *p;
 
 			for(p = regex_ignore_list; p; p = p->next)
-				if (stack->syms[i] && !regexec(&p->re, stack->syms[i]->sym, 0, NULL, 0)) {
+				if (stack->syms[i] && stack->syms[i]->sym && !regexec(&p->re, stack->syms[i]->sym, 0, NULL, 0)) {
 					stack->ignore = 1;
 					break;
 			}
@@ -514,7 +516,7 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 	return this;
 }
 
-static void process_dump_stack(struct process *process, struct rb_stack *this)
+static void process_dump_stack(struct process *process, struct rb_stack *this, int lflag)
 {
 	uint32_t i;
 	void *addrs;
@@ -524,7 +526,26 @@ static void process_dump_stack(struct process *process, struct rb_stack *this)
 		return;
 
 	for(addrs = stack->addrs, i = 0; i < stack->entries; ++i) {
-		if (dump_printf("  [0x%lx] %s\n", process->get_ulong(addrs), stack->syms[i] ? stack->syms[i]->sym : "?") == -1)
+		if (dump_printf("  [0x%lx]", process->get_ulong(addrs)))
+			return;
+
+		if (!stack->syms[i]) {
+			if (dump_printf(" ?") == -1)
+				return;
+		}
+		else {
+			if (((lflag && stack->syms[i]->si_info) || !stack->syms[i]->si_info) && stack->syms[i]->binfile) {
+				if (dump_printf(" %s", stack->syms[i]->binfile->mapname) == -1)
+					return;
+			}
+
+			if (stack->syms[i]->sym) {
+				if (dump_printf(" %s", stack->syms[i]->sym) == -1)
+					return;
+			}
+		}
+
+		if (dump_printf("\n") == -1)
 			return;
 
 		addrs += process->ptr_size;
@@ -918,7 +939,7 @@ static int sort_total(const struct rb_stack **p, const struct rb_stack **q)
 	return sort_allocations(p, q);
 }
 
-static void _process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), FILE *file)
+static void _process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), FILE *file, int lflag)
 {
 	struct rb_stack **arr;
 	unsigned long i;
@@ -990,7 +1011,7 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 			if (dump_printf(" tsc: %llu\n", stack->tsc) == -1)
 				break;
 
-			process_dump_stack(process, stack);
+			process_dump_stack(process, stack, lflag);
 		}
 	}
 	free(arr);
@@ -999,10 +1020,10 @@ skip:
 	return;
 }
 
-static void process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), const char *outfile)
+static void process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), const char *outfile, int lflag)
 {
 	if (!outfile)
-		_process_dump(process, sortby, skipfunc, NULL);
+		_process_dump(process, sortby, skipfunc, NULL, lflag);
 	else {
 		FILE *file = fopen(outfile, "w");
 
@@ -1010,7 +1031,7 @@ static void process_dump(struct process *process, int (*sortby)(const struct rb_
 			fprintf(stderr, "could not open `%s' for output!\n", outfile);
 			return;
 		}
-		_process_dump(process, sortby, skipfunc, file);
+		_process_dump(process, sortby, skipfunc, file, lflag);
 
 		fclose(file);
 	}
@@ -1036,49 +1057,49 @@ static int skip_zero_leaks(struct rb_stack *stack)
 	return !stack->leaks;
 }
 
-void process_dump_sort_average(struct process *process,  const char *outfile)
+void process_dump_sort_average(struct process *process,  const char *outfile, int lflag)
 {
-	process_dump(process, sort_average, skip_zero_allocations, outfile);
+	process_dump(process, sort_average, skip_zero_allocations, outfile, lflag);
 }
 
-void process_dump_sort_usage(struct process *process, const char *outfile)
+void process_dump_sort_usage(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_usage, skip_zero_allocations, outfile);
+	process_dump(process, sort_usage, skip_zero_allocations, outfile, lflag);
 }
 
-void process_dump_sort_leaks(struct process *process, const char *outfile)
+void process_dump_sort_leaks(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_leaks, skip_zero_leaks, outfile);
+	process_dump(process, sort_leaks, skip_zero_leaks, outfile, lflag);
 }
 
-void process_dump_sort_bytes_leaked(struct process *process, const char *outfile)
+void process_dump_sort_bytes_leaked(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_bytes_leaked, skip_zero_leaks, outfile);
+	process_dump(process, sort_bytes_leaked, skip_zero_leaks, outfile, lflag);
 }
 
-void process_dump_sort_allocations(struct process *process, const char *outfile)
+void process_dump_sort_allocations(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_allocations, skip_zero_allocations, outfile);
+	process_dump(process, sort_allocations, skip_zero_allocations, outfile, lflag);
 }
 
-void process_dump_sort_total(struct process *process, const char *outfile)
+void process_dump_sort_total(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_total, skip_zero_allocations, outfile);
+	process_dump(process, sort_total, skip_zero_allocations, outfile, lflag);
 }
 
-void process_dump_sort_tsc(struct process *process, const char *outfile)
+void process_dump_sort_tsc(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_tsc, skip_zero_allocations, outfile);
+	process_dump(process, sort_tsc, skip_zero_allocations, outfile, lflag);
 }
 
-void process_dump_sort_mismatched(struct process *process, const char *outfile)
+void process_dump_sort_mismatched(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_mismatched, skip_non_mismatched, outfile);
+	process_dump(process, sort_mismatched, skip_non_mismatched, outfile, lflag);
 }
 
-void process_dump_stacks(struct process *process, const char *outfile)
+void process_dump_stacks(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_allocations, skip_none, outfile);
+	process_dump(process, sort_allocations, skip_none, outfile, lflag);
 }
 
 void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
@@ -1406,31 +1427,31 @@ void process_dump_sortby(struct process *process)
 {
 	switch(options.sort_by) {
 	case OPT_SORT_AVERAGE:
-		_process_dump(process, sort_average, skip_zero_allocations, options.output);
+		_process_dump(process, sort_average, skip_zero_allocations, options.output, options.lflag);
 		break;
 	case OPT_SORT_BYTES_LEAKED:
-		_process_dump(process, sort_bytes_leaked, skip_zero_leaks, options.output);
+		_process_dump(process, sort_bytes_leaked, skip_zero_leaks, options.output, options.lflag);
 		break;
 	case OPT_SORT_LEAKS:
-		_process_dump(process, sort_leaks, skip_zero_leaks, options.output);
+		_process_dump(process, sort_leaks, skip_zero_leaks, options.output, options.lflag);
 		break;
 	case OPT_SORT_STACKS:
-		_process_dump(process, sort_allocations, skip_none, options.output);
+		_process_dump(process, sort_allocations, skip_none, options.output, options.lflag);
 		break;
 	case OPT_SORT_TOTAL:
-		_process_dump(process, sort_total, skip_none, options.output);
+		_process_dump(process, sort_total, skip_none, options.output, options.lflag);
 		break;
 	case OPT_SORT_TSC:
-		_process_dump(process, sort_tsc, skip_zero_allocations, options.output);
+		_process_dump(process, sort_tsc, skip_zero_allocations, options.output, options.lflag);
 		break;
 	case OPT_SORT_USAGE:
-		_process_dump(process, sort_usage, skip_zero_allocations, options.output);
+		_process_dump(process, sort_usage, skip_zero_allocations, options.output, options.lflag);
 		break;
 	case OPT_SORT_MISMATCHED:
-		_process_dump(process, sort_mismatched, skip_non_mismatched, options.output);
+		_process_dump(process, sort_mismatched, skip_non_mismatched, options.output, options.lflag);
 		break;
 	default:
-		_process_dump(process, sort_allocations, skip_zero_allocations, options.output);
+		_process_dump(process, sort_allocations, skip_zero_allocations, options.output, options.lflag);
 		break;
 	}
 }

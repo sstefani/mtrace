@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -101,13 +101,14 @@ static void find_address_in_section(bfd *abfd, asection *section, void *data __a
 	psi->found = bfd_find_nearest_line(abfd, section, psi->syms, psi->pc - vma, &psi->filename, &psi->functionname, &psi->line);
 }
 
-struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off, const char *filename)
+struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off)
 {
 	struct sym_info si = { 0 };
 	char *sym_buf = NULL;
 	struct rb_root *root = &binfile->sym_table;
 	struct rb_node **new = &(root->rb_node), *parent = NULL;
 	struct rb_sym *this;
+	unsigned int si_info = 0;
 
 	if (!binfile)
 		return NULL;
@@ -137,45 +138,42 @@ struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned 
 
 	bfd_map_over_sections(binfile->abfd, find_address_in_section, &si);
 
-	if (!si.found) {
-		if (asprintf(&sym_buf, "%s", filename) == -1)
-			sym_buf = NULL;
-	} else {
+	if (si.found) {
 		const char *name;
+		char *alloc = NULL;
 
-		do {
-			char *alloc = NULL;
+		if (sym_buf)
+			free(sym_buf);
 
-			name = si.functionname;
-			if (name == NULL || *name == '\0') {
-				if (asprintf(&alloc, "[0x%lx]", (unsigned long)addr) == -1)
-					name = "?";
-				else
-					name = alloc;
-			}
-			else {
-				alloc = bfd_demangle(binfile->abfd, name, 27);
-				if (alloc != NULL)
-					name = alloc;
-			}
+		name = si.functionname;
 
-			if (sym_buf)
-				free(sym_buf);
-
-			if (si.line) {
-				if (asprintf(&sym_buf, "%s:%u %s", si.filename ? si.filename : filename, si.line, name) == -1)
-					sym_buf = NULL;
-			}
-			else {
-				if (asprintf(&sym_buf, "%s %s", si.filename ? si.filename : filename, name) == -1)
-					sym_buf = NULL;
-			}
-
+		if (!name || !*name)
+			name = "?";
+		else {
+			alloc = bfd_demangle(binfile->abfd, name, 27);
 			if (alloc)
-				free(alloc);
+				name = alloc;
+		}
 
-			si.found = bfd_find_inliner_info(binfile->abfd, &si.filename, &si.functionname, &si.line);
-		} while (si.found);
+		if (si.filename) {
+			if (si.line) {
+				if (asprintf(&sym_buf, "%s:%u %s", si.filename, si.line, name) == -1)
+					sym_buf = NULL;
+				else
+					si_info = 1;
+			}
+			else {
+				if (asprintf(&sym_buf, "%s %s", si.filename, name) == -1)
+					sym_buf = NULL;
+				else
+					si_info = 1;
+			}
+		}
+		else
+			sym_buf = strdup(name);
+
+		if (alloc)
+			free(alloc);
 	}
 
 	this = malloc(sizeof(*this));
@@ -186,6 +184,7 @@ struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned 
 	this->sym = sym_buf;
 	this->refcnt = 1;
 	this->binfile = binfile;
+	this->si_info = si_info;
 
 	++binfile->refcnt;
 
@@ -196,7 +195,7 @@ struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned 
 	return this;
 }
 
-struct bin_file *bin_file_open(const char *filename)
+struct bin_file *bin_file_open(const char *filename, const char *mapname)
 {
 	char **matching;
 	struct bin_file *binfile;
@@ -219,6 +218,7 @@ struct bin_file *bin_file_open(const char *filename)
 		return NULL;
 
 	binfile->filename = strdup(filename);
+	binfile->mapname = strdup(mapname);
 	binfile->refcnt = 1;
 	binfile->sym_table = RB_ROOT;
 	binfile->abfd = bfd_openr(binfile->filename, NULL);
@@ -242,6 +242,7 @@ error:
 	if (binfile->abfd)
 		bfd_close(binfile->abfd);
 	free(binfile->filename);
+	free(binfile->mapname);
 	free(binfile);
 
 	return NULL;
@@ -267,6 +268,7 @@ void bin_file_put(struct bin_file *binfile)
 			bfd_close(binfile->abfd);
 
 		free(binfile->filename);
+		free(binfile->mapname);
 		free(binfile);
 	}
 }

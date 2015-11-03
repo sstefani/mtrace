@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
  *
@@ -60,7 +60,7 @@ static struct opt_p_t *opt_p_last;
 static struct opt_b_t *opt_b_last;
 static struct opt_O_t *opt_O_last;
 
-static char *progname;		/* Program name (`mtrace') */
+static char *progname;		/* Program name (mtrace-ng) */
 
 static void err_usage(void)
 {
@@ -93,8 +93,9 @@ static void usage(void)
 		" -i, --interactive   interactive client mode\n"
 #endif
 		" -O, --omit=FILE     do not place breakpoint in this file\n"
-		" -k, --kill          abort mtrace due unexpected error conditon\n"
+		" -k, --kill          abort mtrace-ng due unexpected error conditon\n"
 		" -l, --logfile       use log file instead of socket connection\n"
+		" -L, --long          long dump including map filename\n"
 		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
 		" -N, --nohwbp        disable hardware breakpoint support\n"
 #ifndef DISABLE_CLIENT
@@ -107,7 +108,7 @@ static void usage(void)
 		" -s, --sort-by=type  sort dump by type:\n"
 		"                      allocations, average, bytes-leaked, leaks, stacks, total, tsc, usage\n"
 #endif
-		" -S, --sanity        check mismatching operations against new/new[] allocations\n"
+		" -S, --sanity        check mismatching operations against new/delete\n"
 		" -t, --trace         trace mode\n"
 		" -u, --user=USERNAME run command with the userid, groupid of username\n"
 		" -V, --version       output version information and exit\n"
@@ -209,7 +210,7 @@ static void def_config(void)
 	}
 
 	if (path) {
-		if (asprintf(&filename, "%s/.mtrace", path) != -1) {
+		if (asprintf(&filename, "%s/.mtrace-ng", path) != -1) {
 			if (!add_opt_F(filename))
 				return;
 			free(filename);
@@ -218,20 +219,20 @@ static void def_config(void)
 
 	path = getenv("XDG_CONFIG_HOME");
 	if (path)  {
-		if (asprintf(&filename, "%s/mtrace", path) != -1) {
+		if (asprintf(&filename, "%s/mtrace-ng", path) != -1) {
 			if (!add_opt_F(filename))
 				return;
 			free(filename);
 		}
 	}
 
-	if (asprintf(&filename, "%s/mtrace.conf", SYSCONFDIR) != -1) {
+	if (asprintf(&filename, "%s/mtrace-ng.conf", SYSCONFDIR) != -1) {
 		if (!add_opt_F(filename))
 			return;
 		free(filename);
 	}
 
-	if (asprintf(&filename, "%s/mtrace.conf", "/etc") != -1) {
+	if (asprintf(&filename, "%s/mtrace-ng.conf", "/etc") != -1) {
 		if (!add_opt_F(filename))
 			return;
 		free(filename);
@@ -295,6 +296,7 @@ char **process_options(int argc, char **argv)
 	options.kill = 0;
 	options.nocpp = 0;
 	options.nohwbp = 0;
+	options.lflag = 0;
 
 	for(;;) {
 		int c;
@@ -316,6 +318,9 @@ char **process_options(int argc, char **argv)
 #endif
 			{ "kill", 0, 0, 'k' },
 			{ "logfile", 1, 0, 'l' },
+#ifndef DISABLE_CLIENT
+			{ "long", 0, 0, 'L' },
+#endif
 			{ "nocpp", 0, 0, 'n' },
 			{ "nohwbp", 0, 0, 'N' },
 #ifndef DISABLE_CLIENT
@@ -346,7 +351,11 @@ char **process_options(int argc, char **argv)
 #ifndef DISABLE_CLIENT
 				"i"
 #endif
-				"kLnNStVvw"
+				"k"
+#ifndef DISABLE_CLIENT
+				"L"
+#endif
+				"nNStVvw"
 #ifndef DISABLE_CLIENT
 				"b:"
 #endif
@@ -433,6 +442,9 @@ char **process_options(int argc, char **argv)
 			break;
 		case 'l':
 			options.logfile = optarg;
+			break;
+		case 'L':
+			options.lflag = 1;
 			break;
 		case 'o':
 			output = optarg;
@@ -529,7 +541,7 @@ char **process_options(int argc, char **argv)
 			options.user = optarg;
 			break;
 		case 'V':
-			printf("mtrace version " PACKAGE_VERSION ".\n"
+			printf("mtrace-ng version " PACKAGE_VERSION ".\n"
 			       "Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>.\n"
 			       "\n"
 			       "This software was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.\n"

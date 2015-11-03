@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -26,6 +26,6 @@
 struct process;
 
 void leaks_scan(struct process *process, int mode);
-void dump_stacks(struct process *process, void (*dump)(struct process *process, const char *outfile), const char *outfile);
+void dump_stacks(struct process *process, void (*dump)(struct process *process, const char *outfile, int lflag), const char *outfile, int lflag);
 
 #endif

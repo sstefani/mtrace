@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
  *
@@ -59,7 +59,7 @@ void trace_me(void);
 /* stop tracing a task.  */
 int untrace_task(struct task *task, int signum);
 
-/* Called when mtrace needs to attach to task */
+/* Called when mtrace-ng needs to attach to task */
 int trace_attach(struct task *task);
 
 /* wait for a task ready for tracing */

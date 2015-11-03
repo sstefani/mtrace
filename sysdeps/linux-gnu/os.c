@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -334,7 +334,7 @@ void change_uid(const char *command)
 		run_gid = pent->pw_gid;
 
 		if (initgroups(options.user, run_gid) < 0) {
-			perror("mtrace: initgroups");
+			perror("mtrace-ng: initgroups");
 			exit(1);
 		}
 	} else {
@@ -355,11 +355,11 @@ void change_uid(const char *command)
 			}
 		}
 		if (setregid(run_gid, run_egid) < 0) {
-			perror("mtrace: setregid");
+			perror("mtrace-ng: setregid");
 			exit(1);
 		}
 		if (setreuid(run_uid, run_euid) < 0) {
-			perror("mtrace: setreuid");
+			perror("mtrace-ng: setreuid");
 			exit(1);
 		}
 	}

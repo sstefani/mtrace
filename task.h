@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -133,7 +133,7 @@ int task_fork(struct task *task, struct task *newtask);
 /* reset all breakpoints for task */
 void task_reset_bp(struct task *task);
 
-/* Iterate through the leader tasks that mtrace currently traces. */
+/* Iterate through the leader tasks that mtrace-ng currently traces. */
 void each_process(void (*cb)(struct task *task));
 
 /* Iterate through list of tasks of a given leader task asks */

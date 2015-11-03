@@ -18,13 +18,13 @@
 .\"
 .TH MTRACE "12" "Oct 2015" "" "User Commands"
 .SH NAME
-mtrace \- A dynamic memory allocation tracer
+mtrace-ng \- A dynamic memory allocation tracer
 .SH SYNOPSIS
 .\"
 .\" ---------------------------------------------------------------------------
 .\"
 .PP
-.BR mtrace " \-t|\-\-trace
+.BR mtrace-ng " \-t|\-\-trace
 .\"
 .\" Output formatting:
 .\"
@@ -58,7 +58,7 @@ mtrace \- A dynamic memory allocation tracer
 .\" ---------------------------------------------------------------------------
 .\"
 .PP
-.BR mtrace " \-t|\-\-trace \-r|\-\-remote \fIaddr\fR"
+.BR mtrace-ng " \-t|\-\-trace \-r|\-\-remote \fIaddr\fR"
 [\-P|\-\-port \fInum\fR]
 [\-w|\-\-wait]
 .\"
@@ -88,7 +88,7 @@ mtrace \- A dynamic memory allocation tracer
 .\" ---------------------------------------------------------------------------
 .\"
 .PP
-.BR mtrace
+.BR mtrace-ng
 [\-r|\-\-remote \fIaddr\fR]
 [\-P|\-\-port \fInum\fR]
 .\"
@@ -110,11 +110,11 @@ mtrace \- A dynamic memory allocation tracer
 .\" ---------------------------------------------------------------------------
 .\"
 .PP
-.BR mtrace " \-V|\-\-version"
+.BR mtrace-ng " \-V|\-\-version"
 .PP
-.BR mtrace " \-h|\-\-help"
+.BR mtrace-ng " \-h|\-\-help"
 .SH DESCRIPTION
-.B mtrace
+.B mtrace-ng
 is a dynamic memory tracer, debugger and statistical analyses tool for C and
 C++.  It traces, records and reports all dynamic memory functions which are
 called by the specified
@@ -122,7 +122,7 @@ called by the specified
 or
 .I process
 until it exits or
-.B mtrace
+.B mtrace-ng
 is terminated.
 
 Unlike other memory tracers, the trace will be performed by setting
@@ -130,7 +130,7 @@ breakpoints on each know dynamic allocation function.  So no additional
 library nor any kind of instrumentation or recompiling is needed to trace
 and hunt for memory leaks.
 
-.B mtrace
+.B mtrace-ng
 is able to find no longer referenced memory allocation by scanning all
 writable memory mappings of the program against the pointer of an allocation.
 If the memory address will be not found during a scan there is a high change
@@ -166,36 +166,36 @@ void operator delete[](void* p, const std::nothrow_t& nt) __THROW
 .fi
 .in
 .PP
-.B mtrace
+.B mtrace-ng
 offers three different kind of working modes.  A non interactive mode, a
 server mode and a interactive client mode.
 
 The most common mode is the non interactive mode, which allows to run
 and/or attach to a process, similar to strace.
-.B mtrace
+.B mtrace-ng
 will show all open allocations when the traced program exists or
-.B mtrace
+.B mtrace-ng
 will be terminated.
 
 For system with memory restrictions or for using in a cross architecture
 environment,
-.B mtrace
+.B mtrace-ng
 offers a server mode which moves the memory bookkeeping and address resolution
 outside to a connected client.  In this case the server must be started on
 target system where the program is executed.  Then the client has to be started
 on the remote host system.
 
 To get a more detailed information about the dynamic memory consumption
-.B mtrace
+.B mtrace-ng
 can be started in an interactive mode.  This mode is available for client
 mode or when attaching to a process.  See the section \fBINTERACTIVE MODE\fR
 to learn more about the interactive commands in
-\fBmtrace\fR.
+\fBmtrace-ng\fR.
 .SH OPTIONS
 .PP
 .IP "\-a, \-\-autoscan"
 Scan all writeable memory mappings of the process for leaked pointers on exit
-of the traced program or termination of \fBmtrace\fR.  If the pointer value of an
+of the traced program or termination of \fBmtrace-ng\fR.  If the pointer value of an
 open allocated memory block will be not found on any aligned memory addresses,
 it will be marked and reported as leaked.  The scan can take some time,
 depending on the size of the writeable memory mappings and the number of open
@@ -212,16 +212,16 @@ by passing more than one \-b option.
 This option is valid in any mode except the client mode.  Its used for locating
 libraries for an attached process which are linked with relative paths.  In this
 case
-.B mtrace
+.B mtrace-ng
 does not know the origin state of the current working directory and need
 to manually add this information.
 .IP "\-D, \-\-debug \fImask\fR"
 Show debugging output of
-.B mtrace
+.B mtrace-ng
 itself.  \fImask\fR is a number
 describing which debug messages should be displayed.  Use the \-Dh option
 to see what can be used.  This option is only available when
-.B mtrace
+.B mtrace-ng
 was build with --enable-debug.
 .IP "\-d, \-\-depth \fIlevel\fR"
 Do backtrace of \fIlevel\fR stack frames for each memory allocation function.
@@ -233,23 +233,23 @@ Trace child processes as they are created by one of the currently traced
 processes as a result of the fork(2) system call.
 .IP "\-F, \-\-config \fIpath"
 Set the config file.  For a detailed description of this file see
-mtrace.conf(5).  It is possible to pass several config files by passing more
+mtrace-ng.conf(5).  It is possible to pass several config files by passing more
 than one \-F option.  If no -F is given,
-.B mtrace
+.B mtrace-ng
 will look up for one of the default files in the following order:
-$HOME/.mtrace,
-$XDG_CONFIG_HOME/mtrace,
-SYSCONFDIR/mtrace.conf,
-/etc/mtrace.conf
+$HOME/.mtrace-ng,
+$XDG_CONFIG_HOME/mtrace-ng,
+SYSCONFDIR/mtrace-ng.conf,
+/etc/mtrace-ng.conf
 .IP "\-h, \-\-help"
-Show a summary of the options to \fBmtrace\fR and exit.
+Show a summary of the options to \fBmtrace-ng\fR and exit.
 .IP "\-i, \-\-interactive"
 Enables the interactive mode for client or when attaching to a process.  See
 the section \fBINTERACTIVE MODE\fR to learn more about the interactive commands
 in this mode.
 .IP "\-k, \-\-kill"
-Kill \fBmtrace\fR in case of a bookkeeping error.  This options is intended for
-.B mtrace
+Kill \fBmtrace-ng\fR in case of a bookkeeping error.  This options is intended for
+.B mtrace-ng
 development only!
 .IP "\-O, \-\-omit \fIfilename"
 Do not place any dynamic memory interception breakpoints in the given file.
@@ -281,10 +281,10 @@ It is possible to attach to several processes by passing more than one
 .IP "\-P, \-\-port \fInum"
 Set the port number for client or server mode.  The default port number is 4576.
 .IP "\-r, \-\-remote \fIaddr"
-Run \fBmtrace\fR in remote mode.  Use \fIaddr\fR as socket path or address.  If
+Run \fBmtrace-ng\fR in remote mode.  Use \fIaddr\fR as socket path or address.  If
 \fIaddr\fR begins with / or . it will assumed a named socket, otherwise it
 will be passed to getaddrinfo(3), which handles any kind of hostname, IPv4 or
-IPv6 addresses.  If this option is passed in conjunction with -t, mtrace will be
+IPv6 addresses.  If this option is passed in conjunction with -t, mtrace-ng will be
 execute in server mode, otherwise in client mode.
 .IP "\-s, \-\-sortby keyword"
 Sort the output of the stack backtraces by keyword.  Valid keywords are:
@@ -344,12 +344,12 @@ Sort by number of bytes in use of all open allocations.
 .RE
 .RE
 .IP "\-S, \-\-sanity"
-Check mismatching operations against new/new[] allocations. This options also
+Check mismatching operations against new/delete. This options also
 sets the sort-by options to mismatched.
 .IP "\-t, \-\-trace"
-Run \fBmtrace\fR in trace mode.  In this mode all attached processes will run under
-the control of \fBmtrace\fR and all dynamic memory function calls will be traced.
-If this options is not given, \fBmtrace\fR will run in client mode.
+Run \fBmtrace-ng\fR in trace mode.  In this mode all attached processes will run under
+the control of \fBmtrace-ng\fR and all dynamic memory function calls will be traced.
+If this options is not given, \fBmtrace-ng\fR will run in client mode.
 .IP "\-u, \-\-user \fIusername\fR"
 Run command with the userid, groupid and supplementary groups of
 .IR username .
@@ -359,7 +359,7 @@ correct execution of setuid and/or setgid binaries.
 Be verbose and display more details about what going on.  This option can be
 repeated for a more detailed view.
 .IP "\-V, \-\-version"
-Show the version number of \fBmtrace\fR and exit.
+Show the version number of \fBmtrace-ng\fR and exit.
 .IP "\-w, \-\-wait"
 This option stops the execution of the traced processes until a client is
 connected to the server.  So this option is only valid in server mode.
@@ -425,7 +425,7 @@ Shows the list of currently traced processes.
 
 .IP "quit"
 Close the client connection and exit the
-.B mtrace
+.B mtrace-ng
 debugger.
 
 .IP "reset \fIpid\fR"
@@ -494,17 +494,17 @@ for more open issues.
 If you would like to report a bug, send a mail to stefani@seibold.net
 .SH FILES
 .TP
-.I /etc/mtrace.conf\fR or \fISYSCONFDIR/mtrace.conf
+.I /etc/mtrace-ng.conf\fR or \fISYSCONFDIR/mtrace-ng.conf
 System configuration file
 .TP
-.I $HOME/.mtrace\fR or \fI$XDG_CONFIG_HOME/mtrace
+.I $HOME/.mtrace-ng\fR or \fI$XDG_CONFIG_HOME/mtrace-ng
 Personal config file, overrides system configuration file
 .PP
 
-See mtrace.conf(5) for details on the syntax of this file.
+See mtrace-ng.conf(5) for details on the syntax of this file.
 .SH AUTHOR
 Stefani Seibold <stefani@seibold.net>
 .SH "SEE ALSO"
-.BR mtrace.conf(5),
+.BR mtrace-ng.conf(5),
 .BR ptrace(2),
 .BR perf(1)

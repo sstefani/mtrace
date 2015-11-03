@@ -1,4 +1,4 @@
-# This file is part of mtrace.
+# This file is part of mtrace-ng.
 # Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
 #
 # This program is free software; you can redistribute it and/or

@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -44,7 +44,7 @@
 #include "options.h"
 #include "process.h"
 
-#define	PROGNAME "memtrace"
+#define	PROGNAME "mtrace"
 
 struct cmd_opt {
 	const char *name;
@@ -125,7 +125,7 @@ static struct cmd_opt cmds[] = {
 		1,
 		do_dump,
 		"dump stack trees",
-		"[sort-by] [<pid>] [>filename]",
+		"[sort-by] [<pid>] [-l] [>filename]",
 		dump_opts
 	},
 	{
@@ -560,8 +560,10 @@ static int do_dump(struct cmd_opt *cmd, int argc, const char *argv[])
 	struct cmd_opt *options = cmd->options;;
 	unsigned int i;
 	void *data;
+	int arg = 1;
+	int lflag = 0;
 
-	if (!argv[1]) {
+	if (!argv[arg]) {
 		process = client_first_process();
 		if (!process) {
 			fprintf(stderr, "no process available\n");
@@ -571,17 +573,18 @@ static int do_dump(struct cmd_opt *cmd, int argc, const char *argv[])
 	}
 	else {
 		data = NULL;
-		len = strlen(argv[1]);
+		len = strlen(argv[arg]);
 
 		for(i = 0; options[i].name; ++i) {
 			if (options[i].match_len <= len && !strncmp(options[i].name, argv[1], len)) {
 				data = options[i].data;
+				arg++;
 				break;
 			}
 		}
 
 		if (!data) {
-			process = client_find_process(atoi(argv[1]));
+			process = client_find_process(atoi(argv[arg++]));
 			if (!process) {
 				fprintf(stderr, "%s: unknown sort criteria\n", cmd->name);
 				return -1;
@@ -589,13 +592,18 @@ static int do_dump(struct cmd_opt *cmd, int argc, const char *argv[])
 			data = process_dump_sort_allocations;
 		}
 		else {
-			process = get_process(argv[2]);
+			process = get_process(argv[arg++]);
 			if (!process)
 				return -1;
 		}
+
+		if (argc < arg) {
+			if (!strcmp(argv[arg], "-l"))
+				lflag = 1;
+		}
 	}
 
-	dump_stacks(process, data, outfile);
+	dump_stacks(process, data, outfile, lflag);
 
 	return 0;
 }

@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -33,6 +33,7 @@ struct rb_sym {
 	char *sym;
 	struct bin_file *binfile;
 	unsigned long refcnt;
+	unsigned int si_info;
 };
 
 struct bin_file {
@@ -42,12 +43,13 @@ struct bin_file {
 	struct rb_root sym_table;
 	unsigned long refcnt;
 	char *filename;
+	char *mapname;
 };
 
-struct bin_file *bin_file_open(const char *filename);
+struct bin_file *bin_file_open(const char *filename, const char *mapname);
 void bin_file_put(struct bin_file *binfile);
 void bin_file_get(struct bin_file *binfile);
-struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off, const char *filename);
+struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned long off);
 void bin_file_sym_get(struct rb_sym *sym);
 void bin_file_sym_put(struct rb_sym *sym);
 

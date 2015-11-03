@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -102,15 +102,15 @@ void process_detach(struct process *process);
 unsigned long process_leaks_scan(struct process *process, int mode);
 
 void process_dump_sortby(struct process *process);
-void process_dump_sort_average(struct process *process, const char *outfile);
-void process_dump_sort_usage(struct process *process, const char *outfile);
-void process_dump_sort_leaks(struct process *process, const char *outfile);
-void process_dump_sort_bytes_leaked(struct process *process, const char *outfile);
-void process_dump_sort_allocations(struct process *process, const char *outfile);
-void process_dump_sort_total(struct process *process, const char *outfile);
-void process_dump_sort_tsc(struct process *process, const char *outfile);
-void process_dump_sort_mismatched(struct process *process, const char *outfile);
-void process_dump_stacks(struct process *process, const char *outfile);
+void process_dump_sort_average(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_usage(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_leaks(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_bytes_leaked(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_allocations(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_total(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_tsc(struct process *process, const char *outfile, int lflag);
+void process_dump_sort_mismatched(struct process *process, const char *outfile, int lflag);
+void process_dump_stacks(struct process *process, const char *outfile, int lflag);
 
 void add_ignore_regex(regex_t *re);
 

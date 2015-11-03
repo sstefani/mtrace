@@ -1,5 +1,5 @@
 # -*- Autoconf -*-
-# This file is part of mtrace.
+# This file is part of mtrace-ng.
 # Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
 # Copyright (C) 2010,2013 Petr Machata, Red Hat Inc.
 # Copyright (C) 2010,2011 Joe Damato
@@ -24,7 +24,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.65)
 
-AC_INIT([mtrace],[0.3],[stefani@seibold.net])
+AC_INIT([mtrace-ng],[0.4],[stefani@seibold.net])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR(main.c)
 AC_CONFIG_MACRO_DIR([config/m4])

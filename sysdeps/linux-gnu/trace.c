@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -304,13 +304,13 @@ static void trace_fail_warning(void)
 #ifdef HAVE_LIBSELINUX
 	if (security_get_boolean_active("deny_ptrace") == 1)
 		fprintf(stderr,
-			"The SELinux boolean 'deny_ptrace' is enabled, which may prevent mtrace\n"
+			"The SELinux boolean 'deny_ptrace' is enabled, which may prevent mtrace-ng\n"
 			"from tracing an other task. You can disable this process attach protection by\n"
 			"issuing 'setsebool deny_ptrace=0' in the superuser context.\n");
 #else
 		fprintf(stderr,
 			"Could not trace! Maybe the SELinux boolean 'deny_ptrace' is enabled, which may\n"
-			"prevent mtrace from tracing an other tasks. Try to disable this process attach\n"
+			"prevent mtrace-ng from tracing an other tasks. Try to disable this process attach\n"
 			"protection by issuing 'setsebool deny_ptrace=0' in the superuser context.\n");
 #endif
 }

@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
  *
@@ -49,7 +49,7 @@
 #include "mtelf.h"
 #include "task.h"
 
-/* /proc/pid doesn't exist just after the fork, and sometimes `mtrace'
+/* /proc/pid doesn't exist just after the fork, and sometimes `mtrace-ng'
  * couldn't open it to find the executable.  So it may be necessary to
  * have a bit delay
  */

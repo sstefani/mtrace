@@ -1,4 +1,4 @@
-# This file is part of mtrace.
+# This file is part of mtrace-ng.
 # Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
 #
 # This program is free software; you can redistribute it and/or
@@ -33,7 +33,7 @@ AM_CPPFLAGS += \
 AM_LDFLAGS +=  \
 	-Wl,--no-as-needed
 
-mtrace_SOURCES = \
+mtrace_ng_SOURCES = \
 	breakpoint.c \
 	common.c \
 	debug.c \
@@ -50,16 +50,16 @@ mtrace_SOURCES = \
 	task.c \
 	trace.c
 
-mtrace_LDADD = \
+mtrace_ng_LDADD = \
 	$(libelf_LIBS) \
 	sysdeps/libos.la
 
 if !DISABLE_CLIENT
-mtrace_LDADD += libclient.la
+mtrace_ng_LDADD += libclient.la
 endif
 
 bin_PROGRAMS = \
-	mtrace
+	mtrace-ng
 
 noinst_HEADERS = \
 	backend.h \
@@ -83,8 +83,8 @@ noinst_HEADERS = \
 	thread.h \
 	trace.h
 
-dist_man1_MANS = mtrace.1
-dist_man5_MANS = mtrace.conf.5
+dist_man1_MANS = mtrace-ng.1
+dist_man5_MANS = mtrace-ng.conf.5
 
 dist_doc_DATA = COPYING CREDITS INSTALL README TODO HOWTO
 

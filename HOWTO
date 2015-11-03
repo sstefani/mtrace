@@ -1,8 +1,8 @@
-﻿The easiest way for using mtrace is simply run a program under the control of mtrace:
+﻿The easiest way for using mtrace-ng is simply run a program under the control of mtrace-ng:
 
-mtrace -t -d 10 a.out
+mtrace-ng -t -d 10 a.out
 
-This will run a.out and records all memory allocations. When the program exits or mtrace is terminated, it dumps all open memory allocations for each different stack backtrace:
+This will run a.out and records all memory allocations. When the program exits or mtrace-ng is terminated, it dumps all open memory allocations for each different stack backtrace:
 
 .
 .
@@ -30,7 +30,7 @@ In this case you see for the last stack backtrace which calls malloc() by functi
 
 The default sort order is "allocations", which sorts the output by the number of open allocations. The lowest value is printed out first and the highest value at last. So the most interesting values are always in view. If you wish a different sort order und can pass a -S option, for example.
 
-mtrace -t -d 10 -s usage a.out
+mtrace-ng -t -d 10 -s usage a.out
 
 This will sort by the total sum of bytes used:
 
@@ -70,7 +70,7 @@ Stack (mmap):
   [0x7ff0c9587b55] /lib64/libc.so.6 __libc_start_main
   [0x400b89] /home/stefani/mt/test/a.out _start
 
-So you can see that the last two stack backtraces both called mmap() from inside the pthread_create() function. But since there are two different backtrace stacks there will be not merged together (the first on is called by x.c:117 and the other by x.c:128). Lets assume for the above example the stack backtrace depth is set (to the not really useful) value of 1, then mtrace would output:
+So you can see that the last two stack backtraces both called mmap() from inside the pthread_create() function. But since there are two different backtrace stacks there will be not merged together (the first on is called by x.c:117 and the other by x.c:128). Lets assume for the above example the stack backtrace depth is set (to the not really useful) value of 1, then mtrace-ng would output:
 
 Stack (mmap):
  bytes used: 16785408
@@ -83,21 +83,21 @@ In this case it is not possible to identifiy which function has been called pthr
 
 It is also possible to write the output to a file instead to stderr, for example: 
 
-mtrace -t -d 10 -o /tmp/mtrace.out a.out
+mtrace-ng -t -d 10 -o /tmp/mtrace-ng.out a.out
 
-In this case the dump will written to /tmp/mtrace.out after the program exits or mtrace is terminated. Note that in the case the sort order is inverted, the highest value is written first to the file and the lowest value at last. So the most interesting values are always in view when opening the file with an editor. 
+In this case the dump will written to /tmp/mtrace-ng.out after the program exits or mtrace-ng is terminated. Note that in the case the sort order is inverted, the highest value is written first to the file and the lowest value at last. So the most interesting values are always in view when opening the file with an editor. 
 
 It is also possible to attach to an already running program:
 
-mtrace -t -d 10 -o /tmp/mtrace.out -p $(pidof -s a.out)
+mtrace-ng -t -d 10 -o /tmp/mtrace-ng.out -p $(pidof -s a.out)
 
-This is e.g. useful when you not want do trace the whole startup of the program or you want to test only a specific function of a program. Imaging a test scenario where a leak is assumed. So attached mtrace, run the tests (more then once is better) and then terminated mtrace by Ctrl-C. One of last dump stack backtraces should show the culprit.
+This is e.g. useful when you not want do trace the whole startup of the program or you want to test only a specific function of a program. Imaging a test scenario where a leak is assumed. So attached mtrace-ng, run the tests (more then once is better) and then terminated mtrace-ng by Ctrl-C. One of last dump stack backtraces should show the culprit.
 
 A more sophisticate way to find a memory leak is to scan for lost pointer values, e.g.
 
-mtrace -a -s leaks -d 10 -o /tmp/mtrace.out -p $(pidof -s a.out)
+mtrace-ng -a -s leaks -d 10 -o /tmp/mtrace-ng.out -p $(pidof -s a.out)
 
-After attach and run the tests and terminating mtrace by Ctrl-C, the memory will be scanned for lost pointer. The dump output will then sorted by the number of leaked allocations:
+After attach and run the tests and terminating mtrace-ng by Ctrl-C, the memory will be scanned for lost pointer. The dump output will then sorted by the number of leaked allocations:
 
 process 12166 scanning 18 allocations
 process 12166
@@ -153,22 +153,22 @@ When no C++ Code is traced or when using the libstdc++ (which calls malloc() and
 There is also a server mode and a client with an command line interface. This is useful when you want get information during the runtime 
 of a program, for example:
 
-mtrace -f -r 0.0.0.0 -w -s -d 10 a.out
+mtrace-ng -f -r 0.0.0.0 -w -s -d 10 a.out
 
 This start the client waiting for a client connection before running the program a.out.
 
 Then you can connect the client using an other terminal or on an other computer:
 
-mtrace -r 127.0.0.1
+mtrace-ng -r 127.0.0.1
 memtrace info:
  follow fork: no
  follow exec: no
  verbose: no
  do trace: yes
  stack depth: 10
-memtrace> 
+mtrace> 
 
 No you can ask for help with the command "help", or dump the current state of the bookkeeping by using the command "dump".
 
-For more information about the interactive mode see the manual page mtrace(1) section INTERACTIVE MODE.
+For more information about the interactive mode see the manual page mtrace-ng(1) section INTERACTIVE MODE.
 

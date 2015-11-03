@@ -1,5 +1,5 @@
 /*
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the ltrace source
  *
@@ -88,6 +88,7 @@ struct options_t {
 	int debug;		/* debug */
 	int nocpp;		/* disable trace of c++ allocation operators */
 	int nohwbp;		/* disable hardware breakpoint support */
+	int lflag;		/* long dump */
 };
 
 char **process_options(int argc, char **argv);

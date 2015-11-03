@@ -1,7 +1,7 @@
 /*
  * report events to client
  *
- * This file is part of mtrace.
+ * This file is part of mtrace-ng.
  * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
@@ -58,10 +58,12 @@ static int report_alloc64(struct task *task, enum mt_operation op, unsigned long
 				if (backtrace_location_type(task) != LIBTYPE_LOADER) {
 					alloc->data[i] = (uint64_t)backtrace_get_ip(task);
 
-					if (!alloc->data[i])
-						break;
+					if (!i || alloc->data[i - 1] != alloc->data[i]) {
+						if (!alloc->data[i])
+							break;
 
-					 ++i;
+						 ++i;
+					}
 				}
 
 				if (backtrace_step(task) < 0)
@@ -92,10 +94,12 @@ static int report_alloc32(struct task *task, enum mt_operation op, unsigned long
 				if (backtrace_location_type(task) != LIBTYPE_LOADER) {
 					alloc->data[i] = (uint32_t)backtrace_get_ip(task);
 
-					if (!alloc->data[i])
-						break;
+					if (!i || alloc->data[i - 1] != alloc->data[i]) {
+						if (!alloc->data[i])
+							break;
 
-					++i;
+						++i;
+					}
 				}
 
 				if (backtrace_step(task) < 0)
