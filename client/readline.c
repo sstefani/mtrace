@@ -125,7 +125,7 @@ static struct cmd_opt cmds[] = {
 		1,
 		do_dump,
 		"dump stack trees",
-		"[sort-by] [<pid>] [-l] [>filename]",
+		"[sort-by] [-l] [<pid>] [>filename]",
 		dump_opts
 	},
 	{
@@ -563,45 +563,33 @@ static int do_dump(struct cmd_opt *cmd, int argc, const char *argv[])
 	int arg = 1;
 	int lflag = 0;
 
-	if (!argv[arg]) {
-		process = client_first_process();
-		if (!process) {
-			fprintf(stderr, "no process available\n");
-			return -1;
-		}
-		data = process_dump_sort_allocations;
-	}
-	else {
-		data = NULL;
+	data = NULL;
+
+	if (argc > arg) {
 		len = strlen(argv[arg]);
 
 		for(i = 0; options[i].name; ++i) {
 			if (options[i].match_len <= len && !strncmp(options[i].name, argv[1], len)) {
 				data = options[i].data;
-				arg++;
+				++arg;
 				break;
 			}
 		}
+	}
 
-		if (!data) {
-			process = client_find_process(atoi(argv[arg++]));
-			if (!process) {
-				fprintf(stderr, "%s: unknown sort criteria\n", cmd->name);
-				return -1;
-			}
-			data = process_dump_sort_allocations;
-		}
-		else {
-			process = get_process(argv[arg++]);
-			if (!process)
-				return -1;
-		}
-
-		if (argc < arg) {
-			if (!strcmp(argv[arg], "-l"))
-				lflag = 1;
+	if (argc > arg) {
+		if (!strcmp(argv[arg], "-l")) {
+			lflag = 1;
+			++arg;
 		}
 	}
+
+	process = get_process(argc > arg ? argv[arg] : NULL);
+	if (!process)
+		return -1;
+
+	if (!data)
+		data = process_dump_sort_allocations;
 
 	dump_stacks(process, data, outfile, lflag);
 
