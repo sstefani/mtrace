@@ -31,7 +31,4 @@ docross
 doremote
 dokvm
 dosmw
-mtrace-ng
-debian/files
-debian/mtrace-ng.substvars
-debian/mtrace-ng
+mtrace
