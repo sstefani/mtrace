@@ -6,10 +6,6 @@ Files: *
 Copyright: 2015 Stefani Seibold <stefani@seibold.net>
 License: GPL-2.0+
 
-Files: debian/*
-Copyright: 2015 Lorenz Bucher <lorenz.bucher.ext@rohde-schwarz.com>
-License: GPL-2.0+
-
 License: GPL-2.0+
  This package is free software; you can redistribute it and/or modify
  it under the terms of the GNU General Public License as published by

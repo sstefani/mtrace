@@ -1,5 +1,5 @@
-mtrace-ng (0.4-0rs1) UNRELEASED; urgency=medium
+mtrace-ng (0.4) UNRELEASED; urgency=medium
 
   * Created an unreleased debian package
 
- -- Lorenz Bucher <lorenz.bucher.ext@rohde-schwarz.com>  Tue, 03 Nov 2015 19:06:01 +0100
+ -- Stefani Seibold <stefani@seibold.net>  Tue, 04 Nov 2015 08:45:00 +0100
