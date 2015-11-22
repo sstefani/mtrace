@@ -34,14 +34,16 @@
 #include "common.h"
 #include "debug.h"
 #include "library.h"
+#include "main.h"
 #include "memtrace.h"
 #include "options.h"
 #include "report.h"
 #include "server.h"
 #include "task.h"
+#include "timer.h"
 #include "trace.h"
 
-static int report_alloc64(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, unsigned int depth, struct library_symbol *libsym)
+static void report_alloc64(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, unsigned int depth, struct library_symbol *libsym)
 {
 	unsigned int i = 0;
 	struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc) + depth * sizeof(uint64_t));
@@ -53,20 +55,20 @@ static int report_alloc64(struct task *task, enum mt_operation op, unsigned long
 		if (libsym)
 			alloc->data[i++] = libsym->addr;
 
-		if (backtrace_init_unwind(task) >= 0) {
+		if (likely(backtrace_init_unwind(task) >= 0)) {
 			while(i < depth) {
-				if (backtrace_location_type(task) != LIBTYPE_LOADER) {
+				if (likely(backtrace_location_type(task) != LIBTYPE_LOADER)) {
 					alloc->data[i] = (uint64_t)backtrace_get_ip(task);
 
-					if (!i || alloc->data[i - 1] != alloc->data[i]) {
-						if (!alloc->data[i])
+					if (likely(!i || alloc->data[i - 1] != alloc->data[i])) {
+						if (unlikely(!alloc->data[i]))
 							break;
 
 						 ++i;
 					}
 				}
 
-				if (backtrace_step(task) < 0)
+				if (unlikely(backtrace_step(task) < 0))
 					break;
 			}
 		}
@@ -74,10 +76,10 @@ static int report_alloc64(struct task *task, enum mt_operation op, unsigned long
 
 	skip_breakpoint(task, task->event.e_un.breakpoint);
 
-	return server_send_msg(op, task->leader->pid, task->pid, alloc, sizeof(*alloc) + i * sizeof(uint64_t));
+	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint64_t));
 }
 
-static int report_alloc32(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
+static void report_alloc32(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
 {
 	int i = 0;
 	struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc) + depth * sizeof(uint32_t));
@@ -89,20 +91,20 @@ static int report_alloc32(struct task *task, enum mt_operation op, unsigned long
 		if (libsym)
 			alloc->data[i++] = libsym->addr;
 
-		if (backtrace_init_unwind(task) >= 0) {
+		if (likely(backtrace_init_unwind(task) >= 0)) {
 			while(i < depth) {
-				if (backtrace_location_type(task) != LIBTYPE_LOADER) {
+				if (likely(backtrace_location_type(task) != LIBTYPE_LOADER)) {
 					alloc->data[i] = (uint32_t)backtrace_get_ip(task);
 
-					if (!i || alloc->data[i - 1] != alloc->data[i]) {
-						if (!alloc->data[i])
+					if (likely(!i || alloc->data[i - 1] != alloc->data[i])) {
+						if (unlikely(!alloc->data[i]))
 							break;
 
 						++i;
 					}
 				}
 
-				if (backtrace_step(task) < 0)
+				if (unlikely(backtrace_step(task) < 0))
 					break;
 			}
 		}
@@ -110,142 +112,132 @@ static int report_alloc32(struct task *task, enum mt_operation op, unsigned long
 
 	skip_breakpoint(task, task->event.e_un.breakpoint);
 
-	return server_send_msg(op, task->leader->pid, task->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
+	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
 }
 
-static int report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
+static void report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
 {
 	if (!ptr)
-		return 0;
-
-	if (!server_connected())
-		return -1;
+		return;
 
 	debug(DEBUG_FUNCTION, "%d [%d]: %#lx %lu", op, task->pid, ptr, size);
 
 	if (task_is_64bit(task))
-		return report_alloc64(task, op, ptr, size, depth, libsym);
+		report_alloc64(task, op, ptr, size, depth, libsym);
 	else
-		return report_alloc32(task, op, ptr, size, depth, libsym);
+		report_alloc32(task, op, ptr, size, depth, libsym);
 }
 
-static int _null(struct task *task, struct library_symbol *libsym)
+static void _null(struct task *task, struct library_symbol *libsym)
 {
-	return 0;
 }
 
-static int _report_alloc_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
+static void _report_alloc_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, op, ret, size, options.bt_depth, libsym);
+	report_alloc(task, op, ret, size, options.bt_depth, libsym);
 }
 
-static int _report_malloc(struct task *task, struct library_symbol *libsym)
+static void _report_malloc(struct task *task, struct library_symbol *libsym)
 {
-	return _report_alloc_op(task, libsym, MT_MALLOC);
+	_report_alloc_op(task, libsym, MT_MALLOC);
 }
 
-static int _report_new(struct task *task, struct library_symbol *libsym)
+static void _report_new(struct task *task, struct library_symbol *libsym)
 {
-	return _report_alloc_op(task, libsym, options.sanity ? MT_NEW : MT_MALLOC);
+	_report_alloc_op(task, libsym, options.sanity ? MT_NEW : MT_MALLOC);
 }
 
-static int _report_new_array(struct task *task, struct library_symbol *libsym)
+static void _report_new_array(struct task *task, struct library_symbol *libsym)
 {
-	return _report_alloc_op(task, libsym, options.sanity ? MT_NEW_ARRAY : MT_MALLOC);
+	_report_alloc_op(task, libsym, options.sanity ? MT_NEW_ARRAY : MT_MALLOC);
 }
 
-static int _report_free_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
+static void _report_free_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long addr = fetch_param(task, 0);
 
-	return report_alloc(task, op, addr, 0, options.sanity ? options.bt_depth : 0, NULL);
+	report_alloc(task, op, addr, 0, options.sanity ? options.bt_depth : 0, NULL);
 }
 
-static int report_free(struct task *task, struct library_symbol *libsym)
+static void report_free(struct task *task, struct library_symbol *libsym)
 {
-	return _report_free_op(task, libsym, MT_FREE);
+	_report_free_op(task, libsym, MT_FREE);
 }
 
-static int report_delete(struct task *task, struct library_symbol *libsym)
+static void report_delete(struct task *task, struct library_symbol *libsym)
 {
-	return _report_free_op(task, libsym, options.sanity ? MT_DELETE : MT_FREE);
+	_report_free_op(task, libsym, options.sanity ? MT_DELETE : MT_FREE);
 }
 
-static int report_delete_array(struct task *task, struct library_symbol *libsym)
+static void report_delete_array(struct task *task, struct library_symbol *libsym)
 {
-	return _report_free_op(task, libsym, options.sanity ? MT_DELETE_ARRAY : MT_FREE);
+	_report_free_op(task, libsym, options.sanity ? MT_DELETE_ARRAY : MT_FREE);
 }
 
-static int _report_realloc(struct task *task, struct library_symbol *libsym)
+static void _report_realloc(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
-	unsigned long addr = fetch_param(task, 0);
-	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	if (ret)
-		return report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
-	else
-		return report_alloc(task, MT_REALLOC_FAILED, addr, 1, options.bt_depth, libsym);
+	if (ret) {
+		unsigned long size = fetch_param(task, 1);
+
+		report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
+	}
+
+	if (task_is_64bit(task)) {
+		struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc));
+
+		alloc->ptr = (uint64_t)ret;
+		alloc->size = (uint64_t)task->pid;
+
+		server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
+	}
+	else {
+		struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc));
+
+		alloc->ptr = (uint32_t)ret;
+		alloc->size = (uint32_t)task->pid;
+
+		server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
+	}
 }
 
-static int report_realloc(struct task *task, struct library_symbol *libsym)
+static void report_realloc(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long addr = fetch_param(task, 0);
-	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_REALLOC_ENTER, addr, size, options.bt_depth, libsym);
+	report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
 }
 
-static int _report_calloc(struct task *task, struct library_symbol *libsym)
+static void _report_calloc(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long size = fetch_param(task, 0) * fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
+	report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
 }
 
-static int _report_mmap(struct task *task, struct library_symbol *libsym)
+static void _report_mmap(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long ret = fetch_retval(task);
 
 	if ((void *)ret == MAP_FAILED)
-		return 0;
+		return;
 
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
+	report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
 }
 
-static int _report_mmap64(struct task *task, struct library_symbol *libsym)
+static void _report_mmap64(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long ret = fetch_retval(task);
 
 	if ((void *)ret == MAP_FAILED)
-		return 0;
+		return;
 
 	union {
 		uint64_t l;
@@ -264,40 +256,31 @@ static int _report_mmap64(struct task *task, struct library_symbol *libsym)
 	else
 		size.l = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth, libsym);
+	report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth, libsym);
 }
 
-static int report_munmap(struct task *task, struct library_symbol *libsym)
+static void report_munmap(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
+	report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
 
-static int _report_memalign(struct task *task, struct library_symbol *libsym)
+static void _report_memalign(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MEMALIGN, ret, size, options.bt_depth, libsym);
+	report_alloc(task, MT_MEMALIGN, ret, size, options.bt_depth, libsym);
 }
 
-static int _report_posix_memalign(struct task *task, struct library_symbol *libsym)
+static void _report_posix_memalign(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long ret = fetch_retval(task);
 
 	if (ret)
-		return 0;
+		return;
 
 	unsigned long size = fetch_param(task, 2);
 	unsigned long ptr = fetch_param(task, 0);
@@ -313,56 +296,47 @@ static int _report_posix_memalign(struct task *task, struct library_symbol *libs
 		new_ptr = tmp;
 	}
 
-	return report_alloc(task, MT_POSIX_MEMALIGN, new_ptr, size, options.bt_depth, libsym);
+	report_alloc(task, MT_POSIX_MEMALIGN, new_ptr, size, options.bt_depth, libsym);
 }
 
-static int _report_aligned_alloc(struct task *task, struct library_symbol *libsym)
+static void _report_aligned_alloc(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_ALIGNED_ALLOC, ret, size, options.bt_depth, libsym);
+	report_alloc(task, MT_ALIGNED_ALLOC, ret, size, options.bt_depth, libsym);
 }
 
-static int _report_valloc(struct task *task, struct library_symbol *libsym)
+static void _report_valloc(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_VALLOC, ret, size, options.bt_depth, libsym);
+	report_alloc(task, MT_VALLOC, ret, size, options.bt_depth, libsym);
 }
 
-static int _report_pvalloc(struct task *task, struct library_symbol *libsym)
+static void _report_pvalloc(struct task *task, struct library_symbol *libsym)
 {
-	if (!server_connected())
-		return -1;
-
 	unsigned long size = fetch_param(task, 0);
 	unsigned long ret = fetch_retval(task);
 
 	return report_alloc(task, MT_PVALLOC, ret, size, options.bt_depth, libsym);
 }
 
-static int report_mremap(struct task *task, struct library_symbol *libsym)
+static void report_mremap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
 
-	return report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
+	report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
 
-static int _report_mremap(struct task *task, struct library_symbol *libsym)
+static void _report_mremap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long size = fetch_param(task, 2);
 	unsigned long ret = fetch_retval(task);
 
-	return report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
+	report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
 }
 
 static const struct function flist[] = {
@@ -416,13 +390,14 @@ int _report_map(struct task *task, struct library *lib, enum mt_operation op)
 	struct libref *libref = lib->libref;
 	size_t len = strlen(libref->filename) + 1;
 	struct mt_map_payload *payload = alloca(sizeof(struct mt_map_payload) + len);
+
 	payload->addr = libref->load_addr;
 	payload->offset = libref->load_offset;
 	payload->size = libref->load_size;
 
 	memcpy(payload->filename, libref->filename, len);
 
-	return server_send_msg(op, task->pid, 0, payload, sizeof(struct mt_map_payload) + len);
+	return server_send_msg(op, task->pid, payload, sizeof(struct mt_map_payload) + len);
 }
 
 int report_add_map(struct task *task, struct library *lib)
@@ -441,6 +416,13 @@ int report_del_map(struct task *task, struct library *lib)
 	return _report_map(task, lib, MT_DEL_MAP);
 }
 
+static void store_timer_info(struct memtrace_timer_info *info, struct mt_timer *timer)
+{
+	info->max = timer->max;
+	info->count = timer->count;
+	info->culminate = timer->culminate;
+}
+
 int report_info(int do_trace)
 {
 	struct memtrace_info mt_info;
@@ -452,6 +434,16 @@ int report_info(int do_trace)
 	mt_info.mode = 0;
 	mt_info.do_trace = do_trace ? 1 : 0;
 	mt_info.stack_depth = options.bt_depth;
+	mt_info.verbose = options.verbose;
+
+	store_timer_info(&mt_info.stop_time, &stop_time);
+	store_timer_info(&mt_info.sw_bp_time, &sw_bp_time);
+	store_timer_info(&mt_info.hw_bp_time, &hw_bp_time);
+	store_timer_info(&mt_info.backtrace_time, &backtrace_time);
+	store_timer_info(&mt_info.reorder_time, &reorder_time);
+	store_timer_info(&mt_info.report_in_time, &report_in_time);
+	store_timer_info(&mt_info.report_out_time, &report_out_time);
+	store_timer_info(&mt_info.skip_bp_time, &skip_bp_time);
 
 	if (options.verbose)
 		mt_info.mode |= MEMTRACE_SI_VERBOSE;
@@ -462,7 +454,7 @@ int report_info(int do_trace)
 	if (options.follow)
 		mt_info.mode |= MEMTRACE_SI_FORK;
 
-	return server_send_msg(MT_INFO, 0, 0, &mt_info, sizeof(mt_info));
+	return server_send_msg(MT_INFO, 0, &mt_info, sizeof(mt_info));
 }
 
 int report_scan(pid_t pid, const void *data, unsigned int data_len)
@@ -470,7 +462,7 @@ int report_scan(pid_t pid, const void *data, unsigned int data_len)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_SCAN, pid, 0, data, data_len);
+	return server_send_msg(MT_SCAN, pid, data, data_len);
 }
 
 int report_attach(struct task *task)
@@ -480,7 +472,7 @@ int report_attach(struct task *task)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(task_is_64bit(task) ? MT_ATTACH64 : MT_ATTACH, task->pid, 0, &state, sizeof(state));
+	return server_send_msg(task_is_64bit(task) ? MT_ATTACH64 : MT_ATTACH, task->pid, &state, sizeof(state));
 }
 
 int report_fork(struct task *task, struct task *ptask)
@@ -490,7 +482,7 @@ int report_fork(struct task *task, struct task *ptask)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_FORK, task->pid, 0, &fork_pid, sizeof(fork_pid));
+	return server_send_msg(MT_FORK, task->pid, &fork_pid, sizeof(fork_pid));
 }
 
 int report_exit(struct task *task)
@@ -498,7 +490,7 @@ int report_exit(struct task *task)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_EXIT, task->pid, 0, NULL, 0);
+	return server_send_msg(MT_EXIT, task->pid, NULL, 0);
 }
 
 int report_about_exit(struct task *task)
@@ -506,7 +498,7 @@ int report_about_exit(struct task *task)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_ABOUT_EXIT, task->pid, 0, NULL, 0);
+	return server_send_msg(MT_ABOUT_EXIT, task->pid, NULL, 0);
 }
 
 int report_nofollow(struct task *task)
@@ -514,7 +506,7 @@ int report_nofollow(struct task *task)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_NOFOLLOW, task->pid, 0, NULL, 0);
+	return server_send_msg(MT_NOFOLLOW, task->pid, NULL, 0);
 }
 
 int report_detach(struct task *task)
@@ -522,7 +514,7 @@ int report_detach(struct task *task)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_DETACH, task->pid, 0, NULL, 0);
+	return server_send_msg(MT_DETACH, task->pid, NULL, 0);
 }
 
 int report_disconnect(void)
@@ -530,7 +522,7 @@ int report_disconnect(void)
 	if (!server_connected())
 		return -1;
 
-	return server_send_msg(MT_DISCONNECT, 0, 0, NULL, 0);
+	return server_send_msg(MT_DISCONNECT, 0, NULL, 0);
 }
 
 static void report_process(struct task *leader)

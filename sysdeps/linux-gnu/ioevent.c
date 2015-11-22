@@ -40,7 +40,7 @@ struct io_watch_event *io_watch_event;
 static unsigned int io_watch_size;
 static unsigned int io_watch_elems;
 
-static inline void io_watch_set(unsigned int idx, int fd, int (*func)(void))
+static inline void io_watch_set(unsigned int idx, int fd, ioevent_func func)
 {
 	io_watch_event[idx].func = func;
 
@@ -48,7 +48,7 @@ static inline void io_watch_set(unsigned int idx, int fd, int (*func)(void))
 	io_watch_poll[idx].events = POLLIN | POLLPRI | POLLERR | POLLHUP | POLLNVAL;
 }
 
-int ioevent_add_input(int fd, int (*func)(void))
+int ioevent_add_input(int fd, ioevent_func func)
 {
 	unsigned int i;
 
@@ -113,6 +113,21 @@ int ioevent_watch(int timeout)
 	return ret;
 }
 
+ioevent_func ioevent_set_input_func(int fd, ioevent_func func)
+{
+	unsigned int i;
+
+	for(i = 0; i < io_watch_elems; ++i) {
+		if (io_watch_poll[i].fd == fd) {
+			int (*old)(void) = io_watch_event[i].func;
+
+			io_watch_event[i].func = func;
+
+			return old;
+		}
+	}
+	return NULL;
+}
 
 int ioevent_wait_input(int fd, int timeout)
 {

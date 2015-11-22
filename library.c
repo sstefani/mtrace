@@ -120,15 +120,18 @@ void library_delete(struct task *task, struct library *lib)
 
 	struct list_head *it, *next;
 	struct libref *libref = lib->libref;
+	struct task *leader = task->leader;
 
 	list_for_each_safe(it, next, &libref->sym_list) {
-		struct breakpoint *bp = breakpoint_find(task, container_of(it, struct library_symbol, list)->addr);
+		struct breakpoint *bp = breakpoint_find(leader, container_of(it, struct library_symbol, list)->addr);
 
 		if (bp)
-			breakpoint_delete(task, bp);
+			breakpoint_delete(leader, bp);
 	}
 
 	list_del(&lib->list);
+	rb_erase(&lib->rb_node, &leader->libraries_tree);
+
 	free(lib);
 
 	libref_put(libref);
@@ -170,7 +173,7 @@ void library_delete_list(struct task *leader, struct list_head *list)
 
 		debug(DEBUG_FUNCTION, "%s@%#lx", libref->filename, libref->base);
 
-		if (options.verbose > 1)
+		if (unlikely(options.verbose > 1))
 			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
 
 		library_delete(leader, lib);
@@ -208,6 +211,52 @@ static void library_each_symbol(struct libref *libref, void (*cb)(struct library
 	}
 }
 
+static inline int lib_addr_match(struct libref *libref, arch_addr_t addr)
+{
+	return addr >= libref->load_addr && addr < libref->load_addr + libref->load_size;
+}
+
+struct libref *addr2libref(struct task *leader, arch_addr_t addr)
+{
+	struct rb_node **new = &(leader->libraries_tree.rb_node);
+
+	/* Figure out where to put new node */
+	while (*new) {
+		struct libref *this = container_of(*new, struct library, rb_node)->libref;
+
+		if (lib_addr_match(this, addr))
+			return this;
+
+		if (this->load_addr < addr)
+			new = &((*new)->rb_left);
+		else
+			new = &((*new)->rb_right);
+	}
+
+	return NULL;
+}
+
+static void insert_lib(struct task *leader, struct library *lib)
+{
+	struct rb_node **new = &(leader->libraries_tree.rb_node), *parent = NULL;
+
+	/* Figure out where to put new node */
+	while (*new) {
+		struct library *this = container_of(*new, struct library, rb_node);
+
+		parent = *new;
+
+		if (this->libref->load_addr < lib->libref->load_addr)
+			new = &((*new)->rb_left);
+		else
+			new = &((*new)->rb_right);
+	}
+
+	/* Add new node and rebalance tree. */
+	rb_link_node(&lib->rb_node, parent, new);
+	rb_insert_color(&lib->rb_node, &leader->libraries_tree);
+}
+
 static struct library *_library_add(struct task *leader, struct libref *libref)
 {
 	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", libref->filename, libref->base, leader->pid);
@@ -225,7 +274,9 @@ static struct library *_library_add(struct task *leader, struct libref *libref)
 
 	list_add_tail(&lib->list, &leader->libraries_list);
 
-	if (options.verbose > 1)
+	insert_lib(leader, lib);
+
+	if (unlikely(options.verbose > 1))
 		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
 
 	return lib;
@@ -263,6 +314,7 @@ int library_clone_all(struct task *clone, struct task *leader)
 void library_setup(struct task *leader)
 {
 	INIT_LIST_HEAD(&leader->libraries_list);
+	leader->libraries_tree = RB_ROOT;
 }
 
 const char *library_execname(struct task *leader)

@@ -191,7 +191,7 @@ static int populate_this_symtab(struct mt_elf *mte, struct libref *libref, Elf_D
 			if (libsym->func->level > func->level)
 				libsym->func = func;
 		}
-		if (options.verbose > 1)
+		if (unlikely(options.verbose > 1))
 			fprintf(stderr, "breakpoint for %s:%s at %#lx\n", libref->filename, func->demangled_name, addr);
 	}
 
@@ -220,6 +220,7 @@ static int populate_symtab(struct mt_elf *mte, struct libref *libref)
 static inline int elf_map_image(struct mt_elf *mte, void **image_addr)
 {
 	void *addr;
+	volatile char *p;
 
 	addr = mmap(NULL, mte->txt_hdr.p_filesz, PROT_READ, MAP_PRIVATE, mte->fd, mte->txt_hdr.p_offset);
 	if (addr == MAP_FAILED) {
@@ -228,6 +229,10 @@ static inline int elf_map_image(struct mt_elf *mte, void **image_addr)
 	}
 
 	*image_addr = addr;
+
+	/* prefetch */
+	for(p = addr; (void *)p <= addr + mte->txt_hdr.p_filesz; p += PAGE_SIZE)
+		*p;
 
 	return 0;
 }

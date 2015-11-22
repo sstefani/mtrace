@@ -23,10 +23,13 @@
 #ifndef _INC_SYSDEPS_LINUX_GNU_IOEVENT_H
 #define _INC_SYSDEPS_LINUX_GNU_IOEVENT_H
 
-int ioevent_add_input(int fd,  int (*func)(void));
+typedef int (*ioevent_func)(void);
+
+int ioevent_add_input(int fd, ioevent_func func);
 int ioevent_del_input(int fd);
 int ioevent_watch(int timeout);
 int ioevent_wait_input(int fd, int timeout);
+ioevent_func ioevent_set_input_func(int fd, ioevent_func func);
 
 #endif
 

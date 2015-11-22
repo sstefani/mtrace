@@ -31,7 +31,7 @@
 #include "sysdep.h"
 #include "forward.h"
 
-#define BP_REORDER_THRESHOLD	1024U
+#define BP_REORDER_THRESHOLD	2048U
 
 #define BP_SW		0
 #define BP_HW_SCRATCH	1

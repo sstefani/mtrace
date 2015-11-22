@@ -31,15 +31,15 @@
 #define	IS64BIT	0
 #endif
 
-#define	MEMTRACE_SI_VERSION	5
+#define	MEMTRACE_SI_VERSION	6
 
 #define	MEMTRACE_SI_FORK	1
 #define	MEMTRACE_SI_EXEC	2
 #define	MEMTRACE_SI_VERBOSE	4
 
 enum mt_operation {
+	MT_INFO = 0,
 	MT_DISCONNECT,
-	MT_INFO,
 	MT_ADD_MAP,
 	MT_DEL_MAP,
 	MT_ATTACH,
@@ -50,7 +50,7 @@ enum mt_operation {
 	MT_NOFOLLOW,
 	MT_MALLOC,
 	MT_REALLOC_ENTER,
-	MT_REALLOC_FAILED,
+	MT_REALLOC_DONE,
 	MT_REALLOC,
 	MT_FREE,
 	MT_MMAP,
@@ -71,47 +71,62 @@ enum mt_operation {
 	MT_DELETE_ARRAY,
 };
 
-struct mt_msg {
+struct __attribute__((packed)) mt_msg {
 	uint16_t operation;
-	uint32_t pid;
-	uint32_t tid;
+	uint16_t pid;
 	uint32_t payload_len;
 };
 
-struct mt_attached_payload {
+struct __attribute__((packed)) mt_attached_payload {
 	uint8_t attached;
 };
 
-struct mt_alloc_payload_64 {
+struct __attribute__((packed)) mt_alloc_payload_64 {
 	uint64_t ptr;
 	uint64_t size;
 	uint64_t data[0];
 };
 
-struct mt_alloc_payload_32 {
+struct __attribute__((packed)) mt_alloc_payload_32 {
 	uint32_t ptr;
 	uint32_t size;
 	uint32_t data[0];
 };
 
-struct mt_pid_payload {
+struct __attribute__((packed)) mt_pid_payload {
 	uint32_t pid;
 };
 
-struct mt_scan_payload {
+struct __attribute__((packed)) mt_scan_payload {
 	uint32_t ptr_size;
 	uint64_t mask;
 	char data[0];
 };
 
-struct memtrace_info {
+struct __attribute__((packed)) memtrace_timer_info {
+	uint32_t max;
+	uint32_t count;
+	uint64_t culminate;
+};
+
+struct __attribute__((packed)) memtrace_info {
 	uint8_t	version;
 	uint8_t	mode;
 	uint8_t	do_trace;
 	uint8_t stack_depth;
+	uint8_t verbose;
+	uint8_t unused[3];
+	struct memtrace_timer_info stop_time;
+	struct memtrace_timer_info sw_bp_time;
+	struct memtrace_timer_info hw_bp_time;
+	struct memtrace_timer_info backtrace_time;
+	struct memtrace_timer_info reorder_time;
+	struct memtrace_timer_info report_in_time;
+	struct memtrace_timer_info report_out_time;
+	struct memtrace_timer_info skip_bp_time;
 };
 
-struct mt_map_payload {
+struct __attribute__((packed)) mt_map_payload {
 	uint64_t addr;
 	uint64_t offset;
 	uint64_t size;

@@ -27,7 +27,9 @@
 #include <stdint.h>
 
 #include "arch.h"
+#include "common.h"
 #include "forward.h"
+#include "library.h"
 #include "mtelf.h"
 
 #define DWARF_LOC(r, t)		((struct dwarf_loc){ .val = (r), .type = (t) })
@@ -96,11 +98,6 @@ struct dwarf_cursor {
 
 struct dwarf_addr_space {
 	unsigned int is_64bit:1;
-	arch_addr_t addr;
-	union {
-		long val;
-		unsigned char val_bytes[sizeof(long)];
-	};
 	struct dwarf_cursor cursor;
 	unsigned int ip_reg;
 	unsigned int ret_reg;
@@ -113,15 +110,12 @@ void *dwarf_init(int is_64bit);
 void dwarf_destroy(struct dwarf_addr_space *as);
 int dwarf_init_unwind(struct dwarf_addr_space *as, struct task *task);
 int dwarf_step(struct dwarf_addr_space *as);
-arch_addr_t dwarf_get_ip(struct dwarf_addr_space *as);
 
 int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip);
 
 int dwarf_get(struct dwarf_addr_space *as, struct dwarf_loc loc, arch_addr_t *valp);
 
 int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr);
-
-int dwarf_location_type(struct dwarf_addr_space *as);
 
 int dwarf_arch_init(struct dwarf_addr_space *as);
 int dwarf_arch_init_unwind(struct dwarf_addr_space *as);
@@ -132,11 +126,30 @@ int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip);
 #ifdef DWARF_TO_REGNUM
 unsigned int dwarf_to_regnum(unsigned int reg);
 #else
-static inline unsigned int dwarf_to_regnum(unsigned int reg)
+static inline __attribute__((const)) unsigned int dwarf_to_regnum(unsigned int reg)
 {
 	return reg;
 }
 #endif
 
+static inline arch_addr_t dwarf_get_ip(struct dwarf_addr_space *as)
+{
+	struct dwarf_cursor *c = &as->cursor;
+
+	if (unlikely(!c->valid))
+		return ARCH_ADDR_T(0);
+
+	return c->ip;
+}
+
+static inline int dwarf_location_type(struct dwarf_addr_space *as)
+{
+	struct libref *libref = as->cursor.libref;
+
+	if (!libref)
+		return -1;
+
+	return libref->type;
+}
 #endif
 

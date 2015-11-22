@@ -490,15 +490,16 @@ static int load_debug_struct(struct task *task, arch_addr_t debug_addr, struct l
 static int rdebug_bp_on_hit(struct task *task, struct breakpoint *bp)
 {
 	struct lt_r_debug_64 rdbg;
+	struct task *leader = task->leader;
 
 	debug(DEBUG_FUNCTION, "pid=%d", task->pid);
 
-	if (load_debug_struct(task, task->os.debug_addr, &rdbg) < 0)
+	if (load_debug_struct(task, leader->os.debug_addr, &rdbg) < 0)
 		return 0;
 
 	if (rdbg.r_state == RT_CONSISTENT) {
 		debug(DEBUG_FUNCTION, "Linkmap is now consistent");
-		switch (task->os.debug_state) {
+		switch (leader->os.debug_state) {
 		case RT_ADD:
 			linkmap_add(task, &rdbg);
 			break;
@@ -510,7 +511,7 @@ static int rdebug_bp_on_hit(struct task *task, struct breakpoint *bp)
 		}
 	}
 
-	task->os.debug_state = rdbg.r_state;
+	leader->os.debug_state = rdbg.r_state;
 	return 0;
 }
 
@@ -519,10 +520,11 @@ int linkmap_init(struct task *task, arch_addr_t dyn_addr)
 	struct lt_r_debug_64 rdbg;
 	struct breakpoint *bp;
 	arch_addr_t debug_addr;
+	struct task *leader = task->leader;
 
 	debug(DEBUG_FUNCTION, "pid=%d, dyn_addr=%#lx", task->pid, dyn_addr);
 
-	if (task->os.debug_addr)
+	if (leader->os.debug_addr)
 		return 0;
 
 	if (process_find_dynamic_entry_addr(task, dyn_addr, DT_DEBUG, &debug_addr) == -1) {
@@ -538,7 +540,7 @@ int linkmap_init(struct task *task, arch_addr_t dyn_addr)
 
 	arch_addr_t addr = ARCH_ADDR_T(rdbg.r_brk);
 
-	bp = breakpoint_new(task, addr, NULL, 0);
+	bp = breakpoint_new(task, addr, NULL, BP_SW);
 	if (!bp)
 		return -1;
 
@@ -547,7 +549,7 @@ int linkmap_init(struct task *task, arch_addr_t dyn_addr)
 
 	breakpoint_enable(task, bp);
 
-	task->os.debug_addr = debug_addr;
+	leader->os.debug_addr = debug_addr;
 
 	if (rdbg.r_state == RT_CONSISTENT)
 		linkmap_add(task, &rdbg);
@@ -607,8 +609,10 @@ done:
 
 int os_task_init(struct task *task)
 {
-	task->os.debug_addr = 0;
-	task->os.debug_state = RT_ADD;
+	struct task *leader = task->leader;
+
+	leader->os.debug_addr = 0;
+	leader->os.debug_state = RT_ADD;
 	return 0;
 }
 
@@ -618,7 +622,9 @@ void os_task_destroy(struct task *task)
 
 int os_task_clone(struct task *retp, struct task *task)
 {
-	retp->os = task->os;
+	struct task *leader = task->leader;
+
+	retp->os = leader->os;
 	return 0;
 }
 

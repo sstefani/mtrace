@@ -24,7 +24,7 @@
 # Process this file with autoconf to produce a configure script.
 AC_PREREQ(2.65)
 
-AC_INIT([mtrace-ng],[0.4],[stefani@seibold.net])
+AC_INIT([mtrace-ng],[0.5],[stefani@seibold.net])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR(main.c)
 AC_CONFIG_MACRO_DIR([config/m4])
@@ -227,6 +227,7 @@ AC_CHECK_FUNCS([ \
 	atexit \
 	getcwd \
 	gettimeofday \
+	clock_gettime \
 	memset \
 	mkdir \
 	rmdir \
@@ -238,6 +239,9 @@ AC_CHECK_FUNCS([ \
 	process_vm_readv \
 ])
 
+AC_CHECK_LIB([rt], [clock_gettime],,
+	[AC_MSG_ERROR([*** librt not found on your system])]
+)
 
 #
 # Debugging

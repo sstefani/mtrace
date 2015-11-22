@@ -45,10 +45,12 @@
 #include "debug.h"
 #include "event.h"
 #include "library.h"
+#include "main.h"
 #include "mtrace.h"
 #include "options.h"
 #include "report.h"
 #include "task.h"
+#include "timer.h"
 #include "trace.h"
 
 static LIST_HEAD(event_head);
@@ -114,7 +116,7 @@ static void handle_clone(struct task *task, enum event_type type)
 
 	debug(DEBUG_FUNCTION, "pid=%d, newpid=%d", task->pid, newpid);
 
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		show_clone(task, type);
 
 	continue_task(task, 0);
@@ -152,7 +154,7 @@ fail:
 
 static void handle_signal(struct task *task)
 {
-	if (options.verbose > 1) {
+	if (unlikely(options.verbose > 1)) {
 		if (task->event.e_un.signum && (task->event.e_un.signum != SIGSTOP || !task->was_stopped))
 			fprintf(stderr, "+++ process pid=%d signal %d: %s +++\n", task->pid, task->event.e_un.signum, strsignal(task->event.e_un.signum));
 	}
@@ -162,7 +164,7 @@ static void handle_signal(struct task *task)
 
 static void show_exit(struct task *task)
 {
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		fprintf(stderr, "+++ process pid=%d exited (status=%d) +++\n", task->pid, task->event.e_un.ret_val);
 
 }
@@ -170,7 +172,7 @@ static void show_exit(struct task *task)
 static void handle_about_exit(struct task *task)
 {
 	if (task->leader == task) {
-		if (report_about_exit(task) != -1) {
+		if (!options.logfile && report_about_exit(task) != -1) {
 			task->about_exit = 1;
 			return;
 		}
@@ -193,7 +195,7 @@ static void handle_exit(struct task *task)
 
 static void handle_exit_signal(struct task *task)
 {
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		fprintf(stderr, "+++ process pid=%d killed by signal %s (%d) +++\n", task->pid, strsignal(task->event.e_un.signum), task->event.e_un.signum);
 
 	if (task->leader == task) {
@@ -217,7 +219,7 @@ static void handle_exec(struct task *task)
 		goto untrace;
 	}
 
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		fprintf(stderr, "+++ process pid=%d exec (%s) +++\n", task->pid, library_execname(task));
 
 	continue_task(task, 0);
@@ -230,10 +232,18 @@ untrace:
 
 static int handle_call_after(struct task *task, struct breakpoint *bp)
 {
+	struct timespec start;
+
 	if (!task->breakpoint)
 		return 0;
 
+	if (unlikely(options.verbose > 1))
+		start_time(&start);
+
 	task->libsym->func->report_out(task, task->libsym);
+
+	if (unlikely(options.verbose > 1))
+		set_timer(&start, &report_out_time);
 
 	task->breakpoint = NULL;
 	task->libsym = NULL;
@@ -244,20 +254,33 @@ static int handle_call_after(struct task *task, struct breakpoint *bp)
 static void handle_breakpoint(struct task *task)
 {
 	struct breakpoint *bp = task->event.e_un.breakpoint;
+	unsigned int hw = bp->hw;
 	
 	debug(DEBUG_FUNCTION, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
+	if (unlikely(options.verbose > 1))
+		set_timer(&task->halt_time, hw ? &hw_bp_time : &sw_bp_time);
+
 #if HW_BREAKPOINTS > 1
 	if (bp->type >= BP_HW) {
-		if (++bp->hwcnt >= (BP_REORDER_THRESHOLD << bp->hw))
+		if (unlikely(++bp->hwcnt >= (BP_REORDER_THRESHOLD << hw))) {
+			struct timespec start;
+
+			if (unlikely(options.verbose > 1))
+				start_time(&start);
+
 			reorder_hw_bp(task);
+
+			if (unlikely(options.verbose > 1))
+				set_timer(&start, &reorder_time);
+		}
 	}
 #endif
 
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		++bp->count;
 
-	if (bp->deleted) {
+	if (unlikely(bp->deleted)) {
 		struct breakpoint *nbp = breakpoint_find(task, bp->addr);
 
 		if (!nbp)
@@ -267,26 +290,26 @@ static void handle_breakpoint(struct task *task)
 		goto end;
 	}
 
-	if (task->skip_bp == bp) {
+	if (unlikely(task->skip_bp == bp)) {
 		breakpoint_put(task->skip_bp);
 		task->skip_bp = NULL;
 		skip_breakpoint(task, bp);
 		goto end;
 	}
 
-	if (breakpoint_on_hit(task, bp)) {
+	if (unlikely(breakpoint_on_hit(task, bp))) {
 		continue_task(task, 0);
 		goto end;
 	}
 
-	if (bp->libsym && !task->breakpoint) {
+	if (likely(bp->libsym && !task->breakpoint)) {
 		struct library_symbol *libsym = bp->libsym;
 
 		save_param_context(task);
 
 		if (libsym->func->report_out) {
 			task->breakpoint = breakpoint_insert(task, get_return_addr(task), NULL, BP_HW_SCRATCH);
-			if (task->breakpoint) {
+			if (likely(task->breakpoint)) {
 				task->libsym = libsym;
 				task->breakpoint->on_hit = handle_call_after;
 
@@ -294,8 +317,17 @@ static void handle_breakpoint(struct task *task)
 			}
 		}
 
-		if (libsym->func->report_in)
+		if (libsym->func->report_in) {
+			struct timespec start;
+
+			if (unlikely(options.verbose > 1))
+				start_time(&start);
+
 			libsym->func->report_in(task, libsym);
+
+			if (unlikely(options.verbose > 1))
+				set_timer(&start, &report_in_time);
+		}
 	}
 
 	if (task->stopped)

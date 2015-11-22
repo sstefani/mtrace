@@ -50,6 +50,15 @@
 #include "task.h"
 #include "trace.h"
 
+struct mt_timer stop_time;
+struct mt_timer sw_bp_time;
+struct mt_timer hw_bp_time;
+struct mt_timer backtrace_time;
+struct mt_timer reorder_time;
+struct mt_timer report_in_time;
+struct mt_timer report_out_time;
+struct mt_timer skip_bp_time;
+
 static int do_exit;
 
 void mtrace_request_exit(void)
@@ -57,7 +66,7 @@ void mtrace_request_exit(void)
 	if (do_exit)
 		return;
 
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		fprintf(stderr, "+++ request exit +++\n");
 
 	do_exit = 1;
@@ -69,9 +78,9 @@ static void detach_process(struct task *leader)
 	if (!leader)
 		return;
 
-	report_detach(leader);
-
 	pid_t pid = leader->pid;
+
+	report_detach(leader);
 
 	while(server_handle_command() != -1) {
 		struct task *task = pid2task(pid);
@@ -99,16 +108,13 @@ static void mtrace_init(char **cmd)
 {
 	struct opt_p_t *opt_p_tmp;
 
-	if (os_init())
-		exit(EXIT_FAILURE);
-
 	if (options.command) {
 		struct task *task = task_create(options.command, cmd);
 			
 		if (!task)
 			exit(EXIT_FAILURE);
 
-		if (options.verbose)
+		if (unlikely(options.verbose))
 			fprintf(stderr, "+++ process pid=%d created (%s) +++\n", task->pid, library_execname(task));
 	}
 
@@ -133,6 +139,8 @@ static void mtrace_main(void)
 int main(int argc, char *argv[])
 {
 	char **cmd = process_options(argc, argv);
+
+	init_pid_hash();
 
 	if (options.trace) {
 		if (options.logfile) {
@@ -175,10 +183,14 @@ int main(int argc, char *argv[])
 #endif
 	}
 
+	if (os_init())
+		exit(EXIT_FAILURE);
+
 	mtrace_init(cmd);
 	mtrace_main();
 	mtrace_exit();
 
+	report_info(0);
 	report_disconnect();
 
 #if !DISABLE_CLIENT

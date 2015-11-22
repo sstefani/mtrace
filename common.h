@@ -58,6 +58,14 @@
 	(type *)( (char *)__mptr - offsetof(type,member) );})
 
 
+#if 1
+#define likely(x)	__builtin_expect(!!(x), 1)
+#define unlikely(x)	__builtin_expect(!!(x), 0)
+#else
+#define likely(x)	(x)
+#define unlikely(x)	(x)
+#endif
+
 #define	fatal(fmt...)	_fatal(__FILE__,__PRETTY_FUNCTION__,__LINE__ , ##fmt),abort()
 
 void _fatal(const char *file, const char *func, int line, const char *format, ...) __attribute__ ((format (printf, 4, 5)));;

@@ -20,21 +20,43 @@
  * 02110-1301 USA
  */
 
-#ifndef _INC_SERVER_H
-#define _INC_SERVER_H
+#ifndef _INC_TIMER_H
+#define _INC_TIMER_H
 
-#include "forward.h"
+#include <time.h>
+#include <sys/time.h>
 
-#include "socket.h"
+struct mt_timer {
+	unsigned int max;
+	unsigned int count;
+	unsigned long long culminate;
+};
 
-int server_start(void);
-int server_start_pair(void);
-int server_send_msg(enum mt_operation op, uint32_t pid, const void *payload, unsigned int payload_len);
-int server_handle_command(void);
-int server_connected(void);
-int server_stop(void);
-int server_poll(void);
-int server_logfile(void);
+static inline int start_time(struct timespec *ts)
+{
+	return clock_gettime(CLOCK_THREAD_CPUTIME_ID, ts);
+}
+
+static inline int set_timer(struct timespec *start, struct mt_timer *p)
+{ 
+	struct timespec now;
+	unsigned int usec;
+
+	if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) == -1)
+		return -1;
+
+	usec = (now.tv_sec - start->tv_sec) * 1000000L +
+		(now.tv_nsec - start->tv_nsec + 500L) / 1000;
+
+	if (p->max < usec)
+		p->max = usec;
+
+	p->culminate += usec;
+
+	++p->count;
+
+	return 0;
+}
 
 #endif
 

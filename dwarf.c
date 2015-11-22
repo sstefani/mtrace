@@ -317,88 +317,80 @@ static const uint8_t dwarf_operands[256] = {
 	[DW_OP_call_ref] = OPND1(OFFSET)
 };
 
-static int dwarf_access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void *valp, size_t size)
+static inline __attribute__((always_inline)) int dwarf_access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void *valp, size_t size)
 {
 	struct dwarf_cursor *c = &as->cursor;
 
-	if (!addr) {
+	if (unlikely(!addr)) {
 		debug(DEBUG_DWARF, "invalid null memory access");
 		return -DWARF_EINVAL;
 	}
 
-	if (!valp)
+	if (unlikely(!valp))
 		return 0;
 
-	if (!as) {
+	if (unlikely(!as)) {
 		memcpy(valp, (void *)addr, size);
 		return 0;
 	}
 
-	if (as->addr && as->addr <= addr && addr + size - as->addr <= sizeof(as->val)) {
-		memcpy(valp, &as->val_bytes[addr - as->addr], size);
-		return 0;
-	}
-
-	if (copy_from_proc(c->task, addr, &as->val, sizeof(as->val)) != sizeof(as->val)) {
+	if (unlikely(copy_from_proc(c->task, addr, valp, size) != (int)size)) {
 		debug(DEBUG_DWARF, "cannot access memory %#lx of pid %d", addr, c->task->pid);
 		return -DWARF_EINVAL;
 	}
 
-	as->addr = addr;
-	memcpy(valp, as->val_bytes, size);
-
 	return 0;
 }
 
-static inline int dwarf_read8(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
+static inline __attribute__((always_inline)) int dwarf_read8(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
 {
 	int ret;
 
 	ret = dwarf_access_mem(as, *addr, valp, 1);
-	if (ret)
+	if (unlikely(ret))
 		return ret;
 
 	*addr += 1;
 	return 0;
 }
 
-static inline int dwarf_read16(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
+static inline __attribute__((always_inline)) int dwarf_read16(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
 {
 	int ret;
 
 	ret = dwarf_access_mem(as, *addr, valp, 2);
-	if (ret)
+	if (unlikely(ret))
 		return ret;
 
 	*addr += 2;
 	return 0;
 }
 
-static inline int dwarf_read32(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
+static inline __attribute__((always_inline)) int dwarf_read32(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
 {
 	int ret;
 
 	ret = dwarf_access_mem(as, *addr, valp, 4);
-	if (ret)
+	if (unlikely(ret))
 		return ret;
 
 	*addr += 4;
 	return 0;
 }
 
-static inline int dwarf_read64(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
+static inline __attribute__((always_inline)) int dwarf_read64(struct dwarf_addr_space *as, arch_addr_t *addr, void *valp)
 {
 	int ret;
 
 	ret = dwarf_access_mem(as, *addr, valp, 8);
-	if (ret)
+	if (unlikely(ret))
 		return ret;
 
 	*addr += 8;
 	return 0;
 }
 
-static inline int dwarf_readw(struct dwarf_addr_space *as, arch_addr_t *addr, arch_addr_t *valp, int is_64bit)
+static int dwarf_readw(struct dwarf_addr_space *as, arch_addr_t *addr, arch_addr_t *valp, int is_64bit)
 {
 	int ret;
 
@@ -428,7 +420,7 @@ static int dwarf_read_uleb128(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 	int ret;
 
 	do {
-		if ((ret = dwarf_read8(as, addr, &byte)) < 0)
+		if (unlikely((ret = dwarf_read8(as, addr, &byte)) < 0))
 			return ret;
 
 		val |= ((arch_addr_t) byte & 0x7f) << shift;
@@ -448,7 +440,7 @@ static int dwarf_read_sleb128(struct dwarf_addr_space *as, arch_addr_t *addr, ar
 	int ret;
 
 	do {
-		if ((ret = dwarf_read8(as, addr, &byte)) < 0)
+		if (unlikely((ret = dwarf_read8(as, addr, &byte)) < 0))
 			return ret;
 
 		val |= ((arch_addr_t) byte & 0x7f) << shift;
@@ -518,7 +510,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 
 		*addr = (initial_addr + size - 1) & -size;
 
-		if ((ret = dwarf_readw(as, addr, tmp_ptr, is_64bit)) < 0)
+		if (unlikely((ret = dwarf_readw(as, addr, tmp_ptr, is_64bit)) < 0))
 			return ret;
 		*valp = tmp.addr;
 		return 0;
@@ -526,45 +518,45 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 
 	switch (encoding & DW_EH_PE_FORMAT_MASK) {
 	case DW_EH_PE_ptr:
-		if ((ret = dwarf_readw(as, addr, tmp_ptr, is_64bit)) < 0)
+		if (unlikely((ret = dwarf_readw(as, addr, tmp_ptr, is_64bit)) < 0))
 			return ret;
 		val = tmp.addr;
 		break;
 	case DW_EH_PE_uleb128:
-		if ((ret = dwarf_read_uleb128(as, addr, &val)) < 0)
+		if (unlikely((ret = dwarf_read_uleb128(as, addr, &val)) < 0))
 			return ret;
 		break;
 	case DW_EH_PE_udata2:
-		if ((ret = dwarf_read16(as, addr, tmp_ptr)) < 0)
+		if (unlikely((ret = dwarf_read16(as, addr, tmp_ptr)) < 0))
 			return ret;
 		val = tmp.uval16;
 		break;
 	case DW_EH_PE_udata4:
-		if ((ret = dwarf_read32(as, addr, tmp_ptr)) < 0)
+		if (unlikely((ret = dwarf_read32(as, addr, tmp_ptr)) < 0))
 			return ret;
 		val = tmp.uval32;
 		break;
 	case DW_EH_PE_udata8:
-		if ((ret = dwarf_read64(as, addr, tmp_ptr)) < 0)
+		if (unlikely((ret = dwarf_read64(as, addr, tmp_ptr)) < 0))
 			return ret;
 		val = tmp.uval64;
 		break;
 	case DW_EH_PE_sleb128:
-		if ((ret = dwarf_read_sleb128(as, addr, &val)) < 0)
+		if (unlikely((ret = dwarf_read_sleb128(as, addr, &val)) < 0))
 			return ret;
 		break;
 	case DW_EH_PE_sdata2:
-		if ((ret = dwarf_read16(as, addr, tmp_ptr)) < 0)
+		if (unlikely((ret = dwarf_read16(as, addr, tmp_ptr)) < 0))
 			return ret;
 		val = tmp.sval16;
 		break;
 	case DW_EH_PE_sdata4:
-		if ((ret = dwarf_read32(as, addr, tmp_ptr)) < 0)
+		if (unlikely((ret = dwarf_read32(as, addr, tmp_ptr)) < 0))
 			return ret;
 		val = tmp.sval32;
 		break;
 	case DW_EH_PE_sdata8:
-		if ((ret = dwarf_read64(as, addr, tmp_ptr)) < 0)
+		if (unlikely((ret = dwarf_read64(as, addr, tmp_ptr)) < 0))
 			return ret;
 		val = tmp.sval64;
 		break;
@@ -610,7 +602,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 			arch_addr_t indirect_addr = val;
 
 			if (tmp_ptr) {
-				if ((ret = dwarf_readw(indirect_as, &indirect_addr, &val, is_64bit)) < 0)
+				if (unlikely((ret = dwarf_readw(indirect_as, &indirect_addr, &val, is_64bit)) < 0))
 					return ret;
 			}
 			else
@@ -652,7 +644,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 
 	dci->lsda_encoding = DW_EH_PE_omit;
 
-	if ((ret = dwarf_read32(NULL, &addr, &u32val)) < 0)
+	if (unlikely((ret = dwarf_read32(NULL, &addr, &u32val)) < 0))
 		return ret;
 
 	if (u32val != 0xffffffff) {
@@ -662,7 +654,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 		len = u32val;
 		cie_end_addr = addr + len;
 
-		if ((ret = dwarf_read32(NULL, &addr, &cie_id)) < 0)
+		if (unlikely((ret = dwarf_read32(NULL, &addr, &cie_id)) < 0))
 			return ret;
 
 		if (cie_id) {
@@ -674,13 +666,13 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 		/* the CIE is in the 64-bit DWARF format */
 		uint64_t cie_id;
 
-		if ((ret = dwarf_read64(NULL, &addr, &u64val)) < 0)
+		if (unlikely((ret = dwarf_read64(NULL, &addr, &u64val)) < 0))
 			return ret;
 
 		len = u64val;
 		cie_end_addr = addr + len;
 
-		if ((ret = dwarf_read64(NULL, &addr, &cie_id)) < 0)
+		if (unlikely((ret = dwarf_read64(NULL, &addr, &cie_id)) < 0))
 			return ret;
 
 		if (cie_id) {
@@ -690,7 +682,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 	}
 	dci->cie_instr_end = cie_end_addr;
 
-	if ((ret = dwarf_read8(NULL, &addr, &version)) < 0)
+	if (unlikely((ret = dwarf_read8(NULL, &addr, &version)) < 0))
 		return ret;
 
 	if (version != DWARF_CIE_VERSION && version != DWARF_CIE_VERSION_GCC) {
@@ -701,7 +693,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 	/* read and parse the augmentation string: */
 	memset(augstr, 0, sizeof(augstr));
 	for (i = 0;;) {
-		if ((ret = dwarf_read8(NULL, &addr, &ch)) < 0)
+		if (unlikely((ret = dwarf_read8(NULL, &addr, &ch)) < 0))
 			return ret;
 
 		if (!ch)
@@ -711,19 +703,19 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 			augstr[i++] = ch;
 	}
 
-	if ((ret = dwarf_read_uleb128(NULL, &addr, &dci->code_align)) < 0 || (ret = dwarf_read_sleb128(NULL, &addr, &dci->data_align)) < 0)
+	if (unlikely((ret = dwarf_read_uleb128(NULL, &addr, &dci->code_align)) < 0 || (ret = dwarf_read_sleb128(NULL, &addr, &dci->data_align)) < 0))
 		return ret;
 
 	/* Read the return-address column either as a u8 or as a uleb128.  */
 	if (version == 1) {
-		if ((ret = dwarf_read8(NULL, &addr, &ch)) < 0)
+		if (unlikely((ret = dwarf_read8(NULL, &addr, &ch)) < 0))
 			return ret;
 		dci->ret_addr_column = dwarf_to_regnum(ch);
 	}
 	else {
 		arch_addr_t val;
 
-		if ((ret = dwarf_read_uleb128(NULL, &addr, &val)) < 0)
+		if (unlikely((ret = dwarf_read_uleb128(NULL, &addr, &val)) < 0))
 			return ret;
 		dci->ret_addr_column = dwarf_to_regnum(val);
 	}
@@ -731,7 +723,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 	i = 0;
 	if (augstr[0] == 'z') {
 		dci->sized_augmentation = 1;
-		if ((ret = dwarf_read_uleb128(NULL, &addr, &aug_size)) < 0)
+		if (unlikely((ret = dwarf_read_uleb128(NULL, &addr, &aug_size)) < 0))
 			return ret;
 		i++;
 	}
@@ -740,13 +732,13 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 		switch (augstr[i]) {
 		case 'L':
 			/* read the LSDA pointer-encoding format.  */
-			if ((ret = dwarf_read8(NULL, &addr, &ch)) < 0)
+			if (unlikely((ret = dwarf_read8(NULL, &addr, &ch)) < 0))
 				return ret;
 			dci->lsda_encoding = ch;
 			break;
 		case 'R':
 			/* read the FDE pointer-encoding format.  */
-			if ((ret = dwarf_read8(NULL, &addr, &fde_encoding)) < 0)
+			if (unlikely((ret = dwarf_read8(NULL, &addr, &fde_encoding)) < 0))
 				return ret;
 			break;
 		case 'P':
@@ -754,9 +746,9 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 			uint8_t	handler_encoding;
 
 			/* read the personality-routine pointer-encoding format.  */
-			if ((ret = dwarf_read8(NULL, &addr, &handler_encoding)) < 0)
+			if (unlikely((ret = dwarf_read8(NULL, &addr, &handler_encoding)) < 0))
 				return ret;
-			if ((ret = dwarf_read_encoded_pointer_local(as, &addr, handler_encoding, NULL, 0)) < 0)
+			if (unlikely((ret = dwarf_read_encoded_pointer_local(as, &addr, handler_encoding, NULL, 0)) < 0))
 				break;
 		 }
 		case 'S':
@@ -791,7 +783,7 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 	struct dwarf_cie_info *dci = &as->cursor.dci;
 	arch_addr_t addr = (arch_addr_t)addrp;
 
-	if ((ret = dwarf_read32(NULL, &addr, &u32val)) < 0)
+	if (unlikely((ret = dwarf_read32(NULL, &addr, &u32val)) < 0))
 		return ret;
 
 	if (u32val != 0xffffffff) {
@@ -809,7 +801,7 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 		fde_end_addr = addr + u32val;
 		cie_offset_addr = addr;
 
-		if ((ret = dwarf_read32(NULL, &addr, &cie_offset32)) < 0)
+		if (unlikely((ret = dwarf_read32(NULL, &addr, &cie_offset32)) < 0))
 			return ret;
 
 		cie_offset = cie_offset32;
@@ -819,13 +811,13 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 
 		/* the FDE is in the 64-bit DWARF format */
 
-		if ((ret = dwarf_read64(NULL, &addr, &u64val)) < 0)
+		if (unlikely((ret = dwarf_read64(NULL, &addr, &u64val)) < 0))
 			return ret;
 
 		fde_end_addr = addr + u64val;
 		cie_offset_addr = addr;
 
-		if ((ret = dwarf_read64(NULL, &addr, &cie_offset64)) < 0)
+		if (unlikely((ret = dwarf_read64(NULL, &addr, &cie_offset64)) < 0))
 			return ret;
 
 		cie_offset = cie_offset64;
@@ -846,31 +838,32 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 	if ((ret = parse_cie(as, cie_addr, dci)) < 0)
 		return ret;
 
-	if ((ret = dwarf_read_encoded_pointer_local(as, &addr, dci->fde_encoding, &dci->start_ip, 0)) < 0)
+	if (unlikely((ret = dwarf_read_encoded_pointer_local(as, &addr, dci->fde_encoding, &dci->start_ip, 0)) < 0))
 		return ret;
 
 	/* IP-range has same encoding as FDE pointers, except that it's
 	   always an absolute value: */
-	if ((ret = dwarf_read_encoded_pointer_local(as, &addr, dci->fde_encoding & DW_EH_PE_FORMAT_MASK, &dci->ip_range, 0)) < 0)
+	if (unlikely((ret = dwarf_read_encoded_pointer_local(as, &addr, dci->fde_encoding & DW_EH_PE_FORMAT_MASK, &dci->ip_range, 0)) < 0))
 		return ret;
 
 	if (dci->sized_augmentation) {
 		arch_addr_t aug_size;
 
-		if ((ret = dwarf_read_uleb128(NULL, &addr, &aug_size)) < 0)
+		if (unlikely((ret = dwarf_read_uleb128(NULL, &addr, &aug_size)) < 0))
 			return ret;
 
 		dci->fde_instr_start = addr + aug_size;
 	}
 	else
 		dci->fde_instr_start = addr;
+
 	dci->fde_instr_end = fde_end_addr;
 
-	if ((ret = dwarf_read_encoded_pointer_local(as, &addr, dci->lsda_encoding, NULL, dci->start_ip)) < 0)
+	if (unlikely((ret = dwarf_read_encoded_pointer_local(as, &addr, dci->lsda_encoding, NULL, dci->start_ip)) < 0))
 		return ret;
 
 	if (dci->have_abi_marker) {
-		if ((ret = dwarf_read16(NULL, &addr, &dci->abi)) < 0 || (ret = dwarf_read16(NULL, &addr, &dci->tag)) < 0)
+		if (unlikely((ret = dwarf_read16(NULL, &addr, &dci->abi)) < 0 || (ret = dwarf_read16(NULL, &addr, &dci->tag)) < 0))
 			return ret;
 	}
 
@@ -885,34 +878,18 @@ static inline int lib_addr_match(struct libref *libref, arch_addr_t ip)
 int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 {
 	struct dwarf_cursor *c = &as->cursor;
-	struct task *leader;
-	struct list_head *it;
 
 	if (c->use_prev_instr)
 		ip -= 1;
 
-	if (as->cursor.libref) {
-		if (lib_addr_match(as->cursor.libref, ip))
+	if (likely(c->libref)) {
+		if (lib_addr_match(c->libref, ip))
 			return 0;
 	}
 
-	leader = c->task->leader;
-
-	as->cursor.libref = NULL;
-
-	list_for_each(it, &leader->libraries_list) {
-		struct libref *libref = container_of(it, struct library, list)->libref;
-
-		if (lib_addr_match(libref, ip)) {
-			as->cursor.libref = libref;
-			break;
-		}
-	}
-
-	if (!as->cursor.libref) {
-		debug(DEBUG_DWARF, "no mapping found for IP %#lx", ip);
+	c->libref = addr2libref(c->task->leader, ip);
+	if (!c->libref)
 		return -DWARF_ENOINFO;
-	}
 
 	return 0;
 }
@@ -953,7 +930,7 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 	struct libref *libref = as->cursor.libref;
 
 	e = lookup(table_data, table_len, ip - libref->load_addr - libref->seg_offset);
-	if (!e) {
+	if (unlikely(!e)) {
 		/* IP is inside this table's range, but there is no explicit unwind info. */
 		debug(DEBUG_DWARF, "no unwind info found for IP %#lx", ip);
 		return -DWARF_ENOINFO;
@@ -961,7 +938,7 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 
 	fde_addr = libref->image_addr - libref->load_offset + e->fde_offset + libref->seg_offset;
 
-	if ((ret = dwarf_extract_cfi_from_fde(as, fde_addr)) < 0)
+	if (unlikely((ret = dwarf_extract_cfi_from_fde(as, fde_addr)) < 0))
 		return ret;
 
 	dci->start_ip -= ARCH_ADDR_T(libref->image_addr) - libref->load_addr;
@@ -969,7 +946,7 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 	if (!as->is_64bit)
 		dci->start_ip &= 0xffffffff;
 
-	if (ip < dci->start_ip || ip >= dci->start_ip + dci->ip_range) {
+	if (unlikely(ip < dci->start_ip || ip >= dci->start_ip + dci->ip_range)) {
 		debug(DEBUG_DWARF, "IP %#lx out of range %#lx-%#lx", ip, dci->start_ip, dci->start_ip + dci->ip_range);
 		return -DWARF_ENOINFO;
 	}
@@ -983,7 +960,7 @@ static int dwarf_access_reg(struct dwarf_addr_space *as, unsigned int reg, arch_
 
 	int map = dwarf_arch_map_reg(as, reg);
 
-	if (map < 0) {
+	if (unlikely(map < 0)) {
 		debug(DEBUG_DWARF, "could not map register %u", reg);
 
 		return map;
@@ -1021,7 +998,7 @@ static int dwarf_get_reg(struct dwarf_addr_space *as, unsigned int reg, arch_add
 {
 	struct dwarf_cursor *c = &as->cursor;
 
-	if (reg >= as->num_regs)
+	if (unlikely(reg >= as->num_regs))
 		return err_inval_reg_num((unsigned int)*valp);
 
 	if (as->ip_reg == reg) {
@@ -1037,17 +1014,17 @@ static int dwarf_get_reg(struct dwarf_addr_space *as, unsigned int reg, arch_add
 	return dwarf_get(as, c->loc[reg], valp);
 }
 
-static inline int read_regnum(unsigned int num_regs, arch_addr_t *addr, arch_addr_t *valp)
+static int read_regnum(unsigned int num_regs, arch_addr_t *addr, arch_addr_t *valp)
 {
 	int ret;
 	arch_addr_t val;
 
-	if ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)
+	if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
 		return ret;
 
 	val = dwarf_to_regnum(val);
 
-	if (val >= num_regs)
+	if (unlikely(val >= num_regs))
 		return err_inval_reg_num(val);
 
 	*valp = val;
@@ -1086,7 +1063,7 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 	/* Process everything up to and including the current 'ip',
 	   including all the DW_CFA_advance_loc instructions. */
 	while (curr_ip <= ip && *addr < end_addr) {
-		if ((ret = dwarf_read8(NULL, addr, &op)) < 0)
+		if (unlikely((ret = dwarf_read8(NULL, addr, &op)) < 0))
 			return ret;
 
 		if (op & DWARF_CFA_OPCODE_MASK) {
@@ -1098,17 +1075,17 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			curr_ip += operand * dci->code_align;
 			break;
 		case DW_CFA_advance_loc1:
-			if ((ret = dwarf_read8(NULL, addr, &u8)) < 0)
+			if (unlikely((ret = dwarf_read8(NULL, addr, &u8)) < 0))
 				goto fail;
 			curr_ip += u8 * dci->code_align;
 			break;
 		case DW_CFA_advance_loc2:
-			if ((ret = dwarf_read16(NULL, addr, &u16)) < 0)
+			if (unlikely((ret = dwarf_read16(NULL, addr, &u16)) < 0))
 				goto fail;
 			curr_ip += u16 * dci->code_align;
 			break;
 		case DW_CFA_advance_loc4:
-			if ((ret = dwarf_read32(NULL, addr, &u32)) < 0)
+			if (unlikely((ret = dwarf_read32(NULL, addr, &u32)) < 0))
 				goto fail;
 			curr_ip += u32 * dci->code_align;
 			break;
@@ -1118,30 +1095,30 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			goto fail;
 		case DW_CFA_offset:
 			regnum = dwarf_to_regnum(operand);
-			if (regnum >= num_regs) {
+			if (unlikely(regnum >= num_regs)) {
 				debug(DEBUG_DWARF, "Invalid register number %u in DW_cfa_OFFSET", (unsigned int)regnum);
 				ret = -DWARF_EBADREG;
 				goto fail;
 			}
-			if ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
 				goto fail;
 			set_reg(rs_current, regnum, DWARF_WHERE_CFAREL, val * dci->data_align);
 			break;
 		case DW_CFA_offset_extended:
-			if (((ret = read_regnum(num_regs, addr, &regnum)) < 0)
-			    || ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
+			if (unlikely(((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			    || ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)))
 				goto fail;
 			set_reg(rs_current, regnum, DWARF_WHERE_CFAREL, val * dci->data_align);
 			break;
 		case DW_CFA_offset_extended_sf:
-			if (((ret = read_regnum(num_regs, addr, &regnum)) < 0)
-			    || ((ret = dwarf_read_sleb128(NULL, addr, &val)) < 0))
+			if (unlikely(((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			    || ((ret = dwarf_read_sleb128(NULL, addr, &val)) < 0)))
 				goto fail;
 			set_reg(rs_current, regnum, DWARF_WHERE_CFAREL, val * dci->data_align);
 			break;
 		case DW_CFA_restore:
 			regnum = dwarf_to_regnum(operand);
-			if (regnum >= num_regs) {
+			if (unlikely(regnum >= num_regs)) {
 				debug(DEBUG_DWARF, "Invalid register number %u in DW_CFA_restore", (unsigned int)regnum);
 				ret = -DWARF_EINVAL;
 				goto fail;
@@ -1149,9 +1126,9 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			rs_current->reg[regnum] = rs_initial->reg[regnum];
 			break;
 		case DW_CFA_restore_extended:
-			if ((ret = dwarf_read_uleb128(NULL, addr, &regnum)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &regnum)) < 0))
 				goto fail;
-			if (regnum >= num_regs) {
+			if (unlikely(regnum >= num_regs)) {
 				debug(DEBUG_DWARF, "Invalid register number %u in " "DW_CFA_restore_extended", (unsigned int)regnum);
 				ret = -DWARF_EINVAL;
 				goto fail;
@@ -1161,26 +1138,26 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 		case DW_CFA_nop:
 			break;
 		case DW_CFA_set_loc:
-			if ((ret = dwarf_read_encoded_pointer_local(as, addr, dci->fde_encoding, &curr_ip, c->dci.start_ip)) < 0)
+			if (unlikely((ret = dwarf_read_encoded_pointer_local(as, addr, dci->fde_encoding, &curr_ip, c->dci.start_ip)) < 0))
 				goto fail;
 			break;
 		case DW_CFA_undefined:
-			if ((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			if (unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0))
 				goto fail;
 			set_reg(rs_current, regnum, DWARF_WHERE_UNDEF, 0);
 			break;
 		case DW_CFA_same_value:
-			if ((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			if (unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0))
 				goto fail;
 			set_reg(rs_current, regnum, DWARF_WHERE_SAME, 0);
 			break;
 		case DW_CFA_register:
-			if ((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			if (unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0))
 				goto fail;
-			if ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
 				goto fail;
 			n = dwarf_to_regnum(val);
-			if (n >= num_regs) {
+			if (unlikely(n >= num_regs)) {
 				debug(DEBUG_DWARF, "Invalid register number value %u in DW_CFA_REGISTER", (unsigned int)val);
 				ret = -DWARF_EBADREG;
 				goto fail;
@@ -1194,7 +1171,7 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			rs_stack = rs_tmp;
 			break;
 		case DW_CFA_restore_state:
-			if (!rs_stack) {
+			if (unlikely(!rs_stack)) {
 				debug(DEBUG_DWARF, "register-state stack underflow");
 				ret = -DWARF_EINVAL;
 				goto fail;
@@ -1205,31 +1182,31 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			free(rs_tmp);
 			break;
 		case DW_CFA_def_cfa:
-			if (((ret = read_regnum(num_regs, addr, &regnum)) < 0)
-			    || ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
+			if ((unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			    || ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)))
 				goto fail;
 			set_reg(rs_current, DWARF_CFA_REG_COLUMN(as), DWARF_WHERE_REG, regnum);
 			set_reg(rs_current, DWARF_CFA_OFF_COLUMN(as), 0, val);				/* NOT factored! */
 			break;
 		case DW_CFA_def_cfa_sf:
-			if (((ret = read_regnum(num_regs, addr, &regnum)) < 0)
-			    || ((ret = dwarf_read_sleb128(NULL, addr, &val)) < 0))
+			if (unlikely(((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			    || ((ret = dwarf_read_sleb128(NULL, addr, &val)) < 0)))
 				goto fail;
 			set_reg(rs_current, DWARF_CFA_REG_COLUMN(as), DWARF_WHERE_REG, regnum);
 			set_reg(rs_current, DWARF_CFA_OFF_COLUMN(as), 0, val * dci->data_align);	/* factored! */
 			break;
 		case DW_CFA_def_cfa_register:
-			if ((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			if (unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0))
 				goto fail;
 			set_reg(rs_current, DWARF_CFA_REG_COLUMN(as), DWARF_WHERE_REG, regnum);
 			break;
 		case DW_CFA_def_cfa_offset:
-			if ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
 				goto fail;
 			set_reg(rs_current, DWARF_CFA_OFF_COLUMN(as), 0, val);	/* NOT factored! */
 			break;
 		case DW_CFA_def_cfa_offset_sf:
-			if ((ret = dwarf_read_sleb128(NULL, addr, &val)) < 0)
+			if (unlikely((ret = dwarf_read_sleb128(NULL, addr, &val)) < 0))
 				goto fail;
 			set_reg(rs_current, DWARF_CFA_OFF_COLUMN(as), 0, val * dci->data_align);	/* factored! */
 			break;
@@ -1237,19 +1214,19 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			/* Save the address of the DW_FORM_block for later evaluation. */
 			set_reg(rs_current, DWARF_CFA_REG_COLUMN(as), DWARF_WHERE_EXPR, *addr);
 
-			if ((ret = dwarf_read_uleb128(NULL, addr, &n)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &n)) < 0))
 				goto fail;
 
 			*addr += n;
 			break;
 		case DW_CFA_expression:
-			if ((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			if (unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0))
 				goto fail;
 
 			/* Save the address of the DW_FORM_block for later evaluation. */
 			set_reg(rs_current, regnum, DWARF_WHERE_EXPR, *addr);
 
-			if ((ret = dwarf_read_uleb128(NULL, addr, &n)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &n)) < 0))
 				goto fail;
 
 			*addr += n;
@@ -1261,21 +1238,21 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			/* Save the address of the DW_FORM_block for later evaluation. */
 			set_reg(rs_current, regnum, DWARF_WHERE_VAL_EXPR, *addr);
 
-			if ((ret = dwarf_read_uleb128(NULL, addr, &n)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &n)) < 0))
 				goto fail;
 
 			*addr += n;
 			break;
 		case DW_CFA_GNU_args_size:
-			if ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)
+			if (unlikely((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
 				goto fail;
 			break;
 		case DW_CFA_GNU_negative_offset_extended:
 			/* A comment in GCC says that this is obsoleted by
 			   DW_CFA_offset_extended_sf, but that it's used by older
 			   PowerPC code.  */
-			if (((ret = read_regnum(num_regs, addr, &regnum)) < 0)
-			    || ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0))
+			if (unlikely(((ret = read_regnum(num_regs, addr, &regnum)) < 0)
+			    || ((ret = dwarf_read_uleb128(NULL, addr, &val)) < 0)))
 				goto fail;
 			set_reg(rs_current, regnum, DWARF_WHERE_CFAREL, -(val * dci->data_align));
 			break;
@@ -1309,7 +1286,7 @@ static int parse_fde(struct dwarf_addr_space *as, arch_addr_t ip, struct dwarf_r
 	unsigned int i;
 	struct dwarf_reg_state *rs_initial;
 
-	if (dci->ret_addr_column >= as->num_regs) {
+	if (unlikely(dci->ret_addr_column >= as->num_regs)) {
 		debug(DEBUG_DWARF, "Invalid return address column %lu", dci->ret_addr_column);
 		return -DWARF_EBADREG;
 	}
@@ -1367,25 +1344,25 @@ static arch_addr_t read_operand(struct dwarf_addr_space *as, arch_addr_t *addr, 
 	switch (operand_type) {
 	case VAL8:
 		ret = dwarf_read8(NULL, addr, &tmp.u8);
-		if (ret < 0)
+		if (unlikely(ret < 0))
 			return ret;
 		*valp = tmp.u8;
 		break;
 	case VAL16:
 		ret = dwarf_read16(NULL, addr, &tmp.u16);
-		if (ret < 0)
+		if (unlikely(ret < 0))
 			return ret;
 		*valp = tmp.u16;
 		break;
 	case VAL32:
 		ret = dwarf_read32(NULL, addr, &tmp.u32);
-		if (ret < 0)
+		if (unlikely(ret < 0))
 			return ret;
 		*valp = tmp.u32;
 		break;
 	case VAL64:
 		ret = dwarf_read64(NULL, addr, &tmp.u64);
-		if (ret < 0)
+		if (unlikely(ret < 0))
 			return ret;
 		*valp = tmp.u64;
 		break;
@@ -1418,7 +1395,7 @@ static int dwarf_eval_expr(struct dwarf_addr_space *as, arch_addr_t addr, struct
 
 #define pop()                                     \
 ({                                                \
-  if ((tos - 1) >= MAX_EXPR_STACK_SIZE)           \
+  if (unlikely((tos - 1) >= MAX_EXPR_STACK_SIZE)) \
     {                                             \
       debug(DEBUG_DWARF, "Stack underflow");      \
       return -DWARF_EINVAL;                       \
@@ -1429,7 +1406,7 @@ static int dwarf_eval_expr(struct dwarf_addr_space *as, arch_addr_t addr, struct
 #define push(x)                                   \
 do {                                              \
   arch_addr_t _x = (x);                           \
-  if (tos >= MAX_EXPR_STACK_SIZE)                 \
+  if (unlikely(tos >= MAX_EXPR_STACK_SIZE))       \
     {                                             \
       debug(DEBUG_DWARF, "Stack overflow");       \
       return -DWARF_EINVAL;                       \
@@ -1440,7 +1417,7 @@ do {                                              \
 #define pick(n)                                   \
 ({                                                \
   unsigned int _index = tos - 1 - (n);            \
-  if (_index >= MAX_EXPR_STACK_SIZE)              \
+  if (unlikely(_index >= MAX_EXPR_STACK_SIZE))    \
     {                                             \
       debug(DEBUG_DWARF, "Out-of-stack pick");    \
       return -DWARF_EINVAL;                       \
@@ -1449,7 +1426,7 @@ do {                                              \
 })
 
 	/* read the length of the expression: */
-	if ((ret = dwarf_read_uleb128(NULL, &addr, &len)) < 0)
+	if (unlikely((ret = dwarf_read_uleb128(NULL, &addr, &len)) < 0))
 		return ret;
 
 	end_addr = addr + len;
@@ -1457,7 +1434,7 @@ do {                                              \
 	push(c->cfa);		/* push current CFA as required by DWARF spec */
 
 	while (addr < end_addr) {
-		if ((ret = dwarf_read8(NULL, &addr, &opcode)) < 0)
+		if (unlikely((ret = dwarf_read8(NULL, &addr, &opcode)) < 0))
 			return ret;
 
 		operands_signature = dwarf_operands[opcode];
@@ -1475,12 +1452,12 @@ do {                                              \
 			push(opcode - DW_OP_lit0);
 			break;
 		case DW_OP_breg0 ... DW_OP_breg31:
-			if ((ret = dwarf_get_reg(as, dwarf_to_regnum(opcode - DW_OP_breg0), &tmp1)) < 0)
+			if (unlikely((ret = dwarf_get_reg(as, dwarf_to_regnum(opcode - DW_OP_breg0), &tmp1)) < 0))
 				return ret;
 			push(tmp1 + operand1);
 			break;
 		case DW_OP_bregx:
-			if ((ret = dwarf_get_reg(as, dwarf_to_regnum(operand1), &tmp1)) < 0)
+			if (unlikely((ret = dwarf_get_reg(as, dwarf_to_regnum(operand1), &tmp1)) < 0))
 				return ret;
 			push(tmp1 + operand2);
 			break;
@@ -1519,7 +1496,7 @@ do {                                              \
 			break;
 		case DW_OP_deref:
 			tmp1 = pop();
-			if ((ret = dwarf_readw(as, &tmp1, &tmp2, as->is_64bit)) < 0)
+			if (unlikely((ret = dwarf_readw(as, &tmp1, &tmp2, as->is_64bit)) < 0))
 				return ret;
 			push(tmp2);
 			break;
@@ -1530,18 +1507,18 @@ do {                                              \
 				debug(DEBUG_DWARF, "Unexpected DW_OP_deref_size size %d", (int)operand1);
 				return -DWARF_EINVAL;
 			case 1:
-				if ((ret = dwarf_read8(as, &tmp1, &u8)) < 0)
+				if (unlikely((ret = dwarf_read8(as, &tmp1, &u8)) < 0))
 					return ret;
 				tmp2 = u8;
 				break;
 			case 2:
-				if ((ret = dwarf_read16(as, &tmp1, &u16)) < 0)
+				if (unlikely((ret = dwarf_read16(as, &tmp1, &u16)) < 0))
 					return ret;
 				tmp2 = u16;
 				break;
 			case 3:
 			case 4:
-				if ((ret = dwarf_read32(as, &tmp1, &u32)) < 0)
+				if (unlikely((ret = dwarf_read32(as, &tmp1, &u32)) < 0))
 					return ret;
 				tmp2 = u32;
 				if (operand1 == 3) {
@@ -1556,7 +1533,7 @@ do {                                              \
 			case 6:
 			case 7:
 			case 8:
-				if ((ret = dwarf_read64(as, &tmp1, &u64)) < 0)
+				if (unlikely((ret = dwarf_read64(as, &tmp1, &u64)) < 0))
 					return ret;
 				tmp2 = u64;
 				if (operand1 != 8) {
@@ -1759,7 +1736,7 @@ static int apply_reg_state(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			cfa = c->cfa;
 		}
 		else {
-			if ((ret = dwarf_get_reg(as, rs->reg[DWARF_CFA_REG_COLUMN(as)].val, &cfa)) < 0)
+			if (unlikely((ret = dwarf_get_reg(as, rs->reg[DWARF_CFA_REG_COLUMN(as)].val, &cfa)) < 0))
 				return ret;
 		}
 		cfa += rs->reg[DWARF_CFA_OFF_COLUMN(as)].val;
@@ -1772,7 +1749,7 @@ static int apply_reg_state(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			return ret;
 
 		/* the returned location better be a memory location... */
-		if (DWARF_IS_REG_LOC(cfa_loc))
+		if (unlikely(DWARF_IS_REG_LOC(cfa_loc)))
 			return -DWARF_EBADFRAME;
 		cfa = DWARF_GET_LOC(cfa_loc);
 	}
@@ -1811,7 +1788,7 @@ static int apply_reg_state(struct dwarf_addr_space *as, struct dwarf_reg_state *
 	}
 	else {
 		ret = dwarf_get(as, c->loc[c->ret_addr_column], &ip);
-		if (ret < 0)
+		if (unlikely(ret < 0))
 			return ret;
 		c->ip = ip;
 	}
@@ -1853,9 +1830,6 @@ int dwarf_init_unwind(struct dwarf_addr_space *as, struct task *task)
 	c->libref = NULL;
 	c->task = task;
 
-	as->addr = 0;
-	as->val = 0;
-
 	memset(&c->dci, 0, sizeof(c->dci));
 
 	ret = dwarf_arch_init_unwind(as);
@@ -1875,8 +1849,6 @@ void *dwarf_init(int is_64bit)
 	memset(as, 0, sizeof(*as));
 
 	as->is_64bit = is_64bit;
-	as->addr = 0;
-	as->val = 0;
 
 	ret = dwarf_arch_init(as);
 	if (ret < 0) {
@@ -1912,17 +1884,21 @@ int dwarf_step(struct dwarf_addr_space *as)
 	int ret;
 	struct dwarf_cursor *c = &as->cursor;
 	struct dwarf_reg_state *rs_current;
-	arch_addr_t ip, cfa;
+	arch_addr_t ip;
+#ifdef GUESS_CALLER
+	arch_addr_t cfa = c->cfa;
+#endif
 
 	if (!c->valid)
 		return -DWARF_EINVAL;
 
 	ip = c->ip;
-	cfa = c->cfa;
 
+#if 0
 	ret = dwarf_locate_map(as, ip);
-	if (ret < 0)
+	if (unlikely(ret < 0))
 		goto fail;
+#endif
 
 	/* The 'ip' can point either to the previous or next instruction
 	   depending on what type of frame we have: normal call or a place
@@ -1976,35 +1952,39 @@ fail:
 
 	if (ret) {
 #ifdef GUESS_CALLER
-		ssize_t n;
-		unsigned char buf[4096];
+		unsigned char buf[512];
+		unsigned int off;
+		arch_addr_t (*getval)(unsigned char *buf);
+		ssize_t addr_size = DWARF_ADDR_SIZE(as);
 
-		n = copy_from_proc(c->task, cfa, &buf, ARRAY_SIZE(buf));
-		if (n > 0) {
-			arch_addr_t (*getval)(unsigned char *buf);
-			ssize_t i;
-			ssize_t addr_size = DWARF_ADDR_SIZE(as);
+		if (addr_size == 8)
+			getval = get64val;
+		else
+			getval = get32val;
 
-			if (addr_size == 8)
-				getval = get64val;
-			else
-				getval = get32val;
+		for(off = 0; off <= 4096; off += ARRAY_SIZE(buf)) {
+			size_t i, n;
+
+			n = copy_from_proc(c->task, cfa, &buf, ARRAY_SIZE(buf));
 
 			for(i = 0; i + addr_size <= n ; i += addr_size) {
 				ip = getval(&buf[i]);
 
-#if 0
-				if (c->ip - ip < 16384)
-					continue;
-#endif
-
-				if (!dwarf_locate_map(as, ip) && dwarf_arch_check_call(as, ip)) {
+				if (unlikely(!dwarf_locate_map(as, ip) && dwarf_arch_check_call(as, ip))) {
 					c->cfa = cfa + i + addr_size;
 					c->ip = ip;
+
+					c->ret_addr_column = 0;
+
+					for (i = 0; i < as->num_regs; ++i)
+						c->loc[i] = DWARF_NULL_LOC;
 
 					return 0;
 				}
 			}
+
+			if (unlikely(n < (ssize_t)ARRAY_SIZE(buf)))
+				break;
 		}
 #endif
 		debug(DEBUG_DWARF, "error %d", ret);
@@ -2013,16 +1993,6 @@ fail:
 	}
 
 	return ret;
-}
-
-arch_addr_t dwarf_get_ip(struct dwarf_addr_space *as)
-{
-	struct dwarf_cursor *c = &as->cursor;
-
-	if (!c->valid)
-		return ARCH_ADDR_T(0);
-
-	return c->ip;
 }
 
 int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr)
@@ -2061,15 +2031,5 @@ int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwar
 	libref->table_len = fde_count;
 
 	return 0;
-}
-
-int dwarf_location_type(struct dwarf_addr_space *as)
-{
-	struct libref *libref = as->cursor.libref;
-
-	if (!libref)
-		return -1;
-
-	return libref->type;
 }
 

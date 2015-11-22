@@ -28,9 +28,10 @@
 struct process;
 
 struct process *client_first_process(void);
-struct process *client_find_process(pid_t pid);
+struct process *client_find_process(unsigned int pid);
 void client_iterate_processes(int (*func)(struct process *process));
 void client_show_info(void);
+void client_request_info(void);
 int client_wait_op(enum mt_operation op);
 void client_close(void);
 int client_send_msg(struct process *process, enum mt_operation op, void *payload, unsigned int payload_len);

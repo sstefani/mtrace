@@ -130,12 +130,12 @@ static const struct arch_reg arch_reg32 = {
 	.bp = DWARF_X86_EBP,
 };
 
-static int is_signal_frame(struct dwarf_cursor *c)
+static inline int is_signal_frame(struct dwarf_cursor *c)
 {
 	return c->dci.signal_frame;
 }
 
-static int is_plt_entry(struct dwarf_addr_space *as)
+static inline int is_plt_entry(struct dwarf_addr_space *as)
 {
 #if 0
 	struct dwarf_cursor *c = &as->cursor;
@@ -293,13 +293,13 @@ int dwarf_arch_map_reg(struct dwarf_addr_space *as, unsigned int reg)
 {
 #ifdef __x86_64__
 	if (as->is_64bit) {
-		if (reg >= ARRAY_SIZE(dwarf_to_regnum_map64))
+		if (unlikely(reg >= ARRAY_SIZE(dwarf_to_regnum_map64)))
 			return -DWARF_EBADREG;
 
 		return dwarf_to_regnum_map64[reg];
 	}
 #endif
-	if (reg >= ARRAY_SIZE(dwarf_to_regnum_map32))
+	if (unlikely(reg >= ARRAY_SIZE(dwarf_to_regnum_map32)))
 		return -DWARF_EBADREG;
 
 	return dwarf_to_regnum_map32[reg];
@@ -330,16 +330,16 @@ int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
 	struct libref *libref = c->libref;
 
 	for(p = call_op; p->len; ++p) {
-		if (ip - ARCH_ADDR_T(libref->load_addr) >= p->off) {
+		if (likely(ip - ARCH_ADDR_T(libref->load_addr) >= p->off)) {
 			unsigned int i;
 			unsigned char *addr = libref->image_addr + ip - p->off - libref->load_addr;
 
 			for(i = 0; i < call_op[i].len; ++i) {
-				if ((addr[i] & p->mask[i]) != p->op[i])
+				if (unlikely((addr[i] & p->mask[i]) != p->op[i]))
 					break;
 			}
 
-			if (i == p->len)
+			if (unlikely(i == p->len))
 				return 1;
 		}
 	}

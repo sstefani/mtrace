@@ -125,8 +125,8 @@ CONFIG_CLEAN_FILES =
 CONFIG_CLEAN_VPATH_FILES =
 LTLIBRARIES = $(noinst_LTLIBRARIES)
 ___libos_la_DEPENDENCIES = libcpu.la
-am____libos_la_OBJECTS = backtrace.lo ioevent.lo trace.lo os.lo \
-	proc.lo socket.lo thread.lo
+am____libos_la_OBJECTS = ioevent.lo trace.lo os.lo proc.lo socket.lo \
+	thread.lo
 ___libos_la_OBJECTS = $(am____libos_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -368,7 +368,6 @@ noinst_LTLIBRARIES = \
 	../libos.la
 
 ___libos_la_SOURCES = \
-	backtrace.c \
 	ioevent.c \
 	trace.c \
 	os.c \
@@ -441,7 +440,6 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/backtrace.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ioevent.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/os.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/proc.Plo@am__quote@

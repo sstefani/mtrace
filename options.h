@@ -24,6 +24,7 @@
 #ifndef _INC_OPTIONS_H
 #define _INC_OPTIONS_H
 
+#include <stdio.h>
 #include <sys/types.h>
 
 #include "config.h"

@@ -224,7 +224,7 @@ static int parse_config(const char *filename)
 	return 0;
 }
 
-static struct rb_process *pid_rb_search(struct rb_root *root, pid_t pid)
+static struct rb_process *pid_rb_search(struct rb_root *root, unsigned int pid)
 {
 	struct rb_node *node = root->rb_node;
 
@@ -241,7 +241,7 @@ static struct rb_process *pid_rb_search(struct rb_root *root, pid_t pid)
 	return NULL;
 }
 
-static struct process *pid_rb_delete(struct rb_root *root, pid_t pid)
+static struct process *pid_rb_delete(struct rb_root *root, unsigned int pid)
 {
 	struct rb_process *data = pid_rb_search(root, pid);
 	struct process *process;
@@ -289,35 +289,34 @@ static void swap_msg(struct mt_msg *mt_msg)
 {
 	mt_msg->operation = bswap_16(mt_msg->operation);
 	mt_msg->payload_len = bswap_32(mt_msg->payload_len);
-	mt_msg->pid = bswap_32(mt_msg->pid);
-	mt_msg->tid = bswap_32(mt_msg->tid);
+	mt_msg->pid = bswap_16(mt_msg->pid);
 }
 
 static int socket_read_msg(struct mt_msg *mt_msg, void **payload, unsigned int *swap_endian)
 {
+	size_t payload_len;
+
 	if (TEMP_FAILURE_RETRY(safe_read(client_fd, mt_msg, sizeof(*mt_msg))) <= 0)
 		return FALSE;
 
-	if (mt_msg->operation > 0xff) {
+	*swap_endian = mt_msg->operation > 0xff;
+
+	if (*swap_endian)
 		swap_msg(mt_msg);
 
-		*swap_endian = 1;
-	}
-	else
-		*swap_endian = 0;
+	payload_len = mt_msg->payload_len;
 
+	if (payload_len) {
+		*payload = malloc(payload_len);
 
-	if (mt_msg->payload_len) {
-		*payload = malloc(mt_msg->payload_len);
-
-		if (TEMP_FAILURE_RETRY(safe_read(client_fd, *payload, mt_msg->payload_len)) <= 0)
+		if (TEMP_FAILURE_RETRY(safe_read(client_fd, *payload, payload_len)) <= 0)
 			return FALSE;
 	}
 
 	return TRUE;
 }
 
-static pid_t pid_payload(struct process *process, void *payload)
+static unsigned int pid_payload(struct process *process, void *payload)
 {
 	struct mt_pid_payload *mt_pid = payload;
 
@@ -369,6 +368,14 @@ static void client_remove_process(struct process *process)
 		free(process);
 }
 
+
+static void store_timer_info(struct memtrace_timer_info *dst, struct memtrace_timer_info *src)
+{
+	dst->max = bswap_32(src->max);
+	dst->count = bswap_32(src->count);
+	dst->culminate = bswap_64(src->culminate);
+}
+
 static int client_func(void)
 {
 	struct mt_msg mt_msg;
@@ -393,7 +400,27 @@ static int client_func(void)
 			client_close();
 			break;
 		case MT_INFO:
-			memcpy(&mt_info, payload, sizeof(mt_info));
+			if (swap_endian) {
+				struct memtrace_info *p = payload;
+
+				mt_info.version = p->version;
+				mt_info.mode = p->mode;
+				mt_info.do_trace = p->do_trace;
+				mt_info.stack_depth = p->stack_depth;
+				mt_info.verbose = p->verbose;
+
+				store_timer_info(&mt_info.stop_time, &p->stop_time);
+				store_timer_info(&mt_info.sw_bp_time, &p->sw_bp_time);
+				store_timer_info(&mt_info.hw_bp_time, &p->hw_bp_time);
+				store_timer_info(&mt_info.backtrace_time, &p->backtrace_time);
+				store_timer_info(&mt_info.reorder_time, &p->reorder_time);
+				store_timer_info(&mt_info.report_in_time, &p->report_in_time);
+				store_timer_info(&mt_info.report_out_time, &p->report_out_time);
+				store_timer_info(&mt_info.skip_bp_time, &p->skip_bp_time);
+			}
+			else
+				memcpy(&mt_info, payload, sizeof(mt_info));
+
 			break;
 		default:
 			fatal("protocol violation 0x%08x", mt_msg.operation);
@@ -419,7 +446,6 @@ static int client_func(void)
 		switch(mt_msg.operation) {
 		case MT_MALLOC:
 		case MT_REALLOC:
-		case MT_REALLOC_FAILED:
 		case MT_MEMALIGN:
 		case MT_POSIX_MEMALIGN:
 		case MT_ALIGNED_ALLOC:
@@ -430,6 +456,9 @@ static int client_func(void)
 		case MT_NEW:
 		case MT_NEW_ARRAY:
 			process_alloc(process, &mt_msg, payload);
+			break;
+		case MT_REALLOC_DONE:
+			process_realloc_done(process, &mt_msg, payload);
 			break;
 		case MT_REALLOC_ENTER:
 		case MT_FREE:
@@ -487,16 +516,6 @@ static int client_func(void)
 	return mt_msg.operation;
 }
 
-void client_show_info(void)
-{
-	printf("memtrace info:\n");
-	printf(" follow fork: %s\n", mt_info.mode & MEMTRACE_SI_FORK ? "yes" : "no");
-	printf(" follow exec: %s\n", mt_info.mode & MEMTRACE_SI_EXEC ? "yes" : "no");
-	printf(" verbose: %s\n", mt_info.mode & MEMTRACE_SI_VERBOSE ? "yes" : "no");
-	printf(" do trace: %s\n", mt_info.do_trace ? "yes" : "no");
-	printf(" stack depth: %u\n", mt_info.stack_depth);
-}
-
 int client_wait_op(enum mt_operation op)
 {
 	if (options.logfile)
@@ -515,6 +534,52 @@ int client_wait_op(enum mt_operation op)
 	return 0;
 }
 
+static void show_timer_info(const char *str, struct memtrace_timer_info *info)
+{
+	if (!info->count)
+		return;
+
+	printf(" %s\n  count: %-9lu max. us: %-6lu culminate us:%-11llu average ns:%llu\n",
+		str,
+		(unsigned long)info->count,
+		(unsigned long)info->max,
+		(unsigned long long)info->culminate,
+		(unsigned long long)(info->culminate * 1000) / info->count
+	);
+}
+
+void client_show_info(void)
+{
+	printf("memtrace info:\n");
+	printf(" follow fork: %s\n", mt_info.mode & MEMTRACE_SI_FORK ? "yes" : "no");
+	printf(" follow exec: %s\n", mt_info.mode & MEMTRACE_SI_EXEC ? "yes" : "no");
+	printf(" verbose: %s\n", mt_info.mode & MEMTRACE_SI_VERBOSE ? "yes" : "no");
+	printf(" do trace: %s\n", mt_info.do_trace ? "yes" : "no");
+	printf(" stack depth: %u\n", mt_info.stack_depth);
+
+	if (mt_info.verbose > 1) {
+		show_timer_info("threads stop", &mt_info.stop_time);
+		show_timer_info("breakpoint sw", &mt_info.sw_bp_time);
+		show_timer_info("breakpoint hw", &mt_info.hw_bp_time);
+		show_timer_info("backtrace step", &mt_info.backtrace_time);
+		show_timer_info("reorder", &mt_info.reorder_time);
+		show_timer_info("report in", &mt_info.report_in_time);
+		show_timer_info("report out", &mt_info.report_out_time);
+		show_timer_info("skip breakpoint", &mt_info.skip_bp_time);
+	}
+}
+
+void client_request_info(void)
+{
+	if (sock_send_msg(client_fd, MT_INFO, 0, NULL, 0) < 0) {
+		client_broken();
+		return;
+	}
+
+	if (client_wait_op(MT_INFO) < 0)
+		return;
+}
+
 static int client_iterate_process(struct rb_node *node, void *user)
 {
 	struct rb_process *data = (struct rb_process *)node;
@@ -528,7 +593,7 @@ void client_iterate_processes(int (*func)(struct process *process))
 	rb_iterate(&pid_table, client_iterate_process, func);
 }
 
-struct process *client_find_process(pid_t pid)
+struct process *client_find_process(unsigned int pid)
 {
 	struct rb_process *data;
 
@@ -608,6 +673,8 @@ int client_start(void)
 		return -1;
 	}
 
+	ioevent_add_input(client_fd, client_func);
+
 	if (client_wait_op(MT_INFO) == -1) {
 		fprintf(stderr, "could not talk to server\n");
 		return -1;
@@ -624,8 +691,6 @@ int client_start(void)
 	}
 
 	client_show_info();
-
-	ioevent_add_input(client_fd, client_func);
 
 	if (options.interactive) {
 		int old_client_fd = client_fd;
@@ -648,7 +713,7 @@ int client_start(void)
 		readline_exit();
 	}
 	else {
-		if (pipe(pipefd) == -1) {
+		if (pipe2(pipefd, O_NONBLOCK | O_CLOEXEC) == -1) {
 			fprintf(stderr, "could not create pipe (%s)", strerror(errno));
 			return -1;
 		}
@@ -713,7 +778,7 @@ int client_send_msg(struct process *process, enum mt_operation op, void *payload
 	if (options.logfile)
 		return -1;
 
-	ret = sock_send_msg(client_fd, process->val16(op), process->pid, 0, payload, payload_len);
+	ret = sock_send_msg(client_fd, process->val16(op), process->pid, payload, payload_len);
 
  	if (ret < 0)
 		client_broken();

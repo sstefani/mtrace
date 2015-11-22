@@ -70,7 +70,7 @@ unsigned long find_block(unsigned long (*get_val)(void *data, unsigned long inde
 	first = 0;
 	last = n;
 
-	if (addr < get_val(arr,first))
+	if (addr < get_val(arr, first))
 		return n;
 
 	if (addr > get_val(arr, last - 1))
@@ -78,18 +78,18 @@ unsigned long find_block(unsigned long (*get_val)(void *data, unsigned long inde
 
 	do {
 		middle = (first + last) >> 1;
+
 		val = get_val(arr, middle);
 
 		if (addr < val)
 			last = middle;
-		else if (addr > val)
+		else
+		if (addr > val)
 			first = middle + 1;
 		else
 			return middle;
-
 	} while (first < last);
 
 	return n;
 }
-
 

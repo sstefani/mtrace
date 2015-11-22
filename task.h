@@ -25,6 +25,7 @@
 
 #include "config.h"
 
+#include <time.h>
 #include <sys/time.h>
 
 #include "forward.h"
@@ -38,35 +39,21 @@
 #include "report.h"
 
 struct task {
-	/* red/black tree node for fast pid -> struct task */
-	struct rb_node pid_node;
-
-	/* process id */
-	pid_t pid;
-
-	/* points to the leader thread of the POSIX.1 task */
-	struct task *leader;
-
 	/* current pendig event */
 	struct event event;
 
-	unsigned int stopped:1;
-	unsigned int traced:1;
-	unsigned int was_stopped:1;
 	unsigned int is_64bit:1;
+	unsigned int traced:1;
 	unsigned int attached:1;
 	unsigned int deleted:1;
 	unsigned int about_exit:1;
+	unsigned int was_stopped:1;
+	unsigned int stopped:1;
 
 	struct breakpoint *breakpoint;
 	struct library_symbol *libsym;
 	struct context context;		/* process context (registers, stack) */
 	struct context saved_context;	/* context for fetch_param() */
-
-	/* os specific task data */
-#ifdef OS_HAVE_PROCESS_DATA
-	struct os_task_data os;
-#endif
 
 	/* arch specific task data */
 #ifdef TASK_HAVE_PROCESS_DATA
@@ -76,11 +63,19 @@ struct task {
 	/* pointer to a breakpoint which was interrupt by a signal during skip */
 	struct breakpoint *skip_bp;
 
+#if HW_BREAKPOINTS > 0
+	/* array of active hw breakpoints */
+	struct breakpoint *hw_bp[HW_BREAKPOINTS];
+#endif
+
+	/* process id */
+	pid_t pid;
+
+	/* points to the leader thread */
+	struct task *leader;
+
 	/* set in leader: number of stopped threads including the leader */
 	unsigned int threads_stopped;
-
-	unsigned long num_hw_bp;
-	unsigned long num_sw_bp;
 
 	/* set in leader: dictionary of breakpoints */
 	struct dict *breakpoints;
@@ -91,6 +86,9 @@ struct task {
 	/* linked list of libraries, the first entry is the executable itself */
 	struct list_head libraries_list;
 
+	/* red black tree of libraries */
+	struct rb_root libraries_tree;
+
 	/* Thread chaining to leader */
 	struct list_head task_list;
 
@@ -100,6 +98,9 @@ struct task {
 	/* struct task chaining. */
 	struct list_head leader_list;
 
+	/* halt time for debugging purpose */
+	struct timespec halt_time;
+
 #if HW_BREAKPOINTS > 1
 	/* set in leader: list of hw breakpoints */
 	struct list_head hw_bp_list;
@@ -108,9 +109,9 @@ struct task {
 	unsigned long hw_bp_num;
 #endif
 
-#if HW_BREAKPOINTS > 0
-	/* array of active hw breakpoints */
-	struct breakpoint *hw_bp[HW_BREAKPOINTS];
+	/* os specific task data */
+#ifdef OS_HAVE_PROCESS_DATA
+	struct os_task_data os;
 #endif
 };
 
@@ -121,8 +122,6 @@ struct task *task_new(pid_t pid);
 struct task *task_create(const char *command, char **argv);
 
 void open_pid(pid_t pid);
-
-struct task *pid2task(pid_t pid);
 
 /* Clone the contents of a task */
 int task_clone(struct task *task, struct task *newtask);
@@ -155,6 +154,38 @@ int task_list_empty(void);
 static inline int task_is_64bit(struct task *task)
 {
 	return task->is_64bit;
+}
+
+struct pid_hash {
+	unsigned int	num;
+	unsigned int	size;
+	struct task *	tasks[0];
+};
+
+#define PID_HASH(pid)	((pid) % ARRAY_SIZE(pid_hash))
+#define PID_HASH_SIZE	256
+
+extern struct pid_hash *pid_hash[PID_HASH_SIZE];
+
+void init_pid_hash(void);
+
+static inline struct task *pid2task(pid_t pid)
+{
+	struct pid_hash *entry = pid_hash[PID_HASH(pid)];
+	struct task **p = entry->tasks;
+	unsigned int n = entry->num;
+
+	while(n) {
+		struct task *task = *p;
+
+		if (likely(task->pid == pid))
+			return task;
+
+		p++;
+		n--;
+	}
+
+	return NULL;
 }
 
 #endif

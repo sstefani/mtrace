@@ -25,7 +25,6 @@ noinst_LTLIBRARIES = \
 	../libos.la
 
 ___libos_la_SOURCES = \
-	backtrace.c \
 	ioevent.c \
 	trace.c \
 	os.c \

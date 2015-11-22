@@ -48,7 +48,7 @@
 
 static LIST_HEAD(list_of_leaders);
 
-static struct rb_root pid_tree = RB_ROOT;
+struct pid_hash *pid_hash[PID_HASH_SIZE];
 
 #ifndef OS_HAVE_PROCESS_DATA
 static inline int os_task_init(struct task *task)
@@ -82,45 +82,42 @@ static inline int arch_task_clone(struct task *retp, struct task *task)
 }
 #endif
 
-struct task *pid2task(pid_t pid)
+static inline void delete_pid(struct task *task)
 {
-	struct rb_node **new = &(pid_tree.rb_node);
+	struct pid_hash *entry = pid_hash[PID_HASH(task->pid)];
+	unsigned int i;
 
-	/* Figure out where to put new node */
-	while (*new) {
-		struct task *this = container_of(*new, struct task, pid_node);
+	for(i = 0; i < entry->num; ++i) {
+		struct task **p = &entry->tasks[i];
 
-		if (this->pid == pid)
-			return this;
-
-		if (this->pid < pid)
-			new = &((*new)->rb_left);
-		else
-			new = &((*new)->rb_right);
+		if ((*p)->pid == task->pid) {
+			entry->num--;
+			memmove(p, p + 1, (entry->num - i) * sizeof(entry->tasks[0]));
+			break;
+		}
 	}
-
-	return NULL;
 }
 
-static void insert_pid(struct task *task)
+static inline void insert_pid(struct task *task)
 {
-	struct rb_node **new = &(pid_tree.rb_node), *parent = NULL;
+	struct pid_hash *entry = pid_hash[PID_HASH(task->pid)];
 
-	/* Figure out where to put new node */
-	while (*new) {
-		struct task *this = container_of(*new, struct task, pid_node);
+	if (!entry->size) {
+		entry = malloc(sizeof(*entry) + 8 * sizeof(entry->tasks[0]));
+		entry->num = 0;
+		entry->size = 8;
 
-		parent = *new;
+		pid_hash[PID_HASH(task->pid)] = entry;
+	}
+	else
+	if (entry->size == entry->num) {
+		entry->size += 8;
+		entry = realloc(entry, sizeof(*entry) + entry->size * sizeof(entry->tasks[0]));
 
-		if (this->pid < task->pid)
-			new = &((*new)->rb_left);
-		else
-			new = &((*new)->rb_right);
+		pid_hash[PID_HASH(task->pid)] = entry;
 	}
 
-	/* Add new node and rebalance tree. */
-	rb_link_node(&task->pid_node, parent, new);
-	rb_insert_color(&task->pid_node, &pid_tree);
+	entry->tasks[entry->num++] = task;
 }
 
 static int leader_setup(struct task *leader)
@@ -184,7 +181,7 @@ static int leader_cleanup(struct task *leader)
 
 	if (--leader->threads)
 		return 0;
-	
+
 	library_clear_all(leader);
 	breakpoint_clear_all(leader);
 	backtrace_destroy(leader);
@@ -214,7 +211,7 @@ static void task_destroy(struct task *task)
 	arch_task_destroy(task);
 	os_task_destroy(task);
 	detach_task(task);
-	rb_erase(&task->pid_node, &pid_tree);
+	delete_pid(task);
 
 	if (leader != task) {
 		list_del(&task->task_list);
@@ -516,7 +513,7 @@ void open_pid(pid_t pid)
 		task->is_64bit = leader->is_64bit;
 	};
 
-	if (options.verbose)
+	if (unlikely(options.verbose))
 		each_task(leader, &show_attached, NULL);
 
 	return;
@@ -575,9 +572,30 @@ int task_list_empty(void)
 
 void each_pid(void (*cb)(struct task *task))
 {
-	struct task *task, *next;
+	unsigned int i;
 
-	rbtree_postorder_for_each_entry_safe(task, next, &pid_tree, pid_node)
-		(*cb)(task);
+	for(i = 0; i < ARRAY_SIZE(pid_hash); ++i) {
+		struct pid_hash *entry = pid_hash[i];
+		unsigned int n = entry->num;
+
+		if (n) {
+			struct task **p = alloca(n * sizeof(*p));
+
+			memcpy(p, entry->tasks, n * sizeof(*p));
+
+			do {
+				(*cb)(*p++);
+			} while(--n);
+		}
+	}
+}
+
+void init_pid_hash(void)
+{
+	static const struct pid_hash preset = { .size = 0, .num = 0 };
+	unsigned int i;
+
+	for(i = 0; i < ARRAY_SIZE(pid_hash); ++i)
+		pid_hash[i] = (void *)&preset;
 }
 

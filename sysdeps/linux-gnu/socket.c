@@ -32,6 +32,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <netinet/tcp.h>
 
 #include "common.h"
 #include "socket.h"
@@ -64,7 +66,7 @@ ssize_t safe_read(int fd, void *dest, size_t n)
 	return off + n;
 }
 
-int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, uint32_t tid, const void *payload, unsigned int payload_len)
+int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, const void *payload, unsigned int payload_len)
 {
 	struct mt_msg mt_msg;
 	struct iovec	io[2];
@@ -96,12 +98,10 @@ int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, uint32_t tid, cons
 
 	if (op > 0xff) {
 		mt_msg.pid = bswap_32(pid);
-		mt_msg.tid = bswap_32(tid);
 		mt_msg.payload_len = bswap_32(payload_len);
 	}
 	else {
 		mt_msg.pid = pid;
-		mt_msg.tid = tid;
 		mt_msg.payload_len = payload_len;
 	}
 
@@ -215,6 +215,8 @@ int bind_to(const char *node, const char *service)
 	}
 	else {
 		struct addrinfo *rp;
+		int size = 10 * 1024 * 1024;
+		static const int one = 1;
 
 		for (rp = sock_addr(node, service, AI_PASSIVE); rp != NULL; rp = rp->ai_next) {
 			sfd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
@@ -232,6 +234,12 @@ int bind_to(const char *node, const char *service)
 
 		if (!rp)
 			return -1;
+
+		if (setsockopt(sfd, SOL_TCP, TCP_NODELAY, &one, sizeof(one)) == -1)
+			fatal("TCP_NODELAY: %s\n", strerror(errno));
+
+		if (setsockopt(sfd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size)) == -1)
+			fatal("SO_SNDBUF: %s\n", strerror(errno));
 	}
 
 	return sfd;

@@ -23,7 +23,18 @@
 #ifndef _INC_MAIN_H
 #define _INC_MAIN_H
 
+#include "timer.h"
+
 void mtrace_request_exit(void);
+
+struct mt_timer stop_time;
+struct mt_timer sw_bp_time;
+struct mt_timer hw_bp_time;
+struct mt_timer backtrace_time;
+struct mt_timer reorder_time;
+struct mt_timer report_in_time;
+struct mt_timer report_out_time;
+struct mt_timer skip_bp_time;
 
 #endif
 

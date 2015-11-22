@@ -64,6 +64,7 @@ struct stack {
 struct rb_stack {
 	struct rb_node node;
 	struct stack *stack;
+	unsigned long refcnt;
 	unsigned long leaks;
 	unsigned long long n_allocations;
 	unsigned long long total_allocations;
@@ -81,6 +82,16 @@ struct map {
 	char *filename;
 	struct bin_file *binfile;
 	unsigned int ignore:1;
+};
+
+struct realloc_entry {
+	struct list_head list;
+	unsigned int pid;
+	unsigned long addr;
+	unsigned long size;
+	unsigned long flags;
+	struct rb_stack *stack;
+	enum mt_operation operation;
 };
 
 struct regex_list {
@@ -120,8 +131,8 @@ static const char *str_operation(enum mt_operation operation)
 		return "realloc enter";
 	case MT_REALLOC:
 		return "realloc";
-	case MT_REALLOC_FAILED:
-		return "realloc failed";
+	case MT_REALLOC_DONE:
+		return "realloc done";
 	case MT_MEMALIGN:
 		return "memalign";
 	case MT_POSIX_MEMALIGN:
@@ -389,9 +400,22 @@ static void stack_resolv(struct process *process, struct stack *stack)
 	}
 }
 
-static void stack_put(struct stack *stack)
+static struct rb_stack *stack_get(struct rb_stack *stack_node)
 {
-	if (--stack->refcnt == 0) {
+	++stack_node->refcnt;
+	++stack_node->stack->refcnt;
+
+	return stack_node;
+}
+
+static void stack_put(struct rb_stack *stack_node)
+{
+	struct stack *stack = stack_node->stack;
+
+	if (!--stack_node->refcnt)
+		free(stack_node);
+
+	if (!--stack->refcnt) {
 		if (stack->syms) {
 			unsigned int i;
 
@@ -431,6 +455,7 @@ static struct rb_stack *stack_clone(struct process *process, struct rb_stack *st
 	if (!this)
 		return NULL;
 
+	this->refcnt = 0;
 	this->leaks = stack_node->leaks;
 	this->n_allocations = stack_node->n_allocations;
 	this->n_mismatched = stack_node->n_mismatched;
@@ -439,7 +464,8 @@ static struct rb_stack *stack_clone(struct process *process, struct rb_stack *st
 	this->bytes_leaked = stack_node->bytes_leaked;
 	this->tsc = stack_node->tsc;
 	this->stack = stack_node->stack;
-	this->stack->refcnt++;
+
+	stack_get(this);
 
 	/* Add new node and rebalance tree. */
 	rb_link_node(&this->node, parent, new);
@@ -450,7 +476,7 @@ static struct rb_stack *stack_clone(struct process *process, struct rb_stack *st
 	return this;
 }
 
-static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addrs, uint32_t stack_size, enum mt_operation operation)
+static struct rb_stack *stack_add(struct process *process, unsigned int pid, void *addrs, uint32_t stack_size, enum mt_operation operation)
 {
 	struct rb_root *root = &process->stack_table;
 	struct rb_node **new = &(root->rb_node), *parent = NULL;
@@ -487,7 +513,7 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 		return NULL;
 	}
 
-	stack->refcnt = 1;
+	stack->refcnt = 0;
 	stack->addrs = malloc(stack_size);
 	stack->size = stack_size;
 	stack->entries = stack_size / process->ptr_size;
@@ -497,6 +523,7 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 
 	memcpy(stack->addrs, addrs, stack_size);
 
+	this->refcnt = 0;
 	this->n_allocations = 0;
 	this->n_mismatched = 0;
 	this->total_allocations = 0;
@@ -504,6 +531,8 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 	this->leaks = 0;
 	this->bytes_leaked = 0;
 	this->stack = stack;
+
+	stack_get(this);
 
 	stack_resolv(process, stack);
 
@@ -516,7 +545,7 @@ static struct rb_stack *stack_add(struct process *process, pid_t pid, void *addr
 	return this;
 }
 
-static void process_dump_stack(struct process *process, struct rb_stack *this, int lflag)
+static void dump_stack(struct rb_stack *this, int lflag, unsigned long (*get_ulong)(void *), uint8_t ptr_size)
 {
 	uint32_t i;
 	void *addrs;
@@ -526,7 +555,7 @@ static void process_dump_stack(struct process *process, struct rb_stack *this, i
 		return;
 
 	for(addrs = stack->addrs, i = 0; i < stack->entries; ++i) {
-		if (dump_printf("  [0x%lx]", process->get_ulong(addrs)))
+		if (dump_printf("  [0x%lx]", get_ulong(addrs)))
 			return;
 
 		if (!stack->syms[i]) {
@@ -548,7 +577,7 @@ static void process_dump_stack(struct process *process, struct rb_stack *this, i
 		if (dump_printf("\n") == -1)
 			return;
 
-		addrs += process->ptr_size;
+		addrs += ptr_size;
 	}
 }
 
@@ -625,6 +654,8 @@ static void process_rb_delete_block(struct process *process, struct rb_block *bl
 
 	block->stack_node->n_allocations--;
 
+	stack_put(block->stack_node);
+
 	free(block);
 }
 
@@ -645,7 +676,7 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 		parent = *new;
 
 		if (addr <= this->addr && addr + n > this->addr) {
-			if (options.kill || options.verbose > 2) {
+			if (unlikely(options.kill || options.verbose > 2)) {
 				process_dump_collision(process, this, addr, size, operation);
 
 				if (options.kill)
@@ -671,7 +702,8 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 	block->stack_node->n_allocations++;
 	block->stack_node->total_allocations++;
 	block->stack_node->bytes_used += size;
-	block->stack_node->stack->refcnt++;
+
+	stack_get(block->stack_node);
 
 	/* Add new node and rebalance tree. */
 	rb_link_node(&block->node, parent, new);
@@ -705,7 +737,7 @@ static struct map *_process_add_map(struct process *process, unsigned long addr,
 
 	list_add_tail(&map->list, &process->map_list);
 
-	/* fixit: it is possible that stack_add() can produce false matches */
+	/* fixit: it is now possible that stack_add() produce false matches */
 
 	return map;
 }
@@ -774,26 +806,38 @@ static void process_init(struct process *process, unsigned int swap_endian, unsi
 	process->filename = NULL;
 }
 
+static void realloc_del(struct realloc_entry *re)
+{
+	stack_put(re->stack);
+	list_del(&re->list);
+	free(re);
+}
+
 void process_reset_allocations(struct process *process)
 {
 	struct rb_block *rbb, *rbb_next;
-	struct rb_stack *rbs, *rbs_next;
+	struct list_head *it, *next;
 
 	rbtree_postorder_for_each_entry_safe(rbb, rbb_next, &process->block_table, node) {
-		process->n_allocations--;
+		--process->n_allocations;
+		--rbb->stack_node->n_allocations;
+		stack_put(rbb->stack_node);
 		free(rbb);
 	}
+
+	if (process->n_allocations)
+		fatal("invalid allocation count!\n");
+
 	process->block_table = RB_ROOT;
 
-	rbtree_postorder_for_each_entry_safe(rbs, rbs_next, &process->stack_table, node) {
-		stack_put(rbs->stack);
-		free(rbs);
+	list_for_each_safe(it, next, &process->realloc_list) {
+		struct realloc_entry *re = container_of(it, struct realloc_entry, list);
+
+		realloc_del(re);
 	}
-	process->stack_table = RB_ROOT;
 
 	process->total_allocations = 0;
 	process->bytes_used = 0;
-	process->stack_trees = 0;
 	process->leaks = 0;
 	process->leaked_bytes = 0;
 	process->tsc = 0;
@@ -801,9 +845,23 @@ void process_reset_allocations(struct process *process)
 
 void process_reset(struct process *process)
 {
+	struct rb_stack *rbs, *rbs_next;
 	struct list_head *it, *next;
 
 	process_reset_allocations(process);
+
+	rbtree_postorder_for_each_entry_safe(rbs, rbs_next, &process->stack_table, node) {
+		if (rbs->refcnt != 1)
+			fatal("unexpected stack tree ref count!\n");
+
+		stack_put(rbs);
+		--process->stack_trees;
+	}
+
+	if (process->stack_trees)
+		fatal("invalid stack tree count!\n");
+
+	process->stack_table = RB_ROOT;
 
 	list_for_each_safe(it, next, &process->map_list) {
 		struct map *map = container_of(it, struct map, list);
@@ -944,29 +1002,36 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 	struct rb_stack **arr;
 	unsigned long i;
 	void *data;
+	unsigned long stack_trees = process->stack_trees;
+	unsigned long (*get_ulong)(void *) = process->get_ulong;
+	uint8_t ptr_size = process->ptr_size;
 
 	if (dump_init(file) == -1)
 		return;
 
+	arr = malloc(sizeof(struct rb_stack *) * stack_trees);
+	if (!arr)
+		return;
+
+	for(i = 0, data = rb_first(&process->stack_table); data; data = rb_next(data)) {
+		struct rb_stack *stack_node = container_of(data, struct rb_stack, node);
+
+		arr[i++] = stack_get(stack_node);
+	}
+
+	if (stack_trees != i)
+		fatal("invalid stack tree count!\n");
+
 	dump_printf("Process dump %d %s\n", process->pid, process->filename ? process->filename : "<unknown>");
 
-	if (!process->stack_trees)
+	if (!stack_trees)
 		goto skip;
 
-	arr = malloc(sizeof(struct rb_stack *) * process->stack_trees);
-	if (!arr)
-		goto skip;
-
-	for(i = 0, data = rb_first(&process->stack_table); data; data = rb_next(data))
-		arr[i++] = container_of(data, struct rb_stack, node);
-
-	assert(i == process->stack_trees);
-
-	qsort(arr, process->stack_trees, sizeof(struct rb_stack *), (void *)sortby);
+	qsort(arr, stack_trees, sizeof(struct rb_stack *), (void *)sortby);
 
 	if (file == stderr) {
-		unsigned long n = process->stack_trees / 2;
-		unsigned long l = process->stack_trees - 1;
+		unsigned long n = stack_trees / 2;
+		unsigned long l = stack_trees - 1;
 
 		for(i = 0; i < n; ++i) {
 			struct rb_stack *tmp = arr[i];
@@ -976,7 +1041,7 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 		}
 	}
 
-	for(i = 0; i < process->stack_trees; ++i) {
+	for(i = 0; i < stack_trees; ++i) {
 		struct rb_stack *stack = arr[i];
 
 		if (!skipfunc(stack)) {
@@ -1011,11 +1076,15 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 			if (dump_printf(" tsc: %llu\n", stack->tsc) == -1)
 				break;
 
-			process_dump_stack(process, stack, lflag);
+			dump_stack(stack, lflag, get_ulong, ptr_size);
 		}
 	}
-	free(arr);
+
+	for(i = 0; i < stack_trees; ++i)
+		stack_put(arr[i]);
+
 skip:
+	free(arr);
 	dump_flush();
 	return;
 }
@@ -1112,7 +1181,7 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	for(i = 0; i < n; ++i) {
 		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(leaks));
 
-		if (!(block->flags & BLOCK_LEAKED)) {
+		if (block && !(block->flags & BLOCK_LEAKED)) {
 			block->flags |= BLOCK_LEAKED;
 
 			block->stack_node->leaks++;
@@ -1189,7 +1258,7 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			break;
 
 		if (!is_mmap(block->stack_node->stack->operation)) {
-			if (options.kill || options.verbose > 2) {
+			if (unlikely(options.kill || options.verbose > 2)) {
 				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
 				if (options.kill)
@@ -1255,7 +1324,6 @@ static int is_sane(struct rb_block *block, enum mt_operation op)
 	switch(block->stack_node->stack->operation) {
 	case MT_MALLOC:
 	case MT_REALLOC:
-	case MT_REALLOC_FAILED:
 	case MT_MEMALIGN:
 	case MT_POSIX_MEMALIGN:
 	case MT_ALIGNED_ALLOC:
@@ -1285,6 +1353,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	struct rb_block *block = NULL;
 	uint32_t payload_len = mt_msg->payload_len;
 	unsigned long ptr;
+	unsigned long pid;
 	void *stack_data;
 	unsigned long stack_size;
 
@@ -1295,6 +1364,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 		struct mt_alloc_payload_64 *mt_alloc = payload;
 
 		ptr = process->get_ulong(&mt_alloc->ptr);
+		pid = process->get_ulong(&mt_alloc->size);
 
 		stack_data = payload + sizeof(*mt_alloc);
 		stack_size = (payload_len - sizeof(*mt_alloc));
@@ -1303,6 +1373,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 		struct mt_alloc_payload_32 *mt_alloc = payload;
 
 		ptr = process->get_ulong(&mt_alloc->ptr);
+		pid = process->get_ulong(&mt_alloc->size);
 
 		stack_data = payload + sizeof(*mt_alloc);
 		stack_size = (payload_len - sizeof(*mt_alloc));
@@ -1313,7 +1384,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (is_mmap(block->stack_node->stack->operation)) {
-			if (options.kill || options.verbose > 2) {
+			if (unlikely(options.kill || options.verbose > 2)) {
 				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
 				if (options.kill)
@@ -1328,18 +1399,73 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 			stack->tsc = process->tsc++;
 		}
 
+		if (mt_msg->operation == MT_REALLOC_ENTER) {
+			struct realloc_entry *re = malloc(sizeof(*re));
+
+			re->addr = block->addr;
+			re->size = block->size;
+			re->flags = block->flags;
+			re->operation = block->stack_node->stack->operation;
+			re->pid = pid;
+			re->stack = block->stack_node;
+
+			stack_get(re->stack);
+
+			list_add_tail(&re->list, &process->realloc_list);
+		}
+
 		process_rb_delete_block(process, block);
 	}
 	else {
 		if (!process->attached) {
-			if (options.kill || options.verbose > 2) {
-				fprintf(stderr, ">>> block %#lx not found pid:%d tid:%d\n", ptr, process->pid, mt_msg->tid);
+			if (unlikely(options.kill || options.verbose > 2)) {
+				fprintf(stderr, ">>> block %#lx not found pid:%d\n", ptr, process->pid);
 
 				if (options.kill)
 					abort();
 			}
 		}
 	}
+}
+
+void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *payload)
+{
+	unsigned long ptr;
+	unsigned long pid;
+	struct list_head *it;
+
+	if (!process->tracing)
+		return;
+
+	if (process->is_64bit) {
+		struct mt_alloc_payload_64 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+		pid = process->get_ulong(&mt_alloc->size);
+	}
+	else {
+		struct mt_alloc_payload_32 *mt_alloc = payload;
+
+		ptr = process->get_ulong(&mt_alloc->ptr);
+		pid = process->get_ulong(&mt_alloc->size);
+	}
+
+	debug(DEBUG_FUNCTION, "ptr=%#lx ", ptr);
+
+	list_for_each(it, &process->realloc_list) {
+		struct realloc_entry *re = container_of(it, struct realloc_entry, list);
+
+		if (re->pid == pid) {
+			if (!ptr)
+				process_rb_insert_block(process, re->addr, re->size, re->stack, re->flags, re->operation);
+
+			realloc_del(re);
+
+			break;
+		}
+	}
+
+	return;
 }
 
 void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload)
@@ -1379,7 +1505,7 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	block = process_rb_search_range(&process->block_table, ptr, size);
 	if (block) {
-		if (options.kill || options.verbose > 2) {
+		if (unlikely(options.kill || options.verbose > 2)) {
 			process_dump_collision(process, block, ptr, size, mt_msg->operation);
 
 			if (options.kill)
@@ -1405,7 +1531,7 @@ void process_reinit(struct process *process, unsigned int swap_endian, unsigned 
 	process_init(process, swap_endian, is_64bit, attached);
 }
 
-struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tracing)
+struct process *process_new(unsigned int pid, unsigned int swap_endian, unsigned int tracing)
 {
 	struct process *process = malloc(sizeof(*process));
 
@@ -1416,6 +1542,7 @@ struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tr
 	process->block_table = RB_ROOT;
 	process->stack_table = RB_ROOT;
 	INIT_LIST_HEAD(&process->map_list);
+	INIT_LIST_HEAD(&process->realloc_list);
 
 	process_init(process, swap_endian, 0, 0);
 
@@ -1537,7 +1664,6 @@ void process_status(struct process *process)
 		" number of open allocations: %lu\n"
 		" total number of allocations: %lu\n"
 		" average allocation: %f bytes\n"
-		" number of allocators: %lu\n"
 		" number of leaks: %lu\n"
 		" number of leaked bytes: %llu\n"
 		" status: %s\n",
@@ -1546,7 +1672,6 @@ void process_status(struct process *process)
 		process->n_allocations,
 		process->total_allocations,
 		process->n_allocations ? (double)process->bytes_used / process->n_allocations : 0.0,
-		process->stack_trees,
 		process->leaks,
 		process->leaked_bytes,
 		process_get_status(process)

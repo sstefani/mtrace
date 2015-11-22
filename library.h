@@ -30,6 +30,7 @@
 #include "sysdep.h"
 #include "list.h"
 #include "mtelf.h"
+#include "rbtree.h"
 
 #define LIBTYPE_LIB	0
 #define LIBTYPE_MAIN	1
@@ -89,6 +90,9 @@ struct library {
 	/* link list of libraries associated with the task */
 	struct list_head list;
 
+	/* red/black tree of libraries associated with the task */
+	struct rb_node rb_node;
+
 	/* pointer to the real library refernce */
 	struct libref *libref;
 };
@@ -131,6 +135,9 @@ void libref_delete(struct libref *libref);
 
 /* Set library filename.  Frees the old name if necessary.  */
 void libref_set_filename(struct libref *libref, const char *new_name);
+
+/* find library by address */
+struct libref *addr2libref(struct task *leader, arch_addr_t addr);
 
 #endif
 

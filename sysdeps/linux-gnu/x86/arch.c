@@ -43,7 +43,7 @@ int get_hw_bp_state(struct task *task, unsigned int n)
 
 	errno = 0;
 	ret = ptrace(PTRACE_PEEKUSER, task->pid, offsetof(struct user, u_debugreg[6]), 0);
-	if (ret == -1 && errno) {
+	if (unlikely(ret == -1 && errno)) {
 		if (errno != ESRCH)
 			fprintf(stderr, "PTRACE_PEEKUSER u_debugreg[6] pid=%d %s\n", task->pid, strerror(errno));
 
@@ -59,7 +59,7 @@ static int _apply_hw_bp(struct task *task, uint32_t dr7)
 	task->arch.dr7 = dr7;
 
 	ret = ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct user, u_debugreg[7]), task->arch.dr7);
-	if (ret) {
+	if (unlikely(ret)) {
 		if (errno != ESRCH) {
 			fprintf(stderr, "PTRACE_POKEUSER u_debugreg[7] pid=%d %s\n", task->pid, strerror(errno));
 			return -1;
@@ -89,7 +89,7 @@ static int set_breakpoint_addr(struct task *task, arch_addr_t addr, unsigned int
 		return 0;
 
 	ret = ptrace(PTRACE_POKEUSER, task->pid, offsetof(struct user, u_debugreg[n]), addr);
-	if (ret) {
+	if (unlikely(ret)) {
 		if (errno != ESRCH) {
 			fprintf(stderr, "PTRACE_POKEUSER u_debugreg[%d] pid=%d %s\n", n, task->pid, strerror(errno));
 			return -1;
@@ -167,7 +167,7 @@ int set_hw_bp(struct task *task, unsigned int n, arch_addr_t addr)
 	if (reset_hw_bp(task, n) == -1)
 		return -1;
 #endif
-	if (set_breakpoint_addr(task, addr, n) == -1)
+	if (unlikely(set_breakpoint_addr(task, addr, n) == -1))
 		return -1;
 
 	return set_breakpoint_mode(task,

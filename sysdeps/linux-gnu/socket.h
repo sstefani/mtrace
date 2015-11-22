@@ -35,7 +35,7 @@
 ssize_t safe_read(int fd, void *dest, size_t n);
 int connect_to(const char *node, const char *service);
 int bind_to(const char *node, const char *service);
-int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, uint32_t tid, const void *payload, unsigned int payload_len);
+int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, const void *payload, unsigned int payload_len);
 int create_socket_pair(int sv[2]);
 int is_named(const char *node);
 

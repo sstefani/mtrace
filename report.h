@@ -33,9 +33,9 @@ struct function {
 	/* level for aliased symbol */
 	unsigned int level;
 	/* report when function is entered */
-	int (*report_in)(struct task *task, struct library_symbol *libsym);
+	void (*report_in)(struct task *task, struct library_symbol *libsym);
 	/* report when function is exited */
-	int (*report_out)(struct task *task, struct library_symbol *libsym);
+	void (*report_out)(struct task *task, struct library_symbol *libsym);
 };
 
 const struct function *flist_matches_symbol(const char *sym_name);

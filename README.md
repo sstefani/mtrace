@@ -1,7 +1,7 @@
 ﻿Mtrace
 ------
 
-mtrace-ng is an interactive dynamic memory tracer, debugger and statistical analyses tool for C and C++, which intercepts, records and reports all kinds of dynamic memory allocations.
+mtrace-ng is a dynamic memory tracer, debugger and statistical analyses tool for C and C++, which intercepts, records and reports all kinds of dynamic memory allocations.
 
 It supports the developer to get statistics about the memory usage and finding memory leaks in an arbitrate program.  Since mtrace-ng is using breakpoints for tracing the program, there is no need of modification of the source code nor any recompilation.
 

@@ -37,6 +37,7 @@
 
 static int dump_term;
 static FILE *dump_outfile;
+static int dump_char;
 
 static int rows, cols;
 static int row, col;
@@ -99,12 +100,18 @@ int dump_init(FILE *file)
 	return 0;
 }
 
+static int dump_getchar(void)
+{
+	dump_char = getchar();
+	return 0;
+}
+
 static int dump_pager(void)
 {
 	struct termios termios;
 	struct termios termios_old;
-	int c;
 	int len;
+	ioevent_func oldfunc;
 	
 	len = printf("Press <space> for next line, q for quit and any other for next page\r") - 1;
 	fflush(stdout);
@@ -114,14 +121,20 @@ static int dump_pager(void)
 	cfmakeraw(&termios);
 
 	tcsetattr(0, TCSADRAIN, &termios);
-	ioevent_wait_input(0, -1);
-	c = getchar();
+	oldfunc = ioevent_set_input_func(0, dump_getchar);
+
+	dump_char = 0;
+	do {
+		ioevent_watch(-1);
+	} while(!dump_char);
+
+	ioevent_set_input_func(0, oldfunc);
 	tcsetattr(0, TCSANOW, &termios_old);
 
 	printf("%*s\r", len, "");
 	fflush(stdout);
 
-	switch(c) {
+	switch(dump_char) {
 	case '\03':
 	case 'q':
 		if (col)

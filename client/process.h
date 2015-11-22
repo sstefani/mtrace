@@ -53,7 +53,7 @@ struct lib {
 
 struct process {
 	enum process_status status;
-	pid_t pid;
+	unsigned int pid;
 	char *filename;
 	unsigned long bytes_used;
 	unsigned long n_allocations;
@@ -64,6 +64,7 @@ struct process {
 	struct rb_root block_table;
 	struct rb_root stack_table;
 	struct list_head map_list;
+	struct list_head realloc_list;
 	unsigned long long tsc;
 	unsigned int tracing:1;
 	unsigned int swap_endian:1;
@@ -77,7 +78,7 @@ struct process {
 	uint8_t ptr_size;
 };
 
-struct process *process_new(pid_t pid, unsigned int swap_endian, unsigned int tracing);
+struct process *process_new(unsigned int pid, unsigned int swap_endian, unsigned int tracing);
 void process_reset(struct process *process);
 void process_reset_allocations(struct process *process);
 void process_reinit(struct process *process, unsigned int swap_endian, unsigned int is_64bit, unsigned int attached);
@@ -98,6 +99,7 @@ void process_munmap(struct process *process, struct mt_msg *msg, void *payload);
 void process_add_map(struct process *process, void *payload, uint32_t payload_len);
 void process_del_map(struct process *process, void *payload, uint32_t payload_len);
 void process_detach(struct process *process);
+void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *payload);
 
 unsigned long process_leaks_scan(struct process *process, int mode);
 

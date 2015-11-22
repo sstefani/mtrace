@@ -40,6 +40,7 @@
 #include "report.h"
 #include "task.h"
 #include "library.h"
+#include "main.h"
 
 int skip_breakpoint(struct task *task, struct breakpoint *bp)
 {
@@ -50,12 +51,20 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 
 	if (bp->enabled && !bp->hw) {
 		int ret = 0;
+		struct timespec start;
+
+		if (unlikely(options.verbose > 1))
+			start_time(&start);
 
 		breakpoint_disable(task, bp);
 		ret = do_singlestep(task);
 		breakpoint_enable(task, bp);
-		if (ret) {
-			if (ret == 1) {
+
+		if (unlikely(options.verbose > 1))
+			set_timer(&start, &skip_bp_time);
+
+		if (unlikely(ret)) {
+			if (unlikely(ret == 1)) {
 				breakpoint_put(task->skip_bp);
 				task->skip_bp = breakpoint_get(bp);
 			}
@@ -105,8 +114,8 @@ void detach_proc(struct task *leader)
 
 	breakpoint_disable_all(leader);
 
-	if (options.verbose > 1)
-		fprintf(stderr, "+++ process detach pid=%d sw-bp:%lu hw-bp:%lu +++\n", leader->pid, leader->num_sw_bp, leader->num_hw_bp);
+	if (unlikely(options.verbose > 1))
+		fprintf(stderr, "+++ process detach pid=%d +++\n", leader->pid);
 
 	each_task(leader, &detach_cb, NULL);
 }

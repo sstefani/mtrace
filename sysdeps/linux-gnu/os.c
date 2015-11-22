@@ -43,6 +43,7 @@
 #endif
 #include <pwd.h>
 #include <grp.h>
+#include <sys/prctl.h>
 
 #include "backend.h"
 #include "breakpoint.h"
@@ -178,8 +179,8 @@ static struct map *get_writeable_mappings(struct task *task)
 	char filename[PATH_MAX + 2];
 	char nl;
 	FILE *in;
-	unsigned int maps_size = 0;
-	struct map *maps = NULL;
+	unsigned int maps_size;
+	struct map *maps;
 	unsigned int map = 0;
 
 	snprintf(filename, sizeof(filename)-1, "/proc/%d/maps", task->pid);
@@ -392,6 +393,8 @@ int os_init(void)
 	struct sigaction act;
 	const int siglist[] = { SIGSEGV, SIGABRT, SIGTRAP, SIGILL, SIGFPE };
 	unsigned int i;
+
+	prctl(PR_SET_TIMERSLACK, 1, 0, 0, 0);
 
 	for(i = 0; i < ARRAY_SIZE(siglist); i++) {
 		act.sa_flags = SA_ONESHOT | SA_SIGINFO;

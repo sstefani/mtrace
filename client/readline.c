@@ -503,7 +503,9 @@ static int do_show_info(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, cons
 		return -1;
 	}
 
+	client_request_info();
 	client_show_info();
+
 	return 0;
 }
 

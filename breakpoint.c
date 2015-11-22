@@ -108,7 +108,7 @@ static void enable_hw_bp(struct task *task, struct breakpoint *bp)
 
 	task->hw_bp[slot] = bp;
 
-	if (set_hw_bp(task, slot, bp->addr) == -1)
+	if (unlikely(set_hw_bp(task, slot, bp->addr) == -1))
 		fatal("set_hw_bp");
 }
 
@@ -116,12 +116,12 @@ static void disable_hw_bp(struct task *task, struct breakpoint *bp)
 {
 	unsigned int slot = bp->hw_bp_slot;
 
-	if (!task->hw_bp[slot])
+	if (unlikely(!task->hw_bp[slot]))
 		return;
 
 	assert(task->hw_bp[slot] == bp);
 
-	if (reset_hw_bp(task, slot) == -1)
+	if (unlikely(reset_hw_bp(task, slot) == -1))
 		fatal("reset_hw_bp");
 
 	task->hw_bp[slot] = NULL;
@@ -286,10 +286,10 @@ void breakpoint_hw_destroy(struct task *task)
 
 void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
-	if (bp->deleted)
+	if (unlikely(bp->deleted))
 		return;
 
-	if (bp->type != BP_HW_SCRATCH)
+	if (unlikely(bp->type != BP_HW_SCRATCH))
 		return;
 
 	assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
@@ -300,10 +300,10 @@ void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 
 void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
-	if (bp->deleted)
+	if (unlikely(bp->deleted))
 		return;
 
-	if (bp->type != BP_HW_SCRATCH)
+	if (unlikely(bp->type != BP_HW_SCRATCH))
 		return;
 
 	assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
@@ -385,12 +385,12 @@ struct breakpoint *breakpoint_new(struct task *task, arch_addr_t addr, struct li
 
 void breakpoint_enable(struct task *task, struct breakpoint *bp)
 {
-	if (bp->deleted)
+	if (unlikely(bp->deleted))
 		return;
 
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
-	if (!bp->enabled) {
+	if (likely(!bp->enabled)) {
 #if HW_BREAKPOINTS > 0
 		if (bp->type == BP_HW_SCRATCH) {
 			bp->enabled = 1;
@@ -412,12 +412,12 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 
 void breakpoint_disable(struct task *task, struct breakpoint *bp)
 {
-	if (bp->deleted)
+	if (unlikely(bp->deleted))
 		return;
 
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
-	if (bp->enabled) {
+	if (likely(bp->enabled)) {
 #if HW_BREAKPOINTS > 0
 		if (bp->hw) {
 			struct task *leader = task->leader;
@@ -449,13 +449,13 @@ struct breakpoint *breakpoint_insert(struct task *task, arch_addr_t addr, struct
 {
 	debug(DEBUG_FUNCTION, "pid=%d, addr=%lx, symbol=%s", task->pid, addr, libsym ? libsym->func->name : "NULL");
 
-	if (!addr)
+	if (unlikely(!addr))
 		return NULL;
 
 	struct breakpoint *bp = breakpoint_find(task, addr);
-	if (!bp) {
+	if (unlikely(!bp)) {
 		bp = breakpoint_new(task, addr, libsym, type);
-		if (!bp)
+		if (unlikely(!bp))
 			return NULL;
 	}
 
@@ -484,7 +484,7 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 #endif
 	dict_remove_entry(leader->breakpoints, (unsigned long)bp->addr);
 
-	if (options.verbose > 1 && bp->libsym) {
+	if (unlikely(options.verbose > 1 && bp->libsym)) {
 		fprintf(stderr,
 			"delete %s breakpoint %s:%s [%#lx] count=%u\n",
 				bp->type == BP_SW ? "sw" : "hw",
@@ -662,7 +662,7 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 		new_task->hw_bp[new_bp->hw_bp_slot] = new_bp;
 
 		if (new_bp->enabled) {
-			if (set_hw_bp(new_task, new_bp->hw_bp_slot, new_bp->addr) == -1)
+			if (unlikely(set_hw_bp(new_task, new_bp->hw_bp_slot, new_bp->addr) == -1))
 				fatal("set_hw_bp");
 		}
 	}
@@ -692,14 +692,14 @@ int breakpoint_clone_all(struct task *clone, struct task *leader)
 
 struct breakpoint *breakpoint_get(struct breakpoint *bp)
 {
-	if (bp)
+	if (likely(bp))
 		++bp->refcnt;
 	return bp;
 }
 
 int breakpoint_put(struct breakpoint *bp)
 {
-	if (bp) {
+	if (likely(bp)) {
 		assert(bp->refcnt != 0);
 
 		if (--bp->refcnt)

@@ -159,7 +159,7 @@ int server_handle_command(void)
 
 	if (ret != sizeof(cmd)) {
 		if (ret > 0) {
-			if (options.verbose)
+			if (unlikely(options.verbose))
 				fprintf(stderr, "cmd read wrong size %d\n", ret);
 		}
 		server_close();
@@ -177,7 +177,10 @@ int server_handle_command(void)
 	}
 
 	if (!cmd.pid) {
-		server_close();
+		if (cmd.operation == MT_INFO)
+			report_info(1);
+		else
+			server_close();
 		goto finish;
 	}
 
@@ -277,7 +280,7 @@ int server_start(void)
 			fatal("accept (%s)", strerror(errno));
 
 		fprintf(stderr, "connected!\n");
-		server_mode = MODE_ACCEPTED;
+
 		report_info(1);
 	}
 
@@ -341,7 +344,7 @@ int server_start_pair(void)
 	return sv[1];
 }
 
-int server_send_msg(enum mt_operation op, uint32_t pid, uint32_t tid, const void *payload, unsigned int payload_len)
+int server_send_msg(enum mt_operation op, uint32_t pid, const void *payload, unsigned int payload_len)
 {
 	if (options.logfile) {
 		struct iovec io[2];
@@ -350,7 +353,6 @@ int server_send_msg(enum mt_operation op, uint32_t pid, uint32_t tid, const void
 
 		mt_msg.operation = op;
 		mt_msg.pid = pid;
-		mt_msg.tid = tid;
 		mt_msg.payload_len = payload_len;
 
 		io[0].iov_base = &mt_msg;
@@ -367,7 +369,7 @@ int server_send_msg(enum mt_operation op, uint32_t pid, uint32_t tid, const void
 		return ret;
 	}
 
-	return sock_send_msg(server_fd, op, pid, tid, payload, payload_len);
+	return sock_send_msg(server_fd, op, pid, payload, payload_len);
 }
 
 int server_stop(void)

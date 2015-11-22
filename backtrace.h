@@ -23,25 +23,82 @@
 #ifndef _INC_BACKTRACE_H
 #define _INC_BACKTRACE_H
 
+#include <assert.h>
+
+#include "dwarf.h"
+#include "main.h"
+#include "options.h"
 #include "task.h"
+#include "timer.h"
 
 /* init backtrace for given leader task */
-int backtrace_init(struct task *task);
+static inline int backtrace_init(struct task *task)
+{
+	assert(task->leader == task);
+	assert(task->backtrace == NULL);
+
+	task->backtrace = dwarf_init(task->is_64bit);
+
+	return task->backtrace != NULL;
+}
 
 /* destroy backtrace for given leader task */
-void backtrace_destroy(struct task *task);
+static inline void backtrace_destroy(struct task *task)
+{
+	assert(task->leader == task);
+
+	if (task->backtrace) {
+		dwarf_destroy(task->backtrace);
+
+		task->backtrace = NULL;
+	}
+}
 
 /* start backtrace for given task */
-int backtrace_init_unwind(struct task *task);
+static inline int backtrace_init_unwind(struct task *task)
+{
+	assert(task->leader);
+	assert(task->leader->backtrace);
+
+	return dwarf_init_unwind(task->leader->backtrace, task);
+}
 
 /* get backtrace IP address for given task */
-unsigned long backtrace_get_ip(struct task *task);
+static inline unsigned long backtrace_get_ip(struct task *task)
+{
+	assert(task->leader);
+	assert(task->leader->backtrace);
+
+	return dwarf_get_ip(task->leader->backtrace);
+}
 
 /* step to next backtrace given task */
-int backtrace_step(struct task *task);
+static inline int backtrace_step(struct task *task)
+{
+	int ret;
+	struct timespec start;
+
+	assert(task->leader);
+	assert(task->leader->backtrace);
+
+	if (unlikely(options.verbose > 1))
+		start_time(&start);
+
+	ret = dwarf_step(task->leader->backtrace);
+
+	if (unlikely(options.verbose > 1))
+		set_timer(&start, &backtrace_time);
+
+	return ret;
+}
 
 /* get backtrace location type of given task */
-int backtrace_location_type(struct task *task);
+static inline int backtrace_location_type(struct task *task)
+{
+	assert(task->leader);
+	assert(task->leader->backtrace);
 
+	return dwarf_location_type(task->leader->backtrace);
+}
 #endif
 
