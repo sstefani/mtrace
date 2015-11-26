@@ -131,6 +131,7 @@ static int leader_setup(struct task *leader)
 static int task_init(struct task *task)
 {
 	pid_t tgid;
+	struct task *leader;
 
 	/* Add process so that we know who the leader is.  */
 	tgid = process_leader(task->pid);
@@ -140,7 +141,26 @@ static int task_init(struct task *task)
 	}
 
 	if (tgid == task->pid) {
-		task->leader = task;
+		leader = task;
+	}
+	else {
+		leader = pid2task(tgid);
+
+		if (!leader) {
+			fprintf(stderr, "%s no leader for tgpid=%d\n", __FUNCTION__, tgid);
+			return -1;
+		}
+	}
+
+	task->leader = leader;
+
+	if (arch_task_init(task) < 0)
+		return -1;
+
+	if (os_task_init(task) < 0)
+		return -1;
+
+	if (task == leader) {
 		task->threads = 1;
 
 		breakpoint_setup(task);
@@ -148,26 +168,13 @@ static int task_init(struct task *task)
 		list_add_tail(&task->leader_list, &list_of_leaders);
 	}
 	else {
-		task->leader = pid2task(tgid);
-
-		if (!task->leader) {
-			fprintf(stderr, "%s no leader for tgpid=%d\n", __FUNCTION__, tgid);
-			return -1;
-		}
-
-		task->leader->threads++;
+		leader->threads++;
 		task->breakpoints = NULL;
 
-		list_add_tail(&task->task_list, &task->leader->task_list);
+		list_add_tail(&task->task_list, &leader->task_list);
 	}
 
 	task->attached = 1;
-
-	if (arch_task_init(task) < 0)
-		return -1;
-
-	if (os_task_init(task) < 0)
-		return -1;
 
 	breakpoint_hw_destroy(task);
 
@@ -243,16 +250,17 @@ struct task *task_new(pid_t pid)
 
 	library_setup(task);
 
+	init_event(task);
+
 	if (task_init(task) < 0)
 		goto fail1;
-
-	init_event(task);
 
 	insert_pid(task);
 
 	return task;
 fail1:
-	task_destroy(task);
+	free(task);
+
 	return NULL;
 }
 

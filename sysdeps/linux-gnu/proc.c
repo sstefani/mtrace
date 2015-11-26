@@ -609,10 +609,10 @@ done:
 
 int os_task_init(struct task *task)
 {
-	struct task *leader = task->leader;
-
-	leader->os.debug_addr = 0;
-	leader->os.debug_state = RT_ADD;
+	if (task == task->leader) {
+		task->os.debug_addr = 0;
+		task->os.debug_state = RT_ADD;
+	}
 	return 0;
 }
 

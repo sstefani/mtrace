@@ -171,6 +171,7 @@ void reorder_hw_bp(struct task *task)
 		return;
 
 	n = 0;
+
 	list_for_each(it, &leader->hw_bp_list) {
 		bp = container_of(it, struct breakpoint, link_list);
 		if (bp->enabled) {
@@ -180,16 +181,19 @@ void reorder_hw_bp(struct task *task)
 		}
 	}
 
+	if (!n)
+		return;
+
 	qsort(bp_list, n, sizeof(*bp_list), hw_bp_sort);
 
-	for(i = 0; i < n; ++i) {
+	for(i = 0; i < n; ++i)
 		bp_list[i]->hwcnt = (i < HW_BREAKPOINTS - 1) ? BP_REORDER_THRESHOLD >> (i + 4) : 0;
-	}
 
 	if (n > HW_BREAKPOINTS - 1) 
 		n = HW_BREAKPOINTS - 1;
 
 	p = bp_list;
+
 	for(i = 0; i < n; ++i) {
 		if (bp_list[i]->hw) {
 			assert(bp_list[i]->hw_bp_slot != HW_BP_SCRATCH_SLOT);
@@ -201,14 +205,23 @@ void reorder_hw_bp(struct task *task)
 		else
 			*p++ = bp_list[i];
 	}
+
+	if (p == bp_list)
+		return;
+
 	*p = NULL;
 
+	stop_threads(leader);
+
 	i = HW_BP_SCRATCH_SLOT + 1;
-	for(p = bp_list; (bp = *p); ++p) {
+	p = bp_list;
+
+	do {
+		bp = *p;
+
 		while(hw_bp_set & (1 << i))
 			++i;
 
-		stop_threads(leader);
 		disable_sw_breakpoint(leader, bp);
 
 		if (leader->hw_bp[i])
@@ -220,7 +233,8 @@ void reorder_hw_bp(struct task *task)
 		each_task(leader, enable_hw_bp_cb, bp);
 
 		++i;
-	}
+		++p;
+	} while(*p);
 }
 
 static int insert_hw_bp_slot(struct task *task, struct breakpoint *bp)
@@ -233,7 +247,6 @@ static int insert_hw_bp_slot(struct task *task, struct breakpoint *bp)
 			break;
 
 		if (bp->type == BP_HW && leader->hw_bp[i]->type == BP_AUTO) {
-			stop_threads(leader);
 			hw2sw_bp(leader, leader->hw_bp[i]);
 			break;
 		}
@@ -396,14 +409,14 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 			bp->enabled = 1;
 			return;
 		}
+#endif
+		stop_threads(task);
 #if HW_BREAKPOINTS > 1
 		if (bp->type >= BP_HW) {
 			if (!insert_hw_bp_slot(task, bp))
 				return;
 		}
 #endif
-#endif
-		stop_threads(task);
 		bp->hw = 0;
 		enable_sw_breakpoint(task, bp);
 		bp->enabled = 1;
@@ -418,6 +431,7 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp)
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (likely(bp->enabled)) {
+		stop_threads(task);
 #if HW_BREAKPOINTS > 0
 		if (bp->hw) {
 			struct task *leader = task->leader;
@@ -439,7 +453,6 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp)
 			return;
 		}
 #endif
-		stop_threads(task);
 		disable_sw_breakpoint(task, bp);
 		bp->enabled = 0;
 	}

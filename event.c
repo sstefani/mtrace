@@ -240,6 +240,11 @@ static int handle_call_after(struct task *task, struct breakpoint *bp)
 	if (unlikely(options.verbose > 1))
 		start_time(&start);
 
+#if HW_BREAKPOINTS > 0
+	if (bp->hw)
+		disable_scratch_hw_bp(task, bp);
+#endif
+
 	task->libsym->func->report_out(task, task->libsym);
 
 	if (unlikely(options.verbose > 1))
