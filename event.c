@@ -241,11 +241,11 @@ static int handle_call_after(struct task *task, struct breakpoint *bp)
 		start_time(&start);
 
 #if HW_BREAKPOINTS > 0
-	if (bp->hw)
-		disable_scratch_hw_bp(task, bp);
+	disable_scratch_hw_bp(task, bp);
 #endif
 
-	task->libsym->func->report_out(task, task->libsym);
+	if (task->libsym->func->report_out)
+		task->libsym->func->report_out(task, task->libsym);
 
 	if (unlikely(options.verbose > 1))
 		set_timer(&start, &report_out_time);
@@ -312,13 +312,14 @@ static void handle_breakpoint(struct task *task)
 
 		save_param_context(task);
 
-		if (libsym->func->report_out) {
+		if (libsym->func->report_out || options.kill) {
 			task->breakpoint = breakpoint_insert(task, get_return_addr(task), NULL, BP_HW_SCRATCH);
 			if (likely(task->breakpoint)) {
 				task->libsym = libsym;
 				task->breakpoint->on_hit = handle_call_after;
-
+#if HW_BREAKPOINTS > 0
 				enable_scratch_hw_bp(task, task->breakpoint);
+#endif
 			}
 		}
 

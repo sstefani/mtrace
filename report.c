@@ -52,15 +52,14 @@ static void report_alloc64(struct task *task, enum mt_operation op, unsigned lon
 	alloc->size = (uint64_t)size;
 
 	if (depth) {
-		if (libsym)
-			alloc->data[i++] = libsym->addr;
+		alloc->data[i++] = libsym->addr;
 
 		if (likely(backtrace_init_unwind(task) >= 0)) {
 			while(i < depth) {
 				if (likely(backtrace_location_type(task) != LIBTYPE_LOADER)) {
 					alloc->data[i] = (uint64_t)backtrace_get_ip(task);
 
-					if (likely(!i || alloc->data[i - 1] != alloc->data[i])) {
+					if (likely(alloc->data[i - 1] != alloc->data[i])) {
 						if (unlikely(!alloc->data[i]))
 							break;
 
@@ -88,15 +87,14 @@ static void report_alloc32(struct task *task, enum mt_operation op, unsigned lon
 	alloc->size = (uint32_t)size;
 
 	if (depth) {
-		if (libsym)
-			alloc->data[i++] = libsym->addr;
+		alloc->data[i++] = libsym->addr;
 
 		if (likely(backtrace_init_unwind(task) >= 0)) {
 			while(i < depth) {
 				if (likely(backtrace_location_type(task) != LIBTYPE_LOADER)) {
 					alloc->data[i] = (uint32_t)backtrace_get_ip(task);
 
-					if (likely(!i || alloc->data[i - 1] != alloc->data[i])) {
+					if (likely(alloc->data[i - 1] != alloc->data[i])) {
 						if (unlikely(!alloc->data[i]))
 							break;
 
@@ -128,10 +126,6 @@ static void report_alloc(struct task *task, enum mt_operation op, unsigned long 
 		report_alloc32(task, op, ptr, size, depth, libsym);
 }
 
-static void _null(struct task *task, struct library_symbol *libsym)
-{
-}
-
 static void _report_alloc_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
 {
 	unsigned long size = fetch_param(task, 0);
@@ -159,7 +153,7 @@ static void _report_free_op(struct task *task, struct library_symbol *libsym, en
 {
 	unsigned long addr = fetch_param(task, 0);
 
-	report_alloc(task, op, addr, 0, options.sanity ? options.bt_depth : 0, NULL);
+	report_alloc(task, op, addr, 0, options.sanity ? options.bt_depth : 0, libsym);
 }
 
 static void report_free(struct task *task, struct library_symbol *libsym)
@@ -347,7 +341,7 @@ static const struct function flist[] = {
 	{ "posix_memalign",					"posix_memalign",	0,	NULL,			_report_posix_memalign },
 	{ "mmap",						"mmap",			0,	NULL,			_report_mmap },
 	{ "mmap64",						"mmap64",		1,	NULL,			_report_mmap64 },
-	{ "munmap",						"munmap",		0,	report_munmap,		_null },
+	{ "munmap",						"munmap",		0,	report_munmap,		NULL },
 	{ "memalign",						"memalign",		0,	NULL,			_report_memalign },
 	{ "aligned_alloc",					"aligned_alloc",	1,	NULL,			_report_aligned_alloc },
 	{ "valloc",						"valloc",		1,	NULL,			_report_valloc },

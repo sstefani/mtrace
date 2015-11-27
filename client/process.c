@@ -676,13 +676,10 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 		parent = *new;
 
 		if (addr <= this->addr && addr + n > this->addr) {
-			if (unlikely(options.kill || options.verbose > 2)) {
-				process_dump_collision(process, this, addr, size, operation);
+			process_dump_collision(process, this, addr, size, operation);
 
-				if (options.kill)
-					abort();
-			}
-			return -1;
+			if (options.kill)
+				abort();
 		}
 
 		if (addr < this->addr)
@@ -1258,12 +1255,11 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			break;
 
 		if (!is_mmap(block->stack_node->stack->operation)) {
-			if (unlikely(options.kill || options.verbose > 2)) {
-				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
+			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
-				if (options.kill)
-					abort();
-			}
+			if (options.kill)
+				abort();
+
 			break;
 		}
 
@@ -1384,12 +1380,10 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (is_mmap(block->stack_node->stack->operation)) {
-			if (unlikely(options.kill || options.verbose > 2)) {
-				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
+			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
-				if (options.kill)
-					abort();
-			}
+			if (options.kill)
+				abort();
 		}
 
 		if (!is_sane(block, mt_msg->operation)) {
@@ -1418,11 +1412,9 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	}
 	else {
 		if (!process->attached) {
-			if (unlikely(options.kill || options.verbose > 2)) {
+			if (unlikely(options.kill)) {
 				fprintf(stderr, ">>> block %#lx not found pid:%d\n", ptr, process->pid);
-
-				if (options.kill)
-					abort();
+				abort();
 			}
 		}
 	}
@@ -1505,12 +1497,11 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	block = process_rb_search_range(&process->block_table, ptr, size);
 	if (block) {
-		if (unlikely(options.kill || options.verbose > 2)) {
-			process_dump_collision(process, block, ptr, size, mt_msg->operation);
+		process_dump_collision(process, block, ptr, size, mt_msg->operation);
 
-			if (options.kill)
-				abort();
-		}
+		if (options.kill)
+			abort();
+
 		process_rb_delete_block(process, block);
 	}
 

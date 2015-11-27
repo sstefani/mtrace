@@ -93,7 +93,7 @@ static void usage(void)
 		" -i, --interactive   interactive client mode\n"
 #endif
 		" -O, --omit=FILE     do not place breakpoint in this file\n"
-		" -k, --kill          abort mtrace-ng due unexpected error conditon\n"
+		" -k, --kill          abort mtrace-ng due unexpected error condition\n"
 		" -l, --logfile       use log file instead of socket connection\n"
 		" -L, --long          long dump includes map filename\n"
 		" -n, --nocpp         disable trace of c++ allocation operators (faster for libstdc++)\n"
