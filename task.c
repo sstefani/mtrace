@@ -399,7 +399,7 @@ int task_fork(struct task *task, struct task *newtask)
 	else
 		newtask->breakpoint = NULL;
 
-	if (task->skip_bp)
+	if (task->skip_bp && !task->skip_bp->deleted)
 		newtask->skip_bp = breakpoint_get(breakpoint_find(newtask, newtask->skip_bp->addr));
 	else
 		newtask->skip_bp = NULL;
@@ -420,10 +420,12 @@ fail:
 
 void task_reset_bp(struct task *task)
 {
-	breakpoint_put(task->skip_bp);
+	if (task->skip_bp) {
+		breakpoint_put(task->skip_bp);
+		task->skip_bp = NULL;
+	}
 
 	task->breakpoint = NULL;
-	task->skip_bp = NULL;
 }
 
 static struct task *open_one_pid(pid_t pid)

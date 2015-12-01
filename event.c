@@ -285,20 +285,21 @@ static void handle_breakpoint(struct task *task)
 	if (unlikely(options.verbose))
 		++bp->count;
 
-	if (unlikely(bp->deleted)) {
-		struct breakpoint *nbp = breakpoint_find(task, bp->addr);
+	if (unlikely(task->skip_bp)) {
+		struct breakpoint *skip_bp = task->skip_bp;
 
-		if (!nbp)
-			nbp = bp;
+		task->skip_bp = NULL;
 
-		skip_breakpoint(task, nbp);
-		goto end;
+		breakpoint_put(skip_bp);
+
+		if (likely(skip_bp == bp)) {
+			skip_breakpoint(task, bp);
+			goto end;
+		}
 	}
 
-	if (unlikely(task->skip_bp == bp)) {
-		breakpoint_put(task->skip_bp);
-		task->skip_bp = NULL;
-		skip_breakpoint(task, bp);
+	if (unlikely(bp->deleted)) {
+		continue_task(task, 0);
 		goto end;
 	}
 
