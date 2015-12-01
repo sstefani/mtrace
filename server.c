@@ -177,10 +177,21 @@ int server_handle_command(void)
 	}
 
 	if (!cmd.pid) {
-		if (cmd.operation == MT_INFO)
+		switch(cmd.operation) {
+		case MT_INFO:
 			report_info(1);
-		else
+			break;
+		case MT_DEPTH:
+		 {
+			struct memtrace_depth *depth = payload;
+
+			if (depth->stack_depth)
+				options.bt_depth = depth->stack_depth;
+			break;
+		 }
+		default:
 			server_close();
+		}
 		goto finish;
 	}
 

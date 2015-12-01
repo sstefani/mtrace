@@ -70,6 +70,7 @@ static int do_status(struct cmd_opt *cmd, int argc, const char *argv[]);
 static int do_start(struct cmd_opt *cmd, int argc, const char *argv[]);
 static int do_stop(struct cmd_opt *cmd, int argc, const char *argv[]);
 static int do_set_searchpath(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[]);
+static int do_set_depth(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[]);
 static int do_show_info(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[]);
 static int do_show_searchpath(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[]);
 
@@ -103,6 +104,7 @@ static struct cmd_opt dump_opts[] = {
 
 static struct cmd_opt set_opts[] = {
 	{ "searchpath", 1, do_set_searchpath, "set searchpath for binaries and libraries" },
+	{ "depth", 1, do_set_depth, "set backtrace depth" },
 	{ },
 };
 
@@ -492,6 +494,18 @@ static int do_set_searchpath(struct cmd_opt *cmd, struct cmd_opt *opt, int argc,
 	}
 
 	split_search_patch(argv[2]);
+
+	return 0;
+}
+
+static int do_set_depth(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[])
+{
+	if (argc != 3) {
+		fprintf(stderr, "%s: invalid option argument for '%s'\n", cmd->name, opt->name);
+		return -1;
+	}
+
+	client_set_depth(atoi(argv[2]));
 
 	return 0;
 }

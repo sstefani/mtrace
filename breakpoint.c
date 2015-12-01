@@ -302,7 +302,9 @@ void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 	if (unlikely(bp->deleted))
 		return;
 
-	assert(bp->type == BP_HW_SCRATCH);
+	if (bp->type != BP_HW_SCRATCH)
+		return;
+
 	assert(bp->hw);
 	assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
 
@@ -315,7 +317,9 @@ void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 	if (unlikely(bp->deleted))
 		return;
 
-	assert(bp->type == BP_HW_SCRATCH);
+	if (bp->type != BP_HW_SCRATCH)
+		return;
+
 	assert(bp->hw);
 	assert(bp->hw_bp_slot == HW_BP_SCRATCH_SLOT);
 

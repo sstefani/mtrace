@@ -31,7 +31,7 @@
 #define	IS64BIT	0
 #endif
 
-#define	MEMTRACE_SI_VERSION	6
+#define	MEMTRACE_SI_VERSION	7
 
 #define	MEMTRACE_SI_FORK	1
 #define	MEMTRACE_SI_EXEC	2
@@ -69,6 +69,7 @@ enum mt_operation {
 	MT_NEW_ARRAY,
 	MT_DELETE,
 	MT_DELETE_ARRAY,
+	MT_DEPTH,
 };
 
 struct __attribute__((packed)) mt_msg {
@@ -124,6 +125,10 @@ struct __attribute__((packed)) memtrace_info {
 	struct memtrace_timer_info report_in_time;
 	struct memtrace_timer_info report_out_time;
 	struct memtrace_timer_info skip_bp_time;
+};
+
+struct __attribute__((packed)) memtrace_depth {
+	uint8_t stack_depth;
 };
 
 struct __attribute__((packed)) mt_map_payload {

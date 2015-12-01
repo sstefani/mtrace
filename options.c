@@ -45,10 +45,7 @@
 #define SYSCONFDIR "/etc"
 #endif
 
-#define MIN_STACK	4
-#define MAX_STACK	64
-
-#define DEFAULT_STACK	16
+#define DEFAULT_STACK	12
 #define DEFAULT_PORT	4576
 
 static char *sockdef;
@@ -269,7 +266,7 @@ char **process_options(int argc, char **argv)
 
 	options.auto_scan = 0;
 	options.output = stderr;
-	options.bt_depth = DEFAULT_STACK;
+	options.bt_depth = 0;
 	options.port = NULL;
 	options.follow = 0;
 	options.follow_exec = 0;
@@ -567,6 +564,11 @@ char **process_options(int argc, char **argv)
 	if (argc > 0)
 		options.command = search_for_command(argv[0]);
 
+	if (options.bt_depth < 0)
+		options.bt_depth = 0;
+	else
+	if (options.bt_depth > 255)
+		options.bt_depth = 255;
 
 	if (options.address && options.logfile) {
 		fprintf(stderr, "%s: either logfile or remote address is valid\n", progname);
@@ -600,6 +602,9 @@ char **process_options(int argc, char **argv)
 				err_usage();
 			}
 		}
+
+		if (!options.bt_depth)
+			options.bt_depth = DEFAULT_STACK;
 	}
 	else {
 		if (options.opt_p || options.command) {
@@ -693,12 +698,6 @@ char **process_options(int argc, char **argv)
 
 	if (options.sort_by == OPT_SORT_LEAKS || options.sort_by == OPT_SORT_BYTES_LEAKED)
 		options.auto_scan = 1;
-
-	if (options.bt_depth < MIN_STACK)
-		options.bt_depth = MIN_STACK;
-	else
-	if (options.bt_depth > MAX_STACK)
-		options.bt_depth = MAX_STACK;
 
 	if (!options.opt_F)
 		def_config();

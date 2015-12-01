@@ -618,6 +618,24 @@ static struct rb_block *process_rb_search(struct rb_root *root, unsigned long ad
 	while (node) {
 		struct rb_block *this = container_of(node, struct rb_block, node);
 
+		if (addr >= this->addr && addr < this->addr + (this->size ? this->size : 1))
+			return this;
+
+		if (addr < this->addr)
+			node = node->rb_left;
+		else
+			node = node->rb_right;
+	}
+	return NULL;
+}
+
+static struct rb_block *process_rb_block(struct rb_root *root, unsigned long addr)
+{
+	struct rb_node *node = root->rb_node;
+
+	while (node) {
+		struct rb_block *this = container_of(node, struct rb_block, node);
+
 		if (addr < this->addr)
 			node = node->rb_left;
 		else if (addr > this->addr)
@@ -1176,7 +1194,7 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	void *new_leaks = leaks;
 
 	for(i = 0; i < n; ++i) {
-		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(leaks));
+		struct rb_block *block = process_rb_block(&process->block_table, process->get_ulong(leaks));
 
 		if (block && !(block->flags & BLOCK_LEAKED)) {
 			block->flags |= BLOCK_LEAKED;
@@ -1200,7 +1218,7 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	dump_printf(" leaked bytes: %llu\n", process->leaked_bytes);
 
 	for(i = 0; i < new; ++i) {
-		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(new_leaks));
+		struct rb_block *block = process_rb_block(&process->block_table, process->get_ulong(new_leaks));
 
 		if (dump_printf(" leaked at 0x%08lx (%lu bytes)\n", (unsigned long)block->addr, (unsigned long)block->size) == -1)
 			break;
@@ -1379,6 +1397,13 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
+		if (block->addr != ptr) {
+			fprintf(stderr, ">>> block invalid free %#lx pid:%d\n", ptr, process->pid);
+
+			if (options.kill)
+				abort();
+		}
+
 		if (is_mmap(block->stack_node->stack->operation)) {
 			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
@@ -1495,8 +1520,11 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	debug(DEBUG_FUNCTION, "ptr=%#lx size=%lu stack_size=%lu", ptr, size, stack_size);
 
-	block = process_rb_search_range(&process->block_table, ptr, size);
-	if (block) {
+	for(;;) {
+		block = process_rb_search_range(&process->block_table, ptr, size);
+		if (!block)
+			break;
+
 		process_dump_collision(process, block, ptr, size, mt_msg->operation);
 
 		if (options.kill)

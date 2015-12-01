@@ -31,6 +31,7 @@ struct process *client_first_process(void);
 struct process *client_find_process(unsigned int pid);
 void client_iterate_processes(int (*func)(struct process *process));
 void client_show_info(void);
+int client_set_depth(int depth);
 void client_request_info(void);
 int client_wait_op(enum mt_operation op);
 void client_close(void);

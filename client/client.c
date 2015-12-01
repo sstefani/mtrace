@@ -580,6 +580,28 @@ void client_request_info(void)
 		return;
 }
 
+int client_set_depth(int depth)
+{
+	struct memtrace_depth payload;
+
+	if (depth < 0)
+		return 1;
+
+	if (depth > 255)
+		depth = 255;
+
+	if (mt_info.stack_depth == depth)
+		return 1;
+
+	payload.stack_depth = depth;
+
+	if (sock_send_msg(client_fd, MT_DEPTH, 0, &payload, sizeof(payload)) < 0) {
+		client_broken();
+		return -1;
+	}
+	return 0;
+}
+
 static int client_iterate_process(struct rb_node *node, void *user)
 {
 	struct rb_process *data = (struct rb_process *)node;
@@ -688,6 +710,11 @@ int client_start(void)
 		);
 
 		return -1;
+	}
+
+	if (options.bt_depth) {
+		if (!client_set_depth(options.bt_depth))
+			client_request_info();
 	}
 
 	client_show_info();
