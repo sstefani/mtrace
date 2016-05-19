@@ -155,7 +155,7 @@ fail:
 static void handle_signal(struct task *task)
 {
 	if (unlikely(options.verbose > 1)) {
-		if (task->event.e_un.signum && task->event.e_un.signum != SIGSTOP)
+		if (task->event.e_un.signum && (task->event.e_un.signum != SIGSTOP || !task->was_stopped))
 			fprintf(stderr, "+++ process pid=%d signal %d: %s +++\n", task->pid, task->event.e_un.signum, strsignal(task->event.e_un.signum));
 	}
 
@@ -166,7 +166,6 @@ static void show_exit(struct task *task)
 {
 	if (unlikely(options.verbose))
 		fprintf(stderr, "+++ process pid=%d exited (status=%d) +++\n", task->pid, task->event.e_un.ret_val);
-
 }
 
 static void handle_about_exit(struct task *task)
@@ -211,6 +210,9 @@ static void handle_exec(struct task *task)
 {
 	debug(DEBUG_FUNCTION, "pid=%d", task->pid);
 
+	if (unlikely(options.verbose))
+		fprintf(stderr, "+++ process pid=%d exec (%s) +++\n", task->pid, library_execname(task));
+
 	if (!options.follow_exec)
 		goto nofollow;
 
@@ -218,9 +220,6 @@ static void handle_exec(struct task *task)
 		fprintf(stderr, "couldn't reinitialize process %d after exec\n", task->pid);
 		goto untrace;
 	}
-
-	if (unlikely(options.verbose))
-		fprintf(stderr, "+++ process pid=%d exec (%s) +++\n", task->pid, library_execname(task));
 
 	continue_task(task, 0);
 	return;

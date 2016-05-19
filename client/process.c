@@ -601,7 +601,7 @@ static struct rb_block *process_rb_search_range(struct rb_root *root, unsigned l
 	while (node) {
 		struct rb_block *this = container_of(node, struct rb_block, node);
 
-		if (addr <= this->addr && addr + size > this->addr)
+		if ((addr <= this->addr) && (addr + size > this->addr))
 			return this;
 
 		if (addr < this->addr)
@@ -619,30 +619,13 @@ static struct rb_block *process_rb_search(struct rb_root *root, unsigned long ad
 	while (node) {
 		struct rb_block *this = container_of(node, struct rb_block, node);
 
-		if (addr >= this->addr && addr < this->addr + (this->size ? this->size : 1))
+		if (addr == this->addr)
 			return this;
 
 		if (addr < this->addr)
 			node = node->rb_left;
 		else
 			node = node->rb_right;
-	}
-	return NULL;
-}
-
-static struct rb_block *process_rb_block(struct rb_root *root, unsigned long addr)
-{
-	struct rb_node *node = root->rb_node;
-
-	while (node) {
-		struct rb_block *this = container_of(node, struct rb_block, node);
-
-		if (addr < this->addr)
-			node = node->rb_left;
-		else if (addr > this->addr)
-			node = node->rb_right;
-		else
-			return this;
 	}
 	return NULL;
 }
@@ -694,7 +677,7 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 
 		parent = *new;
 
-		if (addr <= this->addr && addr + n > this->addr) {
+		if ((addr <= this->addr) && (addr + n > this->addr)) {
 			process_dump_collision(process, this, addr, size, operation);
 
 			if (options.kill)
@@ -826,7 +809,8 @@ static void process_init(struct process *process, unsigned int swap_endian, unsi
 
 static void realloc_del(struct realloc_entry *re)
 {
-	stack_put(re->stack);
+	if (re->stack)
+		stack_put(re->stack);
 	list_del(&re->list);
 	free(re);
 }
@@ -1197,7 +1181,7 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	void *new_leaks = leaks;
 
 	for(i = 0; i < n; ++i) {
-		struct rb_block *block = process_rb_block(&process->block_table, process->get_ulong(leaks));
+		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(leaks));
 
 		if (block && !(block->flags & BLOCK_LEAKED)) {
 			block->flags |= BLOCK_LEAKED;
@@ -1221,7 +1205,7 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	dump_printf(" leaked bytes: %llu\n", process->leaked_bytes);
 
 	for(i = 0; i < new; ++i) {
-		struct rb_block *block = process_rb_block(&process->block_table, process->get_ulong(new_leaks));
+		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(new_leaks));
 
 		if (dump_printf(" leaked at 0x%08lx (%lu bytes)\n", (unsigned long)block->addr, (unsigned long)block->size) == -1)
 			break;
@@ -1398,6 +1382,9 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 
 	debug(DEBUG_FUNCTION, "ptr=%#lx", ptr);
 
+	if (!ptr)
+		return;
+
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (block->addr != ptr) {
@@ -1476,12 +1463,12 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 		struct realloc_entry *re = container_of(it, struct realloc_entry, list);
 
 		if (re->pid == pid) {
-			if (!ptr)
+			if (!ptr && re->addr)
 				process_rb_insert_block(process, re->addr, re->size, re->stack, re->flags, re->operation);
 
 			realloc_del(re);
 
-			break;
+			return;
 		}
 	}
 
@@ -1538,8 +1525,10 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 	struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
 
-	if (process_rb_insert_block(process, ptr, size, stack, 0, mt_msg->operation))
+	if (process_rb_insert_block(process, ptr, size, stack, 0, mt_msg->operation)) {
+		fprintf(stderr, "process_rb_insert_block failed\n");
 		return;
+	}
 
 	process->total_allocations++;
 	process->bytes_used += size;

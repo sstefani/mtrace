@@ -113,17 +113,22 @@ static void report_alloc32(struct task *task, enum mt_operation op, unsigned lon
 	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
 }
 
-static void report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
+static void _report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
 {
-	if (!ptr)
-		return;
-
 	debug(DEBUG_FUNCTION, "%d [%d]: %#lx %lu", op, task->pid, ptr, size);
 
 	if (task_is_64bit(task))
 		report_alloc64(task, op, ptr, size, depth, libsym);
 	else
 		report_alloc32(task, op, ptr, size, depth, libsym);
+}
+
+static void report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
+{
+	if (!ptr)
+		return;
+
+	_report_alloc(task, op, ptr, size, depth, libsym);
 }
 
 static void _report_alloc_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
@@ -203,7 +208,7 @@ static void report_realloc(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 
-	report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
+	_report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
 }
 
 static void _report_calloc(struct task *task, struct library_symbol *libsym)
