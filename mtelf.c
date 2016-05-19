@@ -247,8 +247,10 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 	libref->load_offset = mte->txt_hdr.p_offset;
 	libref->load_addr = mte->txt_hdr.p_vaddr + mte->bias;
 	libref->load_size = mte->txt_hdr.p_filesz;
+	libref->bias = mte->bias;
 	libref->seg_offset = mte->eh_hdr.p_offset;
 	libref->gp = mte->pltgot;
+	libref->key = mte->dyn;
 
 #ifdef __arm__
 	if (mte->exidx_hdr.p_filesz) {
@@ -288,7 +290,6 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 
 	memset(&mte->txt_hdr, 0, sizeof(mte->txt_hdr));
 	memset(&mte->eh_hdr, 0, sizeof(mte->eh_hdr));
-	memset(&mte->dyn_hdr, 0, sizeof(mte->dyn_hdr));
 	memset(&mte->exidx_hdr, 0, sizeof(mte->exidx_hdr));
 
 	for (i = 0; gelf_getphdr(mte->elf, i, &phdr) != NULL; ++i) {
@@ -311,6 +312,9 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 #endif
 		case PT_INTERP:
 			mte->interp = phdr.p_vaddr + bias;
+			break;
+		case PT_DYNAMIC:
+			mte->dyn = phdr.p_vaddr + bias;
 			break;
 		default:
 			break;
@@ -511,8 +515,6 @@ struct libref *elf_read_main_binary(struct task *task)
 	mte.bias = (GElf_Addr) (uintptr_t) entry - mte.ehdr.e_entry;
 	mte.entry_addr = (GElf_Addr) (uintptr_t) entry;
 
-	libref->key = ARCH_ADDR_T(mte.bias);
-
 	if (elf_lib_init(&mte, task, libref))
 		goto fail3;
 
@@ -540,8 +542,6 @@ struct libref *elf_read_main_binary(struct task *task)
 
 		mte_ld.bias = (GElf_Addr)base;
 		mte_ld.entry_addr = mte_ld.ehdr.e_entry + (GElf_Addr)base;
-
-		libref->key = ARCH_ADDR_T(mte_ld.bias);
 
 		ret = elf_lib_init(&mte_ld, task, libref);
 		if (!ret) {

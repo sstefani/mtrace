@@ -31,7 +31,7 @@
 #define	IS64BIT	0
 #endif
 
-#define	MEMTRACE_SI_VERSION	7
+#define	MEMTRACE_SI_VERSION	8
 
 #define	MEMTRACE_SI_FORK	1
 #define	MEMTRACE_SI_EXEC	2
@@ -135,6 +135,7 @@ struct __attribute__((packed)) mt_map_payload {
 	uint64_t addr;
 	uint64_t offset;
 	uint64_t size;
+	uint64_t bias;
 	char filename[0];
 };
 

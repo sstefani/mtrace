@@ -388,6 +388,7 @@ int _report_map(struct task *task, struct library *lib, enum mt_operation op)
 	payload->addr = libref->load_addr;
 	payload->offset = libref->load_offset;
 	payload->size = libref->load_size;
+	payload->bias = libref->bias;
 
 	memcpy(payload->filename, libref->filename, len);
 

@@ -396,7 +396,7 @@ static void linkmap_add(struct task *task, struct lt_r_debug_64 *dbg)
 		}
 
 		/* Do we have that library already?  */
-		lib = library_find_with_key(&task->libraries_list, ARCH_ADDR_T(rlm.l_addr));
+		lib = library_find_with_key(&task->libraries_list, ARCH_ADDR_T(rlm.l_ld));
 		if (lib)
 			continue;
 
@@ -425,8 +425,6 @@ static void linkmap_add(struct task *task, struct lt_r_debug_64 *dbg)
 			fprintf(stderr, "Couldn't load ELF object %s\n", lib_name);
 			continue;
 		}
-
-		libref->key = ARCH_ADDR_T(rlm.l_addr);
 
 		library_add(task, libref);
 	}

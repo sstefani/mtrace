@@ -26,6 +26,7 @@
 #include <link.h>
 #include <stdio.h>
 #include <string.h>
+#include <libiberty/demangle.h>
 
 #include "binfile.h"
 #include "process.h"
@@ -150,7 +151,7 @@ struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned 
 		if (!name || !*name)
 			name = "?";
 		else {
-			alloc = bfd_demangle(binfile->abfd, name, 27);
+			alloc = bfd_demangle(binfile->abfd, name, DMGL_TYPES | DMGL_VERBOSE | DMGL_ANSI | DMGL_PARAMS);
 			if (alloc)
 				name = alloc;
 		}

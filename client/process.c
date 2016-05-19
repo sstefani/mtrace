@@ -79,6 +79,7 @@ struct map {
 	unsigned long offset;
 	unsigned long addr;
 	unsigned long size;
+	unsigned long bias;
 	char *filename;
 	struct bin_file *binfile;
 	unsigned int ignore:1;
@@ -347,7 +348,7 @@ static struct rb_sym *resolv_address(struct process *process, bfd_vma addr)
 	struct map *map = open_map(process, addr);
 
 	if (map) {
-		sym = bin_file_lookup(map->binfile, addr, map->addr);
+		sym = bin_file_lookup(map->binfile, addr, map->bias);
 		if (sym)
 			return sym;
 	}
@@ -729,13 +730,14 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 	return 0;
 }
 
-static struct map *_process_add_map(struct process *process, unsigned long addr, unsigned long offset, unsigned long size, const char *filename, size_t len, struct bin_file *binfile)
+static struct map *_process_add_map(struct process *process, unsigned long addr, unsigned long offset, unsigned long size, unsigned long bias, const char *filename, size_t len, struct bin_file *binfile)
 {
 	struct map *map = malloc(sizeof(*map));
 
 	map->addr = addr;
 	map->offset = offset;
 	map->size = size;
+	map->bias = bias;
 	map->filename = malloc(len + 1);
 	map->binfile = binfile;
 	map->ignore = 0;
@@ -764,8 +766,9 @@ void process_add_map(struct process *process, void *payload, uint32_t payload_le
 	uint64_t addr = process->val64(mt_map->addr);
 	uint64_t offset = process->val64(mt_map->offset);
 	uint64_t size = process->val64(mt_map->size);
+	uint64_t bias = process->val64(mt_map->bias);
 
-	_process_add_map(process, addr, offset, size, mt_map->filename, payload_len - sizeof(*mt_map), NULL);
+	_process_add_map(process, addr, offset, size, bias, mt_map->filename, payload_len - sizeof(*mt_map), NULL);
 }
 
 static void _process_del_map(struct map *map)
@@ -921,7 +924,7 @@ void process_duplicate(struct process *process, struct process *copy)
 	list_for_each(it, &copy->map_list) {
 		struct map *map = container_of(it, struct map, list);
 
-		_process_add_map(process, map->addr, map->offset, map->size, map->filename, strlen(map->filename), map->binfile);
+		_process_add_map(process, map->addr, map->offset, map->size, map->bias, map->filename, strlen(map->filename), map->binfile);
 	}
 
 	process->total_allocations = copy->total_allocations;

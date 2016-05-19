@@ -36,6 +36,7 @@
 #include <inttypes.h>
 #include <errno.h>
 #include <unistd.h>
+#include <malloc.h>
 
 #include "backend.h"
 #include "common.h"

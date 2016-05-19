@@ -63,6 +63,7 @@ struct libref {
 	unsigned long load_offset;
 	unsigned long load_addr;
 	unsigned long load_size;
+	unsigned long bias;
 
 	/* mapped image */
 	void *image_addr;

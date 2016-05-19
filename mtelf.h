@@ -48,7 +48,7 @@ struct mt_elf {
 	GElf_Addr interp;
 	GElf_Phdr txt_hdr;
 	GElf_Phdr eh_hdr;
-	GElf_Phdr dyn_hdr;
+	GElf_Addr dyn;
 	GElf_Phdr exidx_hdr;
 	GElf_Addr pltgot;
 };

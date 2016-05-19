@@ -155,7 +155,7 @@ fail:
 static void handle_signal(struct task *task)
 {
 	if (unlikely(options.verbose > 1)) {
-		if (task->event.e_un.signum && (task->event.e_un.signum != SIGSTOP || !task->was_stopped))
+		if (task->event.e_un.signum && task->event.e_un.signum != SIGSTOP)
 			fprintf(stderr, "+++ process pid=%d signal %d: %s +++\n", task->pid, task->event.e_un.signum, strsignal(task->event.e_un.signum));
 	}
 
