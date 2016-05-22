@@ -312,7 +312,7 @@ static void handle_breakpoint(struct task *task)
 
 		save_param_context(task);
 
-		if (libsym->func->report_out || options.kill) {
+		if (libsym->func->report_out || !options.nocpp) {
 			task->breakpoint = breakpoint_insert(task, get_return_addr(task), NULL, BP_HW_SCRATCH);
 			if (likely(task->breakpoint)) {
 				task->libsym = libsym;

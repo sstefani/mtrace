@@ -74,6 +74,11 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 	}
 }
 
+unsigned int ip_reg_addr(void)
+{
+	return sizeof(unsigned long) * PT_NIP;
+}
+
 arch_addr_t get_return_addr(struct task *task)
 {
 #ifdef __powerpc64__

@@ -233,6 +233,7 @@ static void process_event(struct task *task, int status)
 	stop_signal = _process_event(task, status);
 
 	if (stop_signal == -1) {
+fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
 		task->event.type = EVENT_NONE;
 		continue_task(task, 0);
 		return;
@@ -245,6 +246,7 @@ static void process_event(struct task *task, int status)
 		return;
 
 	if (unlikely(fetch_context(task) == -1)) {
+fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
 		task->event.type = EVENT_NONE;
 		continue_task(task, 0);
 		return;
@@ -259,7 +261,6 @@ static void process_event(struct task *task, int status)
 		if (task->hw_bp[i] && task->hw_bp[i]->addr == ip) {
 			if (likely(get_hw_bp_state(task, i)))
 				bp = task->hw_bp[i];
-
 			break;
 		}
 	}
@@ -273,8 +274,9 @@ static void process_event(struct task *task, int status)
 	{
 		bp = breakpoint_find(leader, ip - DECR_PC_AFTER_BREAK);
 		if (unlikely(!bp)) {
-			task->event.type = EVENT_NONE;
-			continue_task(task, 0);
+fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
+//			task->event.type = EVENT_NONE;
+//			continue_task(task, 0);
 			return;
 		}
 #if HW_BREAKPOINTS > 0
@@ -459,10 +461,12 @@ void stop_threads(struct task *task)
 	}
 }
 
-int handle_singlestep(struct task *task, int (*singlestep)(struct task *task))
+int handle_singlestep(struct task *task, int (*singlestep)(struct task *task), struct breakpoint *bp)
 {
 	int status;
 	int stop_signal;
+	unsigned long ip;
+	int ret;
 
 	for(;;) {
 		if (unlikely(singlestep(task) == -1))
@@ -470,26 +474,41 @@ int handle_singlestep(struct task *task, int (*singlestep)(struct task *task))
 
 		if (unlikely(TEMP_FAILURE_RETRY(waitpid(task->pid, &status, __WALL)) != task->pid)) {
 			fprintf(stderr, "%s waitpid pid=%d %s\n", __FUNCTION__,  task->pid, strerror(errno));
-			return -1;
+			return 0;
 		}
 
 		stop_signal = _process_event(task, status);
 
 		if (stop_signal == -1)
-			return -1;
+			return 0;
 
-		if (likely(stop_signal == SIGTRAP))
-			return 0; /* check if was a real breakpoint code there */
+		ip = ptrace(PTRACE_PEEKUSER, task->pid, ip_reg_addr(), 0);
+		if (ip == (unsigned long)-1) {
+			fprintf(stderr, "%s ptrace get IP pid=%d %s\n", __FUNCTION__,  task->pid, strerror(errno));
+			return 0;
+		}
+
+		if (ip != bp->addr) {
+			ret = 0;
+
+			if (likely(stop_signal == SIGTRAP))
+				return ret;
+		}
+		else
+			ret = 1;
 
 		if (likely(!stop_signal)) {
 			queue_event(task);
-			return 0;
+			return ret;
 		}
 
 		if (fix_signal(task, stop_signal) > 0) {
 			queue_event(task);
-			return 1;
+			return ret;
 		}
+
+		if (!ret)
+			return ret;
 	}
 }
 
@@ -504,9 +523,9 @@ static int ptrace_singlestep(struct task *task)
 	return 0;
 }
 
-int do_singlestep(struct task *task)
+int do_singlestep(struct task *task, struct breakpoint *bp)
 {
-	return handle_singlestep(task, ptrace_singlestep);
+	return handle_singlestep(task, ptrace_singlestep, bp);
 }
 #endif
 

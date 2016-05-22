@@ -53,19 +53,21 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 		int ret = 0;
 		struct timespec start;
 
+		if (task->skip_bp)
+			return 1;
+
 		if (unlikely(options.verbose > 1))
 			start_time(&start);
 
 		breakpoint_disable(task, bp);
-		ret = do_singlestep(task);
+		ret = do_singlestep(task, bp);
 		breakpoint_enable(task, bp);
 
 		if (unlikely(options.verbose > 1))
 			set_timer(&start, &skip_bp_time);
 
 		if (unlikely(ret)) {
-			if (unlikely(ret == 1))
-				task->skip_bp = breakpoint_get(bp);
+			task->skip_bp = breakpoint_get(bp);
 			return ret;
 		}
 	}

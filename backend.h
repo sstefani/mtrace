@@ -75,14 +75,17 @@ arch_addr_t get_instruction_pointer(struct task *task);
 void set_instruction_pointer(struct task *task, arch_addr_t addr);
 
 /* do a single step */
-int do_singlestep(struct task *task);
+int do_singlestep(struct task *task, struct  breakpoint *bp);
 
 /* handle a single step event */
-int handle_singlestep(struct task *task, int (*singlestep)(struct task *task));
+int handle_singlestep(struct task *task, int (*singlestep)(struct task *task), struct breakpoint *bp);
 
 /* Find and return caller address, i.e. the address where the current
  * function returns.  */
 arch_addr_t get_return_addr(struct task *task);
+
+/* get address of IP register */
+unsigned int ip_reg_addr(void);
 
 #if HW_BREAKPOINTS > 0
 /* returns true if the hw breakpoint is pendig */

@@ -680,7 +680,7 @@ static int process_rb_insert_block(struct process *process, unsigned long addr, 
 		if ((addr <= this->addr) && (addr + n > this->addr)) {
 			process_dump_collision(process, this, addr, size, operation);
 
-			if (options.kill)
+			if (unlikely(options.kill))
 				abort();
 		}
 
@@ -1262,7 +1262,7 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 		if (!is_mmap(block->stack_node->stack->operation)) {
 			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
-			if (options.kill)
+			if (unlikely(options.kill))
 				abort();
 
 			break;
@@ -1387,17 +1387,10 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
-		if (block->addr != ptr) {
-			fprintf(stderr, ">>> block invalid free %#lx pid:%d\n", ptr, process->pid);
-
-			if (options.kill)
-				abort();
-		}
-
 		if (is_mmap(block->stack_node->stack->operation)) {
 			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 
-			if (options.kill)
+			if (unlikely(options.kill))
 				abort();
 		}
 
@@ -1427,10 +1420,10 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	}
 	else {
 		if (!process->attached) {
-			if (unlikely(options.kill)) {
-				fprintf(stderr, ">>> block %#lx not found pid:%d\n", ptr, process->pid);
+			fprintf(stderr, ">>> block %#lx not found pid:%d\n", ptr, process->pid);
+
+			if (unlikely(options.kill))
 				abort();
-			}
 		}
 	}
 }
@@ -1438,7 +1431,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *payload)
 {
 	unsigned long ptr;
-	unsigned long pid;
+	unsigned int pid;
 	struct list_head *it;
 
 	if (!process->tracing)
@@ -1467,11 +1460,11 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 				process_rb_insert_block(process, re->addr, re->size, re->stack, re->flags, re->operation);
 
 			realloc_del(re);
-
 			return;
 		}
 	}
 
+//	fprintf(stderr, ">>> unexpected realloc done pid: %u\n", pid);
 	return;
 }
 
@@ -1517,7 +1510,7 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 
 		process_dump_collision(process, block, ptr, size, mt_msg->operation);
 
-		if (options.kill)
+		if (unlikely(options.kill))
 			abort();
 
 		process_rb_delete_block(process, block);

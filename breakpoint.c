@@ -291,6 +291,9 @@ void breakpoint_hw_destroy(struct task *task)
 {
 	unsigned int i;
 
+	if (options.nohwbp)
+		return;
+
 	for(i = 0; i < HW_BREAKPOINTS; ++i)
 		task->hw_bp[i] = NULL;
 

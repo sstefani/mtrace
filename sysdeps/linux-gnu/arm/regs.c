@@ -59,6 +59,11 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 	}
 }
 
+unsigned int ip_reg_addr(void)
+{
+	return offsetof(struct pt_regs, ARM_pc);
+}
+
 arch_addr_t get_return_addr(struct task *task)
 {
 	return ARCH_ADDR_T(task->context.regs.ARM_lr);

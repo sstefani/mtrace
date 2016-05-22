@@ -669,7 +669,7 @@ static int ptrace_cont(struct task *task)
 	return 0;
 }
 
-int do_singlestep(struct task *task)
+int do_singlestep(struct task *task, struct breakpoint *bp)
 {
 	const uint32_t pc = get_instruction_pointer(task);
 	uint32_t cpsr;
@@ -714,16 +714,13 @@ int do_singlestep(struct task *task)
 	else
 		bp2 = NULL;
 
-	ret = handle_singlestep(task, ptrace_cont);
+	ret = handle_singlestep(task, ptrace_cont, bp);
 
 	if (bp1)
 		breakpoint_disable(task, bp1);
 	if (bp2)
 		breakpoint_disable(task, bp2);
 
-	if (ret)
-		return ret;
-
-	return 0;
+	return ret;
 }
 

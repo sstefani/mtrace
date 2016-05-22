@@ -113,22 +113,17 @@ static void report_alloc32(struct task *task, enum mt_operation op, unsigned lon
 	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
 }
 
-static void _report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
+static void report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
 {
 	debug(DEBUG_FUNCTION, "%d [%d]: %#lx %lu", op, task->pid, ptr, size);
+
+	if (!ptr)
+		return;
 
 	if (task_is_64bit(task))
 		report_alloc64(task, op, ptr, size, depth, libsym);
 	else
 		report_alloc32(task, op, ptr, size, depth, libsym);
-}
-
-static void report_alloc(struct task *task, enum mt_operation op, unsigned long ptr, unsigned long size, int depth, struct library_symbol *libsym)
-{
-	if (!ptr)
-		return;
-
-	_report_alloc(task, op, ptr, size, depth, libsym);
 }
 
 static void _report_alloc_op(struct task *task, struct library_symbol *libsym, enum mt_operation op)
@@ -186,21 +181,23 @@ static void _report_realloc(struct task *task, struct library_symbol *libsym)
 		report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
 	}
 
-	if (task_is_64bit(task)) {
-		struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc));
+	if (fetch_param(task, 0)) {
+		if (task_is_64bit(task)) {
+			struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc));
 
-		alloc->ptr = (uint64_t)ret;
-		alloc->size = (uint64_t)task->pid;
+			alloc->ptr = (uint64_t)ret;
+			alloc->size = (uint64_t)task->pid;
 
-		server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
-	}
-	else {
-		struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc));
+			server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
+		}
+		else {
+			struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc));
 
-		alloc->ptr = (uint32_t)ret;
-		alloc->size = (uint32_t)task->pid;
+			alloc->ptr = (uint32_t)ret;
+			alloc->size = (uint32_t)task->pid;
 
-		server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
+			server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
+		}
 	}
 }
 
@@ -208,7 +205,7 @@ static void report_realloc(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 
-	_report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
+	report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
 }
 
 static void _report_calloc(struct task *task, struct library_symbol *libsym)
@@ -368,6 +365,10 @@ static const struct function flist[] = {
 	{ "delete[](void*)",					"_ZdaPv",		1,	report_delete_array,	NULL },
 	{ "delete(void*, std::nothrow_t const&)",		"_ZdlPvRKSt9nothrow_t",	1,	report_delete,		NULL },
 	{ "delete[](void*, std::nothrow_t const&)",		"_ZdaPvRKSt9nothrow_t",	1,	report_delete_array,	NULL },
+	{ "delete(void*, unsigned long)",			"_ZdlPvm",		1,	report_delete,		NULL },
+	{ "delete[](void*, unsigned long)",			"_ZdaPvj",		1,	report_delete_array,	NULL },
+	{ "delete(void*, unsigned long)",			"_ZdlPvj",		1,	report_delete,		NULL },
+	{ "delete[](void*, unsigned long)",			"_ZdaPvm",		1,	report_delete_array,	NULL },
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)

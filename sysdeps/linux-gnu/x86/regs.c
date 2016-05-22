@@ -91,6 +91,15 @@ void set_instruction_pointer(struct task *task, arch_addr_t addr)
 		fprintf(stderr, "pid=%d Couldn't set instruction pointer: %s\n", task->pid, strerror(errno));
 }
 
+unsigned int ip_reg_addr(void)
+{
+#ifdef __x86_64__
+	return sizeof(unsigned long) * RIP;
+#else
+	return sizeof(unsigned long) * EIP;
+#endif
+}
+
 arch_addr_t get_return_addr(struct task *task)
 {
 	long a;
