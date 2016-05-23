@@ -113,7 +113,7 @@ struct library_symbol *library_symbol_new(struct libref *libref, arch_addr_t add
 	return libsym;
 }
 
-void library_delete(struct task *task, struct library *lib)
+static void library_delete(struct task *task, struct library *lib)
 {
 	if (lib == NULL)
 		return;

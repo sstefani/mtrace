@@ -119,7 +119,7 @@ int process_exec(struct task *task);
 
 struct task *task_new(pid_t pid);
 
-struct task *task_create(const char *command, char **argv);
+struct task *task_create(char **argv);
 
 void open_pid(pid_t pid);
 

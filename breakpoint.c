@@ -73,6 +73,9 @@ static void enable_sw_breakpoint(struct task *task, struct breakpoint *bp)
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	copy_from_to_proc(task, bp->addr, break_insn, bp->orig_value, BREAKPOINT_LENGTH);
+
+	bp->break_insn = !memcmp(break_insn, bp->orig_value, BREAKPOINT_LENGTH);
+	bp->was_hw = 0;
 }
 
 static void disable_sw_breakpoint(struct task *task, const struct breakpoint *bp)
@@ -230,6 +233,7 @@ void reorder_hw_bp(struct task *task)
 
 		bp->hw_bp_slot = i;
 		bp->hw = 1;
+		bp->was_hw = 1;
 
 		each_task(leader, enable_hw_bp_cb, bp);
 
@@ -260,6 +264,7 @@ static int insert_hw_bp_slot(struct task *task, struct breakpoint *bp)
 	bp->enabled = 1;
 	bp->hw_bp_slot = i;
 	bp->hw = 1;
+	bp->was_hw = 1;
 
 	each_task(leader, enable_hw_bp_cb, bp);
 
@@ -357,6 +362,7 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	bp->enabled = 0;
 	bp->locked = 0;
 	bp->deleted = 0;
+	bp->break_insn = 0;
 	bp->ext = ext;
 	bp->refcnt = 1;
 	bp->count = 0;
@@ -383,6 +389,7 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	case BP_SW:
 		memset(bp->orig_value, 0, sizeof(bp->orig_value));
 		bp->hw = 0;
+		bp->was_hw = 0;
 	}
 
 	if (dict_add(leader->breakpoints, (unsigned long)addr, bp) < 0) {
@@ -505,12 +512,13 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 
 	if (unlikely(options.verbose > 1 && bp->libsym)) {
 		fprintf(stderr,
-			"delete %s breakpoint %s:%s [%#lx] count=%u\n",
+			"delete %s breakpoint %s:%s [%#lx] count=%u was_hw=%u\n",
 				bp->type == BP_SW ? "sw" : "hw",
 				bp->libsym->libref->filename,
 				bp->libsym->func->demangled_name,
 				bp->addr,
-				bp->count);
+				bp->count,
+				bp->was_hw);
 	}
 
 	bp->deleted = 1;

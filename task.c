@@ -305,7 +305,7 @@ fail:
 	return -1;
 }
 
-struct task *task_create(const char *command, char **argv)
+struct task *task_create(char **argv)
 {
 	struct task *task;
 	pid_t pid;
@@ -319,7 +319,7 @@ struct task *task_create(const char *command, char **argv)
 	}
 
 	if (!pid) { /* child */
-		change_uid(options.command);
+		change_uid();
 		trace_me();
 		execvp(options.command, argv);
 		fprintf(stderr, "Can't execute `%s': %s\n", options.command, strerror(errno));

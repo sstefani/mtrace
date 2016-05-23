@@ -177,7 +177,7 @@ void wait_event_wakeup(void);
 int is_64bit(struct mt_elf *mte);
 
 /* change user id of a running process */
-void change_uid(const char *command);
+void change_uid(void);
 
 #endif
 

@@ -101,9 +101,6 @@ struct library {
 /* create a new symbol */
 struct library_symbol *library_symbol_new(struct libref *libref, arch_addr_t addr, const struct function *func);
 
-/* Delete library. Symbols are destroyed and freed. */
-void library_delete(struct task *leader, struct library *lib);
-
 /* Add a library to the list of the thread leader libraries.  */
 struct library *library_add(struct task *leader, struct libref *libref);
 

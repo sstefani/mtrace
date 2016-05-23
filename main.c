@@ -104,12 +104,12 @@ static void mtrace_exit(void)
 	each_pid(remove_task);
 }
 
-static void mtrace_init(char **cmd)
+static void mtrace_init(char **cmd_args)
 {
 	struct opt_p_t *opt_p_tmp;
 
 	if (options.command) {
-		struct task *task = task_create(options.command, cmd);
+		struct task *task = task_create(cmd_args);
 			
 		if (!task)
 			exit(EXIT_FAILURE);
@@ -138,7 +138,7 @@ static void mtrace_main(void)
 
 int main(int argc, char *argv[])
 {
-	char **cmd = process_options(argc, argv);
+	char **cmd_args = process_options(argc, argv);
 
 	init_pid_hash();
 
@@ -186,7 +186,7 @@ int main(int argc, char *argv[])
 	if (os_init())
 		exit(EXIT_FAILURE);
 
-	mtrace_init(cmd);
+	mtrace_init(cmd_args);
 	mtrace_main();
 	mtrace_exit();
 

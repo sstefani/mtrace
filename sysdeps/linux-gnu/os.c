@@ -315,7 +315,7 @@ finish:
 	return blocks;
 }
 
-void change_uid(const char *command)
+void change_uid(void)
 {
 	uid_t run_uid, run_euid;
 	gid_t run_gid, run_egid;
@@ -348,12 +348,11 @@ void change_uid(const char *command)
 		run_egid = run_gid;
 
 		if (!stat(options.command, &statbuf)) {
-			if (statbuf.st_mode & S_ISUID) {
+			if (statbuf.st_mode & S_ISUID)
 				run_euid = statbuf.st_uid;
-			}
-			if (statbuf.st_mode & S_ISGID) {
+
+			if (statbuf.st_mode & S_ISGID)
 				run_egid = statbuf.st_gid;
-			}
 		}
 		if (setregid(run_gid, run_egid) < 0) {
 			perror("mtrace-ng: setregid");

@@ -51,6 +51,8 @@ struct breakpoint {
 	unsigned int locked:1;
 	unsigned int deleted:1;
 	unsigned int hw:1;
+	unsigned int was_hw:1;
+	unsigned int break_insn:1;
 	union {
 		unsigned char orig_value[BREAKPOINT_LENGTH];
 #if HW_BREAKPOINTS > 0

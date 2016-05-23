@@ -466,7 +466,6 @@ int handle_singlestep(struct task *task, int (*singlestep)(struct task *task), s
 	int status;
 	int stop_signal;
 	unsigned long ip;
-	int ret;
 
 	for(;;) {
 		if (unlikely(singlestep(task) == -1))
@@ -489,26 +488,27 @@ int handle_singlestep(struct task *task, int (*singlestep)(struct task *task), s
 		}
 
 		if (ip != bp->addr) {
-			ret = 0;
-
-			if (likely(stop_signal == SIGTRAP))
-				return ret;
+			if (likely(stop_signal == SIGTRAP)) {
+				if (bp->break_insn) {
+					queue_event(task);
+					return 1;
+				}
+				return 0;
+			}
 		}
-		else
-			ret = 1;
 
 		if (likely(!stop_signal)) {
 			queue_event(task);
-			return ret;
+			return 1;
 		}
 
 		if (fix_signal(task, stop_signal) > 0) {
 			queue_event(task);
-			return ret;
+			return 1;
 		}
 
-		if (!ret)
-			return ret;
+		if (ip != bp->addr)
+			return 0;
 	}
 }
 
