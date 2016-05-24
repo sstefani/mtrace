@@ -473,7 +473,6 @@ static void linkmap_del(struct task *task, struct lt_r_debug_64 *dbg)
 }
 
 static int load_debug_struct(struct task *task, arch_addr_t debug_addr, struct lt_r_debug_64 *ret)
-	
 {
 	debug(DEBUG_FUNCTION, "pid=%d", task->pid);
 
@@ -559,7 +558,7 @@ int process_get_entry(struct task *task, unsigned long *entryp, unsigned long *i
 {
 	PROC_PID_FILE(fn, "/proc/%d/auxv", task->pid);
 	int fd, ret;
-	
+
 	fd = open(fn, O_RDONLY);
 	if (fd == -1)
 		goto fail;

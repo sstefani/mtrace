@@ -165,6 +165,8 @@ void operator delete(void* p) __THROW
 void operator delete(void* p, const std::nothrow_t& nt) __THROW
 void operator delete[](void* p) __THROW
 void operator delete[](void* p, const std::nothrow_t& nt) __THROW
+void operator delete(void*, unsigned long)
+void operator delete[](void*, unsigned long)
 .fi
 .in
 .PP
@@ -306,6 +308,12 @@ Sort by the number of average allocations (number of bytes in used / number of o
 .RE
 .RE
 .RS
+\fIbadfree\fR
+.RS
+Sort by number of bad free releases (only useful with \-S option).
+.RE
+.RE
+.RS
 \fIbytes-leaked\fR
 .RS
 Sort by number of bytes leaked (only useful with \-a option).
@@ -348,8 +356,8 @@ Sort by number of bytes in use of all open allocations.
 .RE
 .RE
 .IP "\-S, \-\-sanity"
-Check mismatching operations against new/delete. This options also
-sets the sort-by options to mismatched.
+Check mismatching operations against new/delete or free releases. This options
+also sets the sort-by options to mismatched if no other sort option was set.
 .IP "\-t, \-\-trace"
 Run \fBmtrace-ng\fR in trace mode.  In this mode all attached processes will run under
 the control of \fBmtrace-ng\fR and all dynamic memory function calls will be traced.
@@ -399,7 +407,7 @@ at any time.  It accepts a maximum of three parameters:
 \fIsortby\fR
 .RS
 Sort the output of dump by the keyword.  The keyword is the same as for the
-\-S option (\fIallocations, \fIaverage\fR, \fIbytes-leaked\fR, \fIleaks\fR,
+\-S option (\fIallocations, \fIaverage\fR, \fIbadfree\fR \fIbytes-leaked\fR, \fIleaks\fR,
 \fImismatched\fR, \fIstacks\fR, \fItotal\fR, \fItsc\fR and \fIusage\fR).  See
 \-S option for more details about the sortby keywords.  The default sort order
 is \fIallocations\fR when no sortby parameter is used.

@@ -106,7 +106,7 @@ static void usage(void)
 		"                      allocations, average, bytes-leaked, leaks,\n"
 		"                      mismatched, stacks, total, tsc, usage\n"
 #endif
-		" -S, --sanity        check mismatching operations against new/delete\n"
+		" -S, --sanity        check for mismatching operations\n"
 		" -t, --trace         trace mode\n"
 		" -u, --user=USERNAME run command with the userid, groupid of username\n"
 		" -V, --version       output version information and exit\n"
@@ -198,7 +198,7 @@ static void def_config(void)
 {
 	char *path;
 	char *filename;
-		
+
 	path = getenv("HOME");
 	if (!path) {
 		struct passwd *pwd = getpwuid(getuid());
@@ -504,6 +504,9 @@ char **process_options(int argc, char **argv)
 			if (!strncmp(optarg, "average", 2))
 				options.sort_by = OPT_SORT_AVERAGE;
 			else
+			if (!strncmp(optarg, "badfree", 1))
+				options.sort_by = OPT_SORT_BADFREE;
+			else
 			if (!strncmp(optarg, "bytes-leaked", 1))
 				options.sort_by = OPT_SORT_BYTES_LEAKED;
 			else
@@ -666,7 +669,7 @@ char **process_options(int argc, char **argv)
 		}
 	}
 	else {
-		if (options.sanity)
+		if (options.sanity && options.sort_by == -1)
 			options.sort_by = OPT_SORT_MISMATCHED;
 	}
 

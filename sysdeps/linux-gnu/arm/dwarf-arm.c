@@ -612,7 +612,7 @@ static int arm_frame_step(struct dwarf_addr_space *as)
 		ip_loc = DWARF_MEM_LOC(fp);
 		fp_loc = DWARF_MEM_LOC(fp - 4);
 	}
-		
+
 	if (dwarf_get(as, ip_loc, &ip) < 0)
 		return -DWARF_EBADFRAME;
 

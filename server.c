@@ -98,8 +98,7 @@ int server_poll(void)
 {
 	int ret = 0;
 
-
- 	if (command_pending) {
+	if (command_pending) {
 		ret = server_handle_command();
 
 		if (options.trace)

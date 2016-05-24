@@ -212,7 +212,7 @@ static inline void list_splice_init(struct list_head *list,
  */
 #define list_for_each(pos, head) \
 	for (pos = (head)->next; prefetch(pos->next), pos != (head); \
-        	pos = pos->next)
+		pos = pos->next)
 
 /**
  * list_for_each_safe - iterate over a list safe against removal of list entry

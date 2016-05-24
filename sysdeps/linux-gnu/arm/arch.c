@@ -207,7 +207,7 @@ static int arm_get_next_pcs(struct task *task, const uint32_t pc, uint32_t next_
 			if (BITS(this_instr, 12, 15) != ARM_REG_PC)
 				break;
 
-			if (BITS(this_instr, 22, 25) == 0 && BITS(this_instr, 4, 7) == 9) 	/* multiply */
+			if (BITS(this_instr, 22, 25) == 0 && BITS(this_instr, 4, 7) == 9) /* multiply */
 				goto invalid;
 
 			/* BX <reg>, BLX <reg> */

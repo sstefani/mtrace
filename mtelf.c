@@ -370,7 +370,7 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 					break;
 				}
 			}
-			
+
 			mte->dyn_addr = shdr.sh_addr + bias;
 		}
 	}
@@ -448,7 +448,7 @@ static arch_addr_t find_solib_break(struct mt_elf *mte)
 {
 	if (mte->symtab && mte->strtab) {
 		arch_addr_t addr = _find_solib_break(mte, mte->symtab, mte->strtab, mte->symtab_count);
-		
+
 		if (addr)
 			return addr;
 	}

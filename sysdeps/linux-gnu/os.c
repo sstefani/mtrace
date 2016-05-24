@@ -59,7 +59,7 @@ struct map {
 	unsigned long long start;
 	unsigned long long end;
 };
- 
+
 static void report_fault(int signo, siginfo_t* siginf, void* arg)
 {
 	fprintf(stderr, "fault signal %d (%s)\n", signo, strsignal(signo));
@@ -70,37 +70,37 @@ static void report_fault(int signo, siginfo_t* siginf, void* arg)
 	void *trace[48];
 	char **strings;
 	Dl_info info;
- 	char linkname[PATH_MAX];
+	char linkname[PATH_MAX];
 	bfd* abfd = 0;
 	asymbol **syms = 0;
 	asection *text = 0;
 	int l;
 
 	l = readlink("/proc/self/exe", linkname, sizeof(linkname));
- 	if (l == -1) {
+	if (l == -1) {
 		perror("failed to find executable\n");
 		return;
- 	}
+	}
 	linkname[l] = 0;
- 
-	bfd_init();
- 
- 	abfd = bfd_openr(linkname, 0);
- 	if (!abfd) {
- 		perror("bfd_openr failed: ");
- 		return;
- 	}
- 
-	/* oddly, this is required for it to work... */
- 	bfd_check_format(abfd,bfd_object);
- 
- 	unsigned storage_needed = bfd_get_symtab_upper_bound(abfd);
- 	syms = (asymbol **) malloc(storage_needed);
 
- 	bfd_canonicalize_symtab(abfd, syms);
+	bfd_init();
+
+	abfd = bfd_openr(linkname, 0);
+	if (!abfd) {
+		perror("bfd_openr failed: ");
+		return;
+	}
+
+	/* oddly, this is required for it to work... */
+	bfd_check_format(abfd,bfd_object);
+
+	unsigned storage_needed = bfd_get_symtab_upper_bound(abfd);
+	syms = (asymbol **) malloc(storage_needed);
+
+	bfd_canonicalize_symtab(abfd, syms);
 
 	text = bfd_get_section_by_name(abfd, ".text");
- 
+
 	nptrs = backtrace(trace, ARRAY_SIZE(trace));
 
 	strings = backtrace_symbols(trace, nptrs);
@@ -216,7 +216,7 @@ static struct map *get_writeable_mappings(struct task *task)
 
 		if (permw != 'w' || permr != 'r')
 			continue;
-		
+
 		if (map >= maps_size - 1) {
 			maps_size += 16;
 			maps = realloc(maps, maps_size * sizeof(*maps));

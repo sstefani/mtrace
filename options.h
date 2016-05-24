@@ -39,6 +39,7 @@
 #define OPT_SORT_TSC		6
 #define OPT_SORT_USAGE		7
 #define OPT_SORT_MISMATCHED	8
+#define OPT_SORT_BADFREE	9
 
 struct options_t options;
 

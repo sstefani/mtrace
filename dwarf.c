@@ -495,7 +495,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 		valp = &val;
 		tmp_ptr = NULL;
 	}
-	
+
 	if (local)
 		as = NULL;
 

@@ -227,7 +227,7 @@ static void process_event(struct task *task, int status)
 		start_time(&task->halt_time);
 
 	task->stopped = 1;
-	
+
 	leader->threads_stopped++;
 
 	stop_signal = _process_event(task, status);
@@ -534,7 +534,7 @@ struct task *wait_event(void)
 	struct task *task;
 	int status;
 	int pid;
-	
+
 	pid = waitpid(-1, &status, __WALL);
 	if (unlikely(pid == -1)) {
 		if (errno != EINTR) {

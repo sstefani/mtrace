@@ -112,7 +112,7 @@ static int dump_pager(void)
 	struct termios termios_old;
 	int len;
 	ioevent_func oldfunc;
-	
+
 	len = printf("Press <space> for next line, q for quit and any other for next page\r") - 1;
 	fflush(stdout);
 
@@ -194,7 +194,7 @@ static int dump_line(char *s, int n)
 	}
 	return 0;
 }
-			
+
 int dump_printf(const char *fmt, ...)
 {
 	char *str;

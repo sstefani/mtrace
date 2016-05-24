@@ -103,9 +103,9 @@ unsigned int ip_reg_addr(void)
 arch_addr_t get_return_addr(struct task *task)
 {
 	long a;
-	
+
 	errno = 0;
-	
+
 	a = ptrace(PTRACE_PEEKTEXT, task->pid, get_stack_pointer(task), 0);
 	if (a == -1 && errno) {
 		if (errno != ESRCH)

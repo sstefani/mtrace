@@ -72,6 +72,7 @@ struct rb_stack {
 	unsigned long long bytes_leaked;
 	unsigned long long tsc;
 	unsigned long long n_mismatched;
+	unsigned long long n_badfree;
 };
 
 struct map {
@@ -460,6 +461,7 @@ static struct rb_stack *stack_clone(struct process *process, struct rb_stack *st
 	this->leaks = stack_node->leaks;
 	this->n_allocations = stack_node->n_allocations;
 	this->n_mismatched = stack_node->n_mismatched;
+	this->n_badfree = stack_node->n_badfree;
 	this->total_allocations = stack_node->total_allocations;
 	this->bytes_used = stack_node->bytes_used;
 	this->bytes_leaked = stack_node->bytes_leaked;
@@ -527,6 +529,7 @@ static struct rb_stack *stack_add(struct process *process, unsigned int pid, voi
 	this->refcnt = 0;
 	this->n_allocations = 0;
 	this->n_mismatched = 0;
+	this->n_badfree = 0;
 	this->total_allocations = 0;
 	this->bytes_used = 0;
 	this->leaks = 0;
@@ -924,13 +927,42 @@ static int sort_tsc(const struct rb_stack **p, const struct rb_stack **q)
 	return 0;
 }
 
-static int sort_mismatched(const struct rb_stack **p, const struct rb_stack **q)
+static int _sort_badfree(const struct rb_stack **p, const struct rb_stack **q)
+{
+	if ((*p)->n_badfree > (*q)->n_badfree)
+		return -1;
+	if ((*p)->n_badfree < (*q)->n_badfree)
+		return 1;
+	return 0;
+}
+
+static int _sort_mismatched(const struct rb_stack **p, const struct rb_stack **q)
 {
 	if ((*p)->n_mismatched > (*q)->n_mismatched)
 		return -1;
 	if ((*p)->n_mismatched < (*q)->n_mismatched)
 		return 1;
 	return 0;
+}
+
+static int sort_badfree(const struct rb_stack **p, const struct rb_stack **q)
+{
+	int ret;
+
+	ret = _sort_badfree(p, q);
+	if (ret)
+		return ret;
+	return _sort_mismatched(p, q);
+}
+
+static int sort_mismatched(const struct rb_stack **p, const struct rb_stack **q)
+{
+	int ret;
+
+	ret = _sort_mismatched(p, q);
+	if (ret)
+		return ret;
+	return _sort_badfree(p, q);
 }
 
 static int sort_usage(const struct rb_stack **p, const struct rb_stack **q)
@@ -1047,7 +1079,18 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 		struct rb_stack *stack = arr[i];
 
 		if (!skipfunc(stack)) {
-			if (!stack->n_mismatched) {
+			if (stack->n_mismatched || stack->n_badfree) {
+				if (dump_printf(
+					"Stack (%s):\n"
+					" total number of mismatches: %llu\n"
+					" total number of bad free: %llu\n",
+						str_operation(stack->stack->operation),
+						stack->n_mismatched,
+						stack->n_badfree
+				) == -1)
+					break;
+			}
+			else {
 				if (dump_printf(
 					"Stack (%s):\n"
 					" bytes used: %llu\n"
@@ -1064,15 +1107,6 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 					if (dump_printf( " leaked allocations: %lu (%llu bytes)\n", stack->leaks, stack->bytes_leaked) == -1)
 						break;
 				}
-			}
-			else {
-				if (dump_printf(
-					"Stack (%s):\n"
-					" total number of mismatches: %llu\n",
-						str_operation(stack->stack->operation),
-						stack->n_mismatched
-				) == -1)
-					break;
 			}
 
 			if (dump_printf(" tsc: %llu\n", stack->tsc) == -1)
@@ -1118,11 +1152,6 @@ static int skip_zero_allocations(struct rb_stack *stack)
 	return !stack->n_allocations;
 }
 
-static int skip_non_mismatched(struct rb_stack *stack)
-{
-	return !stack->n_mismatched;
-}
-
 static int skip_zero_leaks(struct rb_stack *stack)
 {
 	return !stack->leaks;
@@ -1165,7 +1194,12 @@ void process_dump_sort_tsc(struct process *process, const char *outfile, int lfl
 
 void process_dump_sort_mismatched(struct process *process, const char *outfile, int lflag)
 {
-	process_dump(process, sort_mismatched, skip_non_mismatched, outfile, lflag);
+	process_dump(process, sort_mismatched, skip_none, outfile, lflag);
+}
+
+void process_dump_sort_badfree(struct process *process, const char *outfile, int lflag)
+{
+	process_dump(process, sort_badfree, skip_none, outfile, lflag);
 }
 
 void process_dump_stacks(struct process *process, const char *outfile, int lflag)
@@ -1260,10 +1294,10 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			break;
 
 		if (!is_mmap(block->stack_node->stack->operation)) {
-			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
-
-			if (unlikely(options.kill))
+			if (unlikely(options.kill)) {
+				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 				abort();
+			}
 
 			break;
 		}
@@ -1388,17 +1422,19 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	block = process_rb_search(&process->block_table, ptr);
 	if (block) {
 		if (is_mmap(block->stack_node->stack->operation)) {
-			fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
-
-			if (unlikely(options.kill))
+			if (unlikely(options.kill)) {
+				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
 				abort();
+			}
 		}
 
-		if (!is_sane(block, mt_msg->operation)) {
-			struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+		if (stack_size) {
+			if (!is_sane(block, mt_msg->operation)) {
+				struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
 
-			stack->n_mismatched++;
-			stack->tsc = process->tsc++;
+				stack->n_mismatched++;
+				stack->tsc = process->tsc++;
+			}
 		}
 
 		if (mt_msg->operation == MT_REALLOC_ENTER) {
@@ -1420,10 +1456,17 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 	}
 	else {
 		if (!process->attached) {
-			fprintf(stderr, ">>> block %#lx not found pid:%d\n", ptr, process->pid);
-
-			if (unlikely(options.kill))
+			if (unlikely(options.kill)) {
+				fprintf(stderr, ">>> block %#lx not found pid:%d\n", ptr, process->pid);
 				abort();
+			}
+
+			if (stack_size) {
+				struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+
+				stack->n_badfree++;
+				stack->tsc = process->tsc++;
+			}
 		}
 	}
 }
@@ -1464,7 +1507,10 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 		}
 	}
 
-//	fprintf(stderr, ">>> unexpected realloc done pid: %u\n", pid);
+	if (unlikely(options.kill)) {
+		fprintf(stderr, ">>> unexpected realloc done pid: %u\n", pid);
+		abort();
+	}
 	return;
 }
 
@@ -1579,7 +1625,10 @@ void process_dump_sortby(struct process *process)
 		_process_dump(process, sort_usage, skip_zero_allocations, options.output, options.lflag);
 		break;
 	case OPT_SORT_MISMATCHED:
-		_process_dump(process, sort_mismatched, skip_non_mismatched, options.output, options.lflag);
+		_process_dump(process, sort_mismatched, skip_none, options.output, options.lflag);
+		break;
+	case OPT_SORT_BADFREE:
+		_process_dump(process, sort_badfree, skip_none, options.output, options.lflag);
 		break;
 	default:
 		_process_dump(process, sort_allocations, skip_zero_allocations, options.output, options.lflag);
@@ -1688,7 +1737,7 @@ struct block_helper {
 	unsigned long	mask;
 	unsigned long	fmask;
 	unsigned long	fmode;
-	void * 		data;
+	void *		data;
 };
 
 static void set_block(struct rb_block *block, void *data)

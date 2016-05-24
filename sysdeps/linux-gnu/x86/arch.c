@@ -141,7 +141,7 @@ static int set_breakpoint_mode(struct task *task, unsigned int n, int type, int 
 	dr7 = task->arch.dr7 & ~mask;
 
 	dr7 |= mode << (16 + 4 * n);
-	
+
 	if (local) {
 		dr7 |= 0b01 << (2 * n);
 		dr7 |= 1 << 8;

@@ -110,7 +110,7 @@ static void mtrace_init(char **cmd_args)
 
 	if (options.command) {
 		struct task *task = task_create(cmd_args);
-			
+
 		if (!task)
 			exit(EXIT_FAILURE);
 

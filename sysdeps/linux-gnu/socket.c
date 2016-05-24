@@ -106,7 +106,7 @@ int sock_send_msg(int fd, enum mt_operation op, uint32_t pid, const void *payloa
 	}
 
 	ret = TEMP_FAILURE_RETRY(sendmsg(fd, &msghdr, MSG_NOSIGNAL));
-	
+
 	if ((size_t)ret != sizeof(mt_msg) + payload_len)
 		return -1;
 

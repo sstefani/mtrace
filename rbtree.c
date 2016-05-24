@@ -400,7 +400,7 @@ int rb_iterate(const struct rb_root *root, int (*func)(struct rb_node *,void *us
 
 			do {
 				parent = rb_parent(node);
-				
+
 				ret = func(node, user);
 				if (ret)
 					break;

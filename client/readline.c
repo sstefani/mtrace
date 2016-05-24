@@ -92,6 +92,7 @@ static int quit;
 static struct cmd_opt dump_opts[] = {
 	{ "allocations", 2, process_dump_sort_allocations, "sort by number of open allocations" },
 	{ "average", 2, process_dump_sort_average, "sort by average allocation of bytes (usage / allocations)" },
+	{ "badfree", 1, process_dump_sort_badfree, "sort by number of badfree releases" },
 	{ "bytes-leaked", 1, process_dump_sort_bytes_leaked, "sort by number of leaked bytes" },
 	{ "leaks", 1, process_dump_sort_leaks, "sort by number of detected leaks" },
 	{ "mismatched", 1, process_dump_sort_mismatched, "sort by number of mismatched releases" },
@@ -170,7 +171,7 @@ static struct cmd_opt cmds[] = {
 	{
 		set_str,
 		2,
-		do_set,	
+		do_set,
 		"change settings",
 		"<option> [arg]",
 		set_opts
@@ -178,7 +179,7 @@ static struct cmd_opt cmds[] = {
 	{
 		show_str,
 		2,
-		do_show,	
+		do_show,
 		"show settings",
 		"<option> [arg]",
 		show_opts
@@ -356,7 +357,7 @@ static void readline_handler(char *line)
 
 	s = linedup;
 	i = 0;
-	
+
 	for(;;) {
 		s = skip_spaces(s);
 		if (!*s)
@@ -616,7 +617,7 @@ static int do_help(struct cmd_opt *cmd, int argc, const char *argv[])
 {
 	int i;
 	unsigned int len;
-	
+
 	if (argc <= 1) {
 		for(i = 0; i != ARRAY_SIZE(cmds) - 1; ++i)
 			printf(" %s - %s\n", cmds[i].name, cmds[i].info);

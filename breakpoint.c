@@ -383,7 +383,7 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	case BP_AUTO:
 	case BP_HW:
 #if HW_BREAKPOINTS > 1
-	 	list_add_tail(&bp->link_list, &leader->hw_bp_list);
+		list_add_tail(&bp->link_list, &leader->hw_bp_list);
 		leader->hw_bp_num++;
 #endif
 	case BP_SW:

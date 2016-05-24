@@ -63,7 +63,7 @@ static void report_alloc64(struct task *task, enum mt_operation op, unsigned lon
 						if (unlikely(!alloc->data[i]))
 							break;
 
-						 ++i;
+						++i;
 					}
 				}
 
@@ -244,7 +244,7 @@ static void _report_mmap64(struct task *task, struct library_symbol *libsym)
 	} size;
 
 	size.l = fetch_param(task, 1);
-	
+
 	if (!task_is_64bit(task)) {
 		size.v.v1 = fetch_param(task, 1);
 		size.v.v2 = fetch_param(task, 2);

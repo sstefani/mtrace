@@ -265,9 +265,6 @@ static struct library *_library_add(struct task *leader, struct libref *libref)
 
 	struct library *lib = malloc(sizeof(*lib));
 
-	if (lib == NULL)
-		return NULL;
-
 	memset(lib, 0, sizeof(*lib));
 
 	lib->libref = libref_get(libref);

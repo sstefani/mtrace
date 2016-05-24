@@ -259,7 +259,7 @@ static void handle_breakpoint(struct task *task)
 {
 	struct breakpoint *bp = task->event.e_un.breakpoint;
 	unsigned int hw = bp->hw;
-	
+
 	debug(DEBUG_FUNCTION, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	if (unlikely(options.verbose > 1))

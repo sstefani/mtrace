@@ -202,7 +202,7 @@ static int parse_config(const char *filename)
 	char *p;
 	struct stat statbuf;
 	int fd;
-	
+
 	fd = open(filename, O_RDONLY);
 	if (fd == -1)
 		fatal("could not open config file: `%s' (%s)", filename, strerror(errno));
@@ -248,10 +248,10 @@ static struct process *pid_rb_delete(struct rb_root *root, unsigned int pid)
 
 	if (data) {
 		process = data->process;
-		
+
 		rb_erase(&data->node, root);
 		free(data);
-	
+
 		return process;
 	}
 	return NULL;
@@ -807,7 +807,7 @@ int client_send_msg(struct process *process, enum mt_operation op, void *payload
 
 	ret = sock_send_msg(client_fd, process->val16(op), process->pid, payload, payload_len);
 
- 	if (ret < 0)
+	if (ret < 0)
 		client_broken();
 	return ret;
 }
