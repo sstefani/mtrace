@@ -39,10 +39,6 @@
 #include <sys/prctl.h>
 #include <sys/uio.h>
 
-#ifdef HAVE_LIBSELINUX
-#include <selinux/selinux.h>
-#endif
-
 #include "backend.h"
 #include "breakpoint.h"
 #include "debug.h"

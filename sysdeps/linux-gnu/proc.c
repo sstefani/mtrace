@@ -162,10 +162,10 @@ int process_tasks(pid_t pid, pid_t ** ret_tasks, size_t *ret_n)
 		return -1;
 
 	for(;;) {
-		struct dirent entry;
 		struct dirent *result;
 
-		if (readdir_r(d, &entry, &result) != 0) {
+		result = readdir(d);
+		if (!result) {
 			free(tasks);
 			return -1;
 		}

@@ -44,6 +44,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <sys/prctl.h>
+#include <sys/sysmacros.h>
 
 #include "backend.h"
 #include "breakpoint.h"

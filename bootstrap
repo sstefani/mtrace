@@ -1,9 +1,0 @@
-#!/bin/sh
-make clean
-make maintainer-clean
-rm -rf config autom4te.cache
-libtoolize -c
-aclocal
-autoheader
-automake --add-missing -c
-autoconf

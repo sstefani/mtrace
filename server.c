@@ -31,6 +31,7 @@
 #include <sys/sysinfo.h>
 #include <semaphore.h>
 #include <netinet/tcp.h>
+#include <sys/uio.h>
 
 #include "backend.h"
 #include "breakpoint.h"

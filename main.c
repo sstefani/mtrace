@@ -39,7 +39,9 @@
 #include "backend.h"
 #include "breakpoint.h"
 #include "common.h"
+#ifndef DISABLE_CLIENT
 #include "client.h"
+#endif
 #include "debug.h"
 #include "options.h"
 #include "library.h"
@@ -153,7 +155,7 @@ int main(int argc, char *argv[])
 				exit(EXIT_FAILURE);
 		}
 		else {
-#if DISABLE_CLIENT
+#ifdef DISABLE_CLIENT
 			fprintf(stderr, "direct mode not supported\n");
 			exit(EXIT_FAILURE);
 #else
@@ -168,7 +170,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	else {
-#if DISABLE_CLIENT
+#ifdef DISABLE_CLIENT
 		fprintf(stderr, "direct mode not supported\n");
 		exit(EXIT_FAILURE);
 #else
@@ -193,7 +195,7 @@ int main(int argc, char *argv[])
 	report_info(0);
 	report_disconnect();
 
-#if !DISABLE_CLIENT
+#ifndef DISABLE_CLIENT
 	client_stop();
 #endif
 	server_stop();
