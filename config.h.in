@@ -1,6 +1,13 @@
 #define PACKAGE_VERSION "@MT_VERSION_STRING@"
 
+#ifndef HAVE_PROCESS_VM_READV
 #cmakedefine HAVE_PROCESS_VM_READV
-#cmakedefine HAVE_LIBSELINUX
+#endif
 
+#ifndef HAVE_LIBSELINUX
+#cmakedefine HAVE_LIBSELINUX
+#endif
+
+#ifdef DISABLE_CLIENT
 #cmakedefine DISABLE_CLIENT
+#endif

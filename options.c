@@ -39,6 +39,7 @@
 #include <pwd.h>
 
 #include "common.h"
+#include "debug.h"
 #include "options.h"
 
 #ifndef SYSCONFDIR
@@ -171,10 +172,10 @@ static char *search_for_command(char *filename)
 
 static int add_opt_F(char *filename)
 {
-	struct opt_F_t *tmp = malloc(sizeof(*tmp));
-
 	if (access(filename, R_OK))
 		return -1;
+
+	struct opt_F_t *tmp = malloc(sizeof(*tmp));
 
 	if (!tmp) {
 		fprintf(stderr, "%s\n", strerror(errno));

@@ -50,6 +50,7 @@ struct breakpoint {
 	unsigned int enabled:1;
 	unsigned int locked:1;
 	unsigned int deleted:1;
+	unsigned int sw:1;
 	unsigned int hw:1;
 	unsigned int was_hw:1;
 	unsigned int break_insn:1;
@@ -68,9 +69,6 @@ struct breakpoint {
 
 /* setup the basic breakpoint support for a given leader */
 void breakpoint_setup(struct task *leader);
-
-/* Call on-hit handler of BP, if any is set.  */
-int breakpoint_on_hit(struct task *task, struct breakpoint *bp);
 
 /* get a new breakpoint structure. */
 struct breakpoint *breakpoint_new(struct task *task, arch_addr_t addr, struct library_symbol *libsym, int type);
@@ -92,6 +90,7 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp);
 
 void breakpoint_enable_all(struct task *leader);
 void breakpoint_disable_all(struct task *leader);
+void breakpoint_invalidate_all(struct task *leader);
 void breakpoint_enable_all_nonlocked(struct task *leader);
 void breakpoint_disable_all_nonlocked(struct task *leader);
 void breakpoint_clear_all(struct task *leader);
@@ -105,10 +104,14 @@ void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp);
 #else
 static inline void enable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
+	(void)task;
+	(void)bp;
 }
 
 static inline void disable_scratch_hw_bp(struct task *task, struct breakpoint *bp)
 {
+	(void)task;
+	(void)bp;
 }
 #endif
 
@@ -120,10 +123,12 @@ void breakpoint_hw_destroy(struct task *task);
 #else
 static inline void breakpoint_hw_clone(struct task *task)
 {
+	(void)task;
 }
 
 static inline void breakpoint_hw_destroy(struct task *task)
 {
+	(void)task;
 }
 #endif
 

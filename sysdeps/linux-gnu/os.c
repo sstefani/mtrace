@@ -63,6 +63,9 @@ struct map {
 
 static void report_fault(int signo, siginfo_t* siginf, void* arg)
 {
+	(void)siginf;
+	(void)arg;
+
 	fprintf(stderr, "fault signal %d (%s)\n", signo, strsignal(signo));
 
 #ifndef DISABLE_CLIENT
@@ -148,6 +151,8 @@ skip:
 
 static void signal_exit(int sig)
 {
+	(void)sig;
+
 	signal(SIGINT, SIG_IGN);
 	signal(SIGTERM, SIG_IGN);
 
@@ -364,28 +369,6 @@ void change_uid(void)
 			exit(1);
 		}
 	}
-}
-
-ssize_t sock_fd_write(int sock, void *buf, ssize_t buflen, int fd)
-{
-	ssize_t		size;
-	struct msghdr	msg;
-	struct iovec	iov;
-
-	iov.iov_base = buf;
-	iov.iov_len = buflen;
-
-	msg.msg_name = NULL;
-	msg.msg_namelen = 0;
-	msg.msg_iov = &iov;
-	msg.msg_iovlen = 1;
-
-	msg.msg_control = NULL;
-	msg.msg_controllen = 0;
-
-	size = sendmsg(sock, &msg, MSG_DONTWAIT);
-
-	return size;
 }
 
 int os_init(void)

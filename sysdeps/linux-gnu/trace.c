@@ -52,34 +52,46 @@
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile pid_t wakeup_pid = -1;
 
-static int inline task_kill(struct task *task, int sig)
+static inline int task_kill(struct task *task, int sig)
 {
 	errno = 0;
 
 	return syscall(__NR_tgkill, task->leader->pid, task->pid, sig);
 }
 
+static inline int wait_task(struct task *task, int *status)
+{
+	int ret;
+
+	ret = TEMP_FAILURE_RETRY(waitpid(task ? task->pid : -1, status, __WALL));
+	if (ret == -1) {
+		if (task)
+			fprintf(stderr, "!!!%s: waitpid pid=%d %s\n", __func__,  task->pid, strerror(errno));
+	}
+	return ret;
+}
+
 static int trace_setup(struct task *task, int status, int signum)
 {
-	int stop_signal;
+	int sig;
 
-	task->traced = 1;
+	task->attached = 1;
 	task->stopped = 1;
 	task->leader->threads_stopped++;
-	task->event.type = EVENT_SIGNAL;
+	task->event.type = EVENT_NEW;
 	task->event.e_un.signum = 0;
 
 	if (!WIFSTOPPED(status)) {
-		fprintf(stderr, "%s pid=%d not stopped\n", __FUNCTION__, task->pid);
+		fprintf(stderr, "!!!pid=%d not stopped\n", task->pid);
 		return -1;
 	}
 
-	stop_signal = WSTOPSIG(status);
+	sig = WSTOPSIG(status);
 
-	if (stop_signal != signum) {
-		task->event.e_un.signum = stop_signal;
+	if (sig != signum) {
+		task->event.e_un.signum = sig;
 
-		fprintf(stderr, "%s pid=%d unexpected trace signal (got:%d expected:%d)\n", __FUNCTION__, task->pid, stop_signal, signum);
+		fprintf(stderr, "!!!pid=%d unexpected trace signal (got:%d expected:%d)\n", task->pid, sig, signum);
 		return -1;
 	}
 
@@ -90,10 +102,8 @@ static int _trace_wait(struct task *task, int signum)
 {
 	int status;
 
-	if (unlikely(TEMP_FAILURE_RETRY(waitpid(task->pid, &status, __WALL)) != task->pid)) {
-		fprintf(stderr, "%s pid=%d %s\n", __FUNCTION__, task->pid, strerror(errno));
+	if (unlikely(wait_task(task, &status) == -1))
 		return -1;
-	}
 
 	if (WIFEXITED(status))
 		return -1;
@@ -103,10 +113,10 @@ static int _trace_wait(struct task *task, int signum)
 
 int trace_wait(struct task *task)
 {
+	assert(task->attached == 0);
+
 	if (_trace_wait(task, SIGTRAP))
 		return -1;
-
-	queue_event(task);
 
 	return 0;
 }
@@ -114,6 +124,8 @@ int trace_wait(struct task *task)
 static int child_event(struct task *task, enum event_type ev)
 {
 	unsigned long data;
+
+	debug(DEBUG_EVENT, "child event %d pid=%d, newpid=%d", ev, task->pid, task->event.e_un.newpid);
 
 	if (unlikely(ptrace(PTRACE_GETEVENTMSG, task->pid, NULL, &data) == -1)) {
 		debug(DEBUG_EVENT, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
@@ -128,10 +140,7 @@ static int child_event(struct task *task, enum event_type ev)
 		if (unlikely(!child))
 			return -1;
 
-		if (_trace_wait(child, SIGSTOP)) {
-			remove_task(child);
-			return -1;
-		}
+		child->attached = 1;
 	}
 
 	task->event.e_un.newpid = pid;
@@ -142,44 +151,59 @@ static int child_event(struct task *task, enum event_type ev)
 
 static int _process_event(struct task *task, int status)
 {
-	int stop_signal;
+	int sig = WSTOPSIG(status);
+
+	task->stopped = 1;
+
+	assert(task->event.type == EVENT_NONE);
 
 	if (WIFSIGNALED(status)) {
+		debug(DEBUG_EVENT, "EXIT_SIGNAL: pid=%d, signum=%d", task->pid, task->event.e_un.signum);
+
 		task->event.type = EVENT_EXIT_SIGNAL;
 		task->event.e_un.signum = WTERMSIG(status);
-		debug(DEBUG_EVENT, "EXIT_SIGNAL: pid=%d, signum=%d", task->pid, task->event.e_un.signum);
 		return 0;
 	}
 
 	if (WIFEXITED(status)) {
+		debug(DEBUG_EVENT, "EXIT: pid=%d, status=%d", task->pid, task->event.e_un.ret_val);
+
 		task->event.type = EVENT_EXIT;
 		task->event.e_un.ret_val = WEXITSTATUS(status);
-		debug(DEBUG_EVENT, "EXIT: pid=%d, status=%d", task->pid, task->event.e_un.ret_val);
 		return 0;
 	}
 
 	if (!WIFSTOPPED(status)) {
-		/* should never happen */
-		debug(DEBUG_EVENT, "NONE: pid=%d ???", task->pid);
+		fprintf(stderr, "!!!not WIFSTOPPED pid=%d\n", task->pid);
 		return -1;
 	}
 
+	if (unlikely(task->is_new)) {
+		if (sig == SIGSTOP && !(status >> 16)) {
+			task->event.type = EVENT_NEW;
+			task->event.e_un.signum  = 0;
+
+			return 0;
+		}
+
+		if (!task->bad) {
+			fprintf(stderr, "!!!unexpected state for pid=%d, expected signal SIGSTOP (%d %d)\n", task->pid, sig, status >> 16);
+			task->bad = 1;
+		}
+	}
+
 	switch(status >> 16)  {
+	case 0:
+		break;
 	case PTRACE_EVENT_VFORK:
-		if (child_event(task, EVENT_VFORK))
-			return -1;
 		debug(DEBUG_EVENT, "VFORK: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
-		return 0;
+		return child_event(task, EVENT_VFORK);
 	case PTRACE_EVENT_FORK:
-		if (child_event(task, EVENT_FORK))
-			return -1;
 		debug(DEBUG_EVENT, "FORK: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
-		return 0;
+		return child_event(task, EVENT_FORK);
 	case PTRACE_EVENT_CLONE:
-		if (child_event(task, EVENT_CLONE))
-			return -1;
 		debug(DEBUG_EVENT, "CLONE: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
-		return 0;
+		return child_event(task, EVENT_CLONE);
 	case PTRACE_EVENT_EXEC:
 		task->event.type = EVENT_EXEC;
 		debug(DEBUG_EVENT, "EXEC: pid=%d", task->pid);
@@ -188,64 +212,77 @@ static int _process_event(struct task *task, int status)
 	 {
 		unsigned long data;
 
+		debug(DEBUG_EVENT, "ABOUT_EXIT: pid=%d", task->pid);
+
 		if (unlikely(ptrace(PTRACE_GETEVENTMSG, task->pid, NULL, &data) == -1)) {
 			debug(DEBUG_EVENT, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
 			return -1;
 		}
 		task->event.e_un.ret_val = WEXITSTATUS(data);
 		task->event.type = EVENT_ABOUT_EXIT;
-		debug(DEBUG_EVENT, "ABOUT_EXIT: pid=%d", task->pid);
 		return 0;
 	 }
 	default:
+	 	fprintf(stderr, "!!!PTRACE_EVENT_????? pid=%d %d\n", task->pid, status >> 16);
 		break;
 	}
 
-	stop_signal = WSTOPSIG(status);
+	if (!sig)
+		fprintf(stderr, "!!!%s: sig == 0 pid=%d\n", __func__, task->pid);
+
+	if (sig == SIGSTOP) {
+		siginfo_t siginfo;
+
+		if (unlikely(ptrace(PTRACE_GETSIGINFO, task->pid, 0, &siginfo) == -1))
+			sig = 0;
+		else {
+			if (likely(siginfo.si_pid == mtrace_pid))
+				sig = 0;
+			else
+				fprintf(stderr, "!!!%s: SIGSTOP pid=%d %d %d %d %d\n", __func__, task->pid, siginfo.si_signo, siginfo.si_errno, siginfo.si_code, siginfo.si_pid);
+		}
+	}
 
 	task->event.type = EVENT_SIGNAL;
-	task->event.e_un.signum = stop_signal;
+	task->event.e_un.signum = sig;
 
-	debug(DEBUG_EVENT, "SIGNAL: pid=%d, signum=%d", task->pid, stop_signal);
-	return stop_signal;
+	debug(DEBUG_EVENT, "SIGNAL: pid=%d, signum=%d", task->pid, sig);
+	return sig;
 }
 
-static void process_event(struct task *task, int status)
+static struct task * process_event(struct task *task, int status)
 {
-	int stop_signal;
 	struct task *leader = task->leader;
 	struct breakpoint *bp = NULL;
 	arch_addr_t ip;
+	int sig;
 
+	assert(task->stopped == 0);
 	assert(leader != NULL);
 
 	if (unlikely(options.verbose > 1))
 		start_time(&task->halt_time);
 
-	task->stopped = 1;
-
 	leader->threads_stopped++;
 
-	stop_signal = _process_event(task, status);
-
-	if (stop_signal == -1) {
-fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
-		task->event.type = EVENT_NONE;
+	sig = _process_event(task, status);
+	if (sig < 0) {
 		continue_task(task, 0);
-		return;
+		return NULL;
 	}
 
-	if (stop_signal == 0)
-		return;
+	if (task->event.type == EVENT_NONE) {
+		continue_task(task, task->event.e_un.signum);
+		return NULL;
+	}
 
-	if (unlikely(stop_signal != SIGTRAP))
-		return;
+	if (unlikely(sig != SIGTRAP))
+		return task;
 
 	if (unlikely(fetch_context(task) == -1)) {
-fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
 		task->event.type = EVENT_NONE;
 		continue_task(task, 0);
-		return;
+		return NULL;
 	}
 
 	ip = get_instruction_pointer(task);
@@ -270,10 +307,8 @@ fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
 	{
 		bp = breakpoint_find(leader, ip - DECR_PC_AFTER_BREAK);
 		if (unlikely(!bp)) {
-fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
-//			task->event.type = EVENT_NONE;
-//			continue_task(task, 0);
-			return;
+			fprintf(stderr, "!!!%s: SIGTRAP pid=%d\n", __func__, task->pid);
+			return task;
 		}
 #if HW_BREAKPOINTS > 0
 		assert(bp->type != BP_HW_SCRATCH);
@@ -293,23 +328,7 @@ fprintf(stderr, "%s:%d\n", __FUNCTION__, __LINE__);
 
 	debug(DEBUG_EVENT, "BREAKPOINT: pid=%d, addr=%#lx", task->pid, task->event.e_un.breakpoint->addr);
 
-	return;
-}
-
-static void trace_fail_warning(void)
-{
-#ifdef HAVE_LIBSELINUX
-	if (security_get_boolean_active("deny_ptrace") == 1)
-		fprintf(stderr,
-			"The SELinux boolean 'deny_ptrace' is enabled, which may prevent mtrace-ng\n"
-			"from tracing an other task. You can disable this process attach protection by\n"
-			"issuing 'setsebool deny_ptrace=0' in the superuser context.\n");
-#else
-		fprintf(stderr,
-			"Could not trace! Maybe the SELinux boolean 'deny_ptrace' is enabled, which may\n"
-			"prevent mtrace-ng from tracing an other tasks. Try to disable this process attach\n"
-			"protection by issuing 'setsebool deny_ptrace=0' in the superuser context.\n");
-#endif
+	return task;
 }
 
 void trace_me(void)
@@ -324,25 +343,25 @@ void trace_me(void)
 	}
 }
 
-static inline int fix_signal(struct task *task, int signum)
+static inline int chk_signal(struct task *task, int signum)
 {
-	if (signum == SIGSTOP && task->was_stopped) {
-		task->was_stopped = 0;
-		signum = 0;
-	}
+#if 1
+	if (signum == SIGSTOP)
+		fprintf(stderr, "!!!%s: SIGSTOP pid=%d\n", __func__, task->pid);
+
+	if (signum == SIGTRAP)
+		fprintf(stderr, "!!!%s: SIGTRAP pid=%d\n", __func__, task->pid);
+#endif
+
 	return signum;
 }
 
-int untrace_task(struct task *task, int signum)
+int untrace_task(struct task *task)
 {
-	int ret = 0;
+	int ret;
+	int sig = 0;
 
-	assert(task->leader != NULL);
-
-	debug(DEBUG_PROCESS, "pid=%d", task->pid);
-
-	if (!task->stopped)
-		return 0;
+	assert(task->stopped);
 
 	if (unlikely(ptrace(PTRACE_SETOPTIONS, task->pid, 0, (void *)0) == -1)) {
 		if (errno != ESRCH)
@@ -351,44 +370,52 @@ int untrace_task(struct task *task, int signum)
 		goto skip;
 	}
 
-	signum = fix_signal(task, signum);
+	if (task->event.type == EVENT_SIGNAL || task->event.type == EVENT_NONE)
+		sig = chk_signal(task, sig);
 
-	if (unlikely(ptrace(PTRACE_DETACH, task->pid, 0, signum) == -1)) {
-		if (task->traced) {
-			if (errno != ESRCH)
-				fprintf(stderr, "PTRACE_DETACH pid=%d %s\n", task->pid, strerror(errno));
-			ret = -1;
-			goto skip;
-		}
+	if (unlikely(ptrace(PTRACE_DETACH, task->pid, 0, sig) == -1)) {
+		if (errno != ESRCH)
+			fprintf(stderr, "PTRACE_DETACH pid=%d %s\n", task->pid, strerror(errno));
+		ret = -1;
 	}
 
 	task_kill(task, SIGCONT);
 skip:
 	task->leader->threads_stopped--;
 	task->stopped = 0;
-	task->was_stopped = 0;
-	task->traced = 0;
+	task->attached = 0;
 
 	return ret;
+}
+
+void stop_task(struct task *task)
+{
+	assert(task->attached);
+	assert(task->leader != NULL);
+
+	if (!task->stopped) {
+		int status;
+
+		task_kill(task, SIGSTOP);
+		if (wait_task(task, &status) != -1)
+			_process_event(task, status);
+	}
 }
 
 int trace_attach(struct task *task)
 {
 	debug(DEBUG_PROCESS, "pid=%d", task->pid);
 
-	assert(task->traced == 0);
+	assert(task->attached == 0);
 
 	if (unlikely(ptrace(PTRACE_ATTACH, task->pid, 0, 0) == -1)) {
 		if (errno != ESRCH)
 			fprintf(stderr, "PTRACE_ATTACH pid=%d %s\n", task->pid, strerror(errno));
-		trace_fail_warning();
 		return -1;
 	}
 
 	if (_trace_wait(task, SIGSTOP))
 		return -1;
-
-	queue_event(task);
 
 	return 0;
 }
@@ -409,15 +436,22 @@ int trace_set_options(struct task *task)
 
 int continue_task(struct task *task, int signum)
 {
-	debug(DEBUG_PROCESS, "pid=%d", task->pid);
+	debug(DEBUG_PROCESS, "continue task pid=%d", task->pid);
 
 	assert(task->leader != NULL);
 	assert(task->stopped);
 
+	if (signum >= 0x80)
+		fprintf(stderr, "!!!signum >= 0x80 pid=%d: %d\n", task->pid, signum);
+
 	task->leader->threads_stopped--;
 	task->stopped = 0;
+	task->event.type = EVENT_NONE;
 
-	if (unlikely(ptrace(PTRACE_CONT, task->pid, 0, fix_signal(task, signum)) == -1)) {
+	if (signum == SIGTRAP)
+		fprintf(stderr, "!!!%s: SIGTRAP pid=%d\n", __func__, task->pid);
+
+	if (unlikely(ptrace(PTRACE_CONT, task->pid, 0, chk_signal(task, signum)) == -1)) {
 		if (errno != ESRCH)
 			fprintf(stderr, "PTRACE_CONT pid=%d %s\n", task->pid, strerror(errno));
 		return -1;
@@ -427,10 +461,12 @@ int continue_task(struct task *task, int signum)
 
 static void do_stop_cb(struct task *task, void *data)
 {
+	(void)data;
+
 	if (task->stopped)
 		return;
 
-	task->was_stopped = 1;
+	debug(DEBUG_EVENT, "task stop pid=%d", task->pid);
 
 	task_kill(task, SIGSTOP);
 }
@@ -441,6 +477,8 @@ void stop_threads(struct task *task)
 
 	assert(task->leader != NULL);
 
+	debug(DEBUG_EVENT, "stop threads pid=%d", task->pid);
+
 	if (leader->threads != leader->threads_stopped) {
 		struct timespec start;
 
@@ -449,8 +487,12 @@ void stop_threads(struct task *task)
 
 		each_task(leader, &do_stop_cb, NULL);
 
-		while (leader->threads != leader->threads_stopped)
-			queue_event(wait_event());
+		while (leader->threads != leader->threads_stopped) {
+			task = wait_event();
+
+			if (task)
+				queue_event(task);
+		}
 
 		if (unlikely(options.verbose > 1))
 			set_timer(&start, &stop_time);
@@ -460,52 +502,53 @@ void stop_threads(struct task *task)
 int handle_singlestep(struct task *task, int (*singlestep)(struct task *task), struct breakpoint *bp)
 {
 	int status;
-	int stop_signal;
-	unsigned long ip;
+	int sig;
 
-	for(;;) {
-		if (unlikely(singlestep(task) == -1))
-			return -1;
+	assert(task->stopped);
+	assert(task->skip_bp == NULL);
+	assert(bp->enabled == 0);
 
-		if (unlikely(TEMP_FAILURE_RETRY(waitpid(task->pid, &status, __WALL)) != task->pid)) {
-			fprintf(stderr, "%s waitpid pid=%d %s\n", __FUNCTION__,  task->pid, strerror(errno));
-			return 0;
-		}
+	task->event.type = EVENT_NONE;
 
-		stop_signal = _process_event(task, status);
-
-		if (stop_signal == -1)
-			return 0;
-
-		ip = ptrace(PTRACE_PEEKUSER, task->pid, ip_reg_addr(), 0);
-		if (ip == (unsigned long)-1) {
-			fprintf(stderr, "%s ptrace get IP pid=%d %s\n", __FUNCTION__,  task->pid, strerror(errno));
-			return 0;
-		}
-
-		if (ip != bp->addr) {
-			if (likely(stop_signal == SIGTRAP)) {
-				if (bp->break_insn) {
-					queue_event(task);
-					return 1;
-				}
-				return 0;
-			}
-		}
-
-		if (likely(!stop_signal)) {
-			queue_event(task);
-			return 1;
-		}
-
-		if (fix_signal(task, stop_signal) > 0) {
-			queue_event(task);
-			return 1;
-		}
-
-		if (ip != bp->addr)
-			return 0;
+	if (unlikely(singlestep(task) == -1)) {
+		fprintf(stderr, "!!!%s: single step failed pid=%d\n", __func__, task->pid);
+		return -1;
 	}
+
+	if (unlikely(wait_task(task, &status) == -1))
+		return 0;
+
+	sig = _process_event(task, status);
+
+	if (sig == -1) {
+		fprintf(stderr, "!!!%s: failed _process_event pid=%d\n", __func__, task->pid);
+		return 0;
+	}
+
+	assert(task->stopped);
+	assert(task->event.type != EVENT_NONE);
+	assert(task->event.type != EVENT_BREAKPOINT);
+
+	if (task->event.type != EVENT_SIGNAL) {
+		queue_event(task);
+		return 1;
+	}
+
+	if (sig != SIGTRAP) {
+		if (sig == SIGSTOP)
+			fprintf(stderr, "!!!%s: SIGSTOP pid=%d\n", __func__, task->pid);
+		queue_event(task);
+		return 1;
+	}
+
+ 	if (bp->break_insn) {
+		queue_event(task);
+		return 0;
+	}
+
+	task->event.type = EVENT_BREAKPOINT;
+	task->event.e_un.breakpoint = bp;
+	return 0;
 }
 
 #ifndef ARCH_SINGLESTEP
@@ -513,7 +556,7 @@ static int ptrace_singlestep(struct task *task)
 {
 	if (unlikely(ptrace(PTRACE_SINGLESTEP, task->pid, 0, 0) == -1)) {
 		if (errno != ESRCH)
-			fprintf(stderr, "%s PTRACE_SINGLESTEP pid=%d %s\n", __FUNCTION__, task->pid, strerror(errno));
+			fprintf(stderr, "!!!%s: PTRACE_SINGLESTEP pid=%d %s\n", __func__, task->pid, strerror(errno));
 		return -1;
 	}
 	return 0;
@@ -531,14 +574,10 @@ struct task *wait_event(void)
 	int status;
 	int pid;
 
-	pid = waitpid(-1, &status, __WALL);
+	pid = wait_task(NULL, &status);
 	if (unlikely(pid == -1)) {
-		if (errno != EINTR) {
-			if (errno == ECHILD)
-				debug(DEBUG_EVENT, "No more traced programs");
-			else
-				fprintf(stderr, "%s waitpid %s\n", __FUNCTION__, strerror(errno));
-		}
+		if (errno == ECHILD)
+			debug(DEBUG_EVENT, "No more traced programs");
 		return NULL;
 	}
 
@@ -558,12 +597,14 @@ struct task *wait_event(void)
 
 		if (likely(task))
 			trace_setup(task, status, SIGSTOP);
-
 		return NULL;
 	}
 
-	process_event(task, status);
+	assert(!task->stopped);
 
+	task = process_event(task, status);
+	if (task)
+		assert(task->stopped);
 	return task;
 }
 
@@ -618,7 +659,7 @@ ssize_t copy_from_proc(struct task *task, arch_addr_t addr, void *dst, size_t le
 
 		if (errno != EFAULT) {
 			if (errno != ENOSYS) {
-				fprintf(stderr, "%s pid=%d process_vm_readv: %s\n", __FUNCTION__, task->pid, strerror(errno));
+				fprintf(stderr, "!!!%s: pid=%d process_vm_readv: %s\n", __func__, task->pid, strerror(errno));
 				return -1;
 			}
 
@@ -755,10 +796,10 @@ ssize_t copy_str_from_proc(struct task *task, arch_addr_t addr, char *dst, size_
 
 	errno = 0;
 
-	if (--len < 0)
+	if (!len--)
 		return -1;
 
-	while (len) {
+	while(len) {
 		a.a = ptrace(PTRACE_PEEKTEXT, task->pid, addr, 0);
 		if (unlikely(a.a == -1 && errno)) {
 			if (num_bytes && errno == EIO)

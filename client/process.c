@@ -424,6 +424,7 @@ static void stack_put(struct rb_stack *stack_node)
 			for(i = 0; i < stack->entries; ++i)
 				bin_file_sym_put(stack->syms[i]);
 
+			free(stack->addrs);
 			free(stack->syms);
 		}
 		free(stack);
@@ -479,7 +480,7 @@ static struct rb_stack *stack_clone(struct process *process, struct rb_stack *st
 	return this;
 }
 
-static struct rb_stack *stack_add(struct process *process, unsigned int pid, void *addrs, uint32_t stack_size, enum mt_operation operation)
+static struct rb_stack *stack_add(struct process *process, void *addrs, uint32_t stack_size, enum mt_operation operation)
 {
 	struct rb_root *root = &process->stack_table;
 	struct rb_node **new = &(root->rb_node), *parent = NULL;
@@ -774,6 +775,8 @@ void process_del_map(struct process *process, void *payload, uint32_t payload_le
 	uint64_t offset = process->val64(mt_map->offset);
 	uint64_t size = process->val64(mt_map->size);
 	struct list_head *it;
+
+	(void)payload_len;
 
 	list_for_each(it, &process->map_list) {
 		struct map *map = container_of(it, struct map, list);
@@ -1144,6 +1147,8 @@ static void process_dump(struct process *process, int (*sortby)(const struct rb_
 
 static int skip_none(struct rb_stack *stack)
 {
+	(void)stack;
+
 	return 0;
 }
 
@@ -1207,7 +1212,7 @@ void process_dump_stacks(struct process *process, const char *outfile, int lflag
 	process_dump(process, sort_allocations, skip_none, outfile, lflag);
 }
 
-void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
+int process_scan(struct process *process, void *leaks, uint32_t payload_len)
 {
 	unsigned int new = 0;
 	unsigned long n = payload_len / process->ptr_size;
@@ -1250,10 +1255,12 @@ void *process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	dump_printf("leaks total: %lu\n", process->leaks);
 	dump_flush();
 
-	if (!options.interactive)
+	if (!options.interactive) {
 		process_dump_sortby(process);
+		return 1;
+	}
 
-	return leaks;
+	return 0;
 }
 
 static inline unsigned long roundup_mask(unsigned long val, unsigned long mask)
@@ -1430,7 +1437,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 
 		if (stack_size) {
 			if (!is_sane(block, mt_msg->operation)) {
-				struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+				struct rb_stack *stack = stack_add(process, stack_data, stack_size, mt_msg->operation);
 
 				stack->n_mismatched++;
 				stack->tsc = process->tsc++;
@@ -1462,7 +1469,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 			}
 
 			if (stack_size) {
-				struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+				struct rb_stack *stack = stack_add(process, stack_data, stack_size, mt_msg->operation);
 
 				stack->n_badfree++;
 				stack->tsc = process->tsc++;
@@ -1476,6 +1483,8 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 	unsigned long ptr;
 	unsigned int pid;
 	struct list_head *it;
+
+	(void)mt_msg;
 
 	if (!process->tracing)
 		return;
@@ -1508,7 +1517,7 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 	}
 
 	if (unlikely(options.kill)) {
-		fprintf(stderr, ">>> unexpected realloc done pid: %u\n", pid);
+		fprintf(stderr, ">>> unexpected realloc done pid: %u ptr: %#lx\n", pid, ptr);
 		abort();
 	}
 	return;
@@ -1562,7 +1571,7 @@ void process_alloc(struct process *process, struct mt_msg *mt_msg, void *payload
 		process_rb_delete_block(process, block);
 	}
 
-	struct rb_stack *stack = stack_add(process, process->pid, stack_data, stack_size, mt_msg->operation);
+	struct rb_stack *stack = stack_add(process, stack_data, stack_size, mt_msg->operation);
 
 	if (process_rb_insert_block(process, ptr, size, stack, 0, mt_msg->operation)) {
 		fprintf(stderr, "process_rb_insert_block failed\n");
@@ -1636,14 +1645,17 @@ void process_dump_sortby(struct process *process)
 	}
 }
 
-void process_exit(struct process *process)
+int process_exit(struct process *process)
 {
 	process_set_status(process, MT_PROCESS_EXIT);
 
-	if (!options.interactive)
+	if (!options.interactive) {
 		process_dump_sortby(process);
-	else
-		fprintf(stderr, "+++ process %d exited +++\n", process->pid);
+		return 1;
+	}
+
+	fprintf(stderr, "+++ process %d exited\n", process->pid);
+	return 0;
 }
 
 void process_about_exit(struct process *process)
@@ -1656,17 +1668,25 @@ void process_about_exit(struct process *process)
 	client_send_msg(process, MT_ABOUT_EXIT, NULL, 0);
 }
 
-void process_detach(struct process *process)
+int process_detach(struct process *process)
 {
+	int ret = 0;
+
 	process_set_status(process, MT_PROCESS_DETACH);
 
-	if (options.auto_scan)
+	if (options.auto_scan) {
 		process_leaks_scan(process, SCAN_ALL);
-	else
-	if (!options.interactive)
-		process_dump_sortby(process);
+	}
+	else {
+		if (!options.interactive) {
+			process_dump_sortby(process);
+			ret = 1;
+		}
+	}
 
 	client_send_msg(process, MT_DETACH, NULL, 0);
+
+	return ret;
 }
 
 void process_set_status(struct process *process, enum process_status status)

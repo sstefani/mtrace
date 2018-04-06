@@ -259,7 +259,7 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 	}
 #endif
 
-	if (mte->eh_hdr.p_filesz && mte->dyn_addr) {
+	if (mte->eh_hdr.p_filesz && mte->dyn) {
 		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->image_addr - libref->load_offset + mte->eh_hdr.p_offset)) < 0)
 			return -1;
 	}
@@ -474,7 +474,7 @@ static int entry_breakpoint_on_hit(struct task *task, struct breakpoint *a)
 	return 1;
 }
 
-struct libref *elf_read_main_binary(struct task *task)
+struct libref *elf_read_main_binary(struct task *task, int was_attached)
 {
 	char fname[PATH_MAX];
 	int ret;
@@ -520,7 +520,7 @@ struct libref *elf_read_main_binary(struct task *task)
 
 	close_elf(&mte);
 
-	report_attach(task);
+	report_attach(task, was_attached);
 
 	library_add(task, libref);
 
@@ -529,7 +529,10 @@ struct libref *elf_read_main_binary(struct task *task)
 
 	struct mt_elf mte_ld = { };
 
-	copy_str_from_proc(task, ARCH_ADDR_T(mte.interp), fname, sizeof(fname));
+	if (copy_str_from_proc(task, ARCH_ADDR_T(mte.bias + mte.interp), fname, sizeof(fname)) == -1) {
+		fprintf(stderr, "fatal error: cannot get loader name for pid=%d\n", task->pid);
+		abort();
+	}
 
 	if (!elf_read(&mte_ld, task, fname, (GElf_Addr)base)) {
 		struct libref *libref;
@@ -547,7 +550,7 @@ struct libref *elf_read_main_binary(struct task *task)
 		if (!ret) {
 			library_add(task, libref);
 
-			if (linkmap_init(task, ARCH_ADDR_T(mte.dyn_addr))) {
+			if (linkmap_init(task, ARCH_ADDR_T(mte.bias + mte.dyn))) {
 				arch_addr_t addr = find_solib_break(&mte_ld);
 				if (!addr)
 					addr = ARCH_ADDR_T(entry);
@@ -562,7 +565,7 @@ struct libref *elf_read_main_binary(struct task *task)
 				else {
 					entry_bp->breakpoint.on_hit = entry_breakpoint_on_hit;
 					entry_bp->breakpoint.locked = 1;
-					entry_bp->dyn_addr = ARCH_ADDR_T(mte.dyn_addr);
+					entry_bp->dyn_addr = ARCH_ADDR_T(mte.bias + mte.dyn);
 
 					breakpoint_enable(task, &entry_bp->breakpoint);
 				}

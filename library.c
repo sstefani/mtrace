@@ -171,10 +171,10 @@ void library_delete_list(struct task *leader, struct list_head *list)
 		struct library *lib = container_of(it, struct library, list);
 		struct libref *libref = lib->libref;
 
-		debug(DEBUG_FUNCTION, "%s@%#lx", libref->filename, libref->base);
+		debug(DEBUG_FUNCTION, "%s@%#lx pid=%d ", libref->filename, libref->base, leader->pid);
 
 		if (unlikely(options.verbose > 1))
-			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
+			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
 
 		library_delete(leader, lib);
 	}
@@ -274,7 +274,7 @@ static struct library *_library_add(struct task *leader, struct libref *libref)
 	insert_lib(leader, lib);
 
 	if (unlikely(options.verbose > 1))
-		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx +++\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
+		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
 
 	return lib;
 }

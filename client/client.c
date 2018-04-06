@@ -364,8 +364,10 @@ static void client_remove_process(struct process *process)
 {
 	process = pid_rb_delete(&pid_table, process->pid);
 
-	if (process)
+	if (process) {
+		process_reset(process);
 		free(process);
+	}
 }
 
 
@@ -487,14 +489,15 @@ static int client_func(void)
 			process_about_exit(process);
 			break;
 		case MT_EXIT:
-			process_exit(process);
+			if (process_exit(process))
+				client_remove_process(process);
 			break;
 		case MT_NOFOLLOW:
-			process_reset(process);
 			client_remove_process(process);
 			break;
 		case MT_SCAN:
-			process_scan(process, payload, mt_msg.payload_len);
+			if (process_scan(process, payload, mt_msg.payload_len))
+				client_remove_process(process);
 			break;
 		case MT_ADD_MAP:
 			process_add_map(process, payload, mt_msg.payload_len);
@@ -503,7 +506,8 @@ static int client_func(void)
 			process_del_map(process, payload, mt_msg.payload_len);
 			break;
 		case MT_DETACH:
-			process_detach(process);
+			if (process_detach(process))
+				client_remove_process(process);
 			break;
 		default:
 			fatal("protocol violation 0x%08x", mt_msg.operation);
@@ -659,8 +663,7 @@ static void signal_exit(int sig)
 	signal(SIGINT, SIG_IGN);
 	signal(SIGTERM, SIG_IGN);
 
-	if (write(pipefd[1], &signum, 1) == -1)
-		;
+	write(pipefd[1], &signum, 1);
 }
 
 static int scan_process(struct process *process)
@@ -761,6 +764,8 @@ int client_start(void)
 
 void *client_thread(void *unused)
 {
+	(void)unused;
+
 	if (options.interactive) {
 		ioevent_add_input(client_fd, client_func);
 
@@ -824,6 +829,7 @@ int client_stop(void)
 {
 	if (thread) {
 		thread_join(thread);
+		free(thread);
 		thread = NULL;
 	}
 

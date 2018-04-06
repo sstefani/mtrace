@@ -90,35 +90,35 @@ static const char *outfile;
 static int quit;
 
 static struct cmd_opt dump_opts[] = {
-	{ "allocations", 2, process_dump_sort_allocations, "sort by number of open allocations" },
-	{ "average", 2, process_dump_sort_average, "sort by average allocation of bytes (usage / allocations)" },
-	{ "badfree", 1, process_dump_sort_badfree, "sort by number of badfree releases" },
-	{ "bytes-leaked", 1, process_dump_sort_bytes_leaked, "sort by number of leaked bytes" },
-	{ "leaks", 1, process_dump_sort_leaks, "sort by number of detected leaks" },
-	{ "mismatched", 1, process_dump_sort_mismatched, "sort by number of mismatched releases" },
-	{ "stacks", 1, process_dump_stacks, "dump all stack sort by number of total allocations" },
-	{ "total", 2, process_dump_sort_total, "sort by number of total allocations" },
-	{ "tsc", 2, process_dump_sort_tsc, "sort by time stamp counter" },
-	{ "usage", 1, process_dump_sort_usage, "sort by number of bytes" },
-	{ NULL, 0, NULL, "\n use > to dump the output into a file" },
+	{ "allocations", 2, process_dump_sort_allocations, "sort by number of open allocations", NULL, NULL },
+	{ "average", 2, process_dump_sort_average, "sort by average allocation of bytes (usage / allocations)", NULL, NULL },
+	{ "badfree", 1, process_dump_sort_badfree, "sort by number of badfree releases", NULL, NULL },
+	{ "bytes-leaked", 1, process_dump_sort_bytes_leaked, "sort by number of leaked bytes", NULL, NULL },
+	{ "leaks", 1, process_dump_sort_leaks, "sort by number of detected leaks", NULL, NULL },
+	{ "mismatched", 1, process_dump_sort_mismatched, "sort by number of mismatched releases", NULL, NULL },
+	{ "stacks", 1, process_dump_stacks, "dump all stack sort by number of total allocations", NULL, NULL },
+	{ "total", 2, process_dump_sort_total, "sort by number of total allocations", NULL, NULL },
+	{ "tsc", 2, process_dump_sort_tsc, "sort by time stamp counter", NULL, NULL },
+	{ "usage", 1, process_dump_sort_usage, "sort by number of bytes", NULL, NULL },
+	{ NULL, 0, NULL, "\n use > to dump the output into a file", NULL, NULL },
 };
 
 static struct cmd_opt set_opts[] = {
-	{ "searchpath", 1, do_set_searchpath, "set searchpath for binaries and libraries" },
-	{ "depth", 1, do_set_depth, "set backtrace depth" },
+	{ "searchpath", 1, do_set_searchpath, "set searchpath for binaries and libraries", NULL, NULL },
+	{ "depth", 1, do_set_depth, "set backtrace depth", NULL, NULL },
 	{ },
 };
 
 static struct cmd_opt show_opts[] = {
-	{ "info", 1, do_show_info, "show client settings" },
-	{ "searchpath", 1, do_show_searchpath, "show searchpath for binaries and libraries" },
+	{ "info", 1, do_show_info, "show client settings", NULL, NULL },
+	{ "searchpath", 1, do_show_searchpath, "show searchpath for binaries and libraries", NULL, NULL },
 	{ },
 };
 
 static struct cmd_opt scan_opts[] = {
-	{ "all", 1, (void *)SCAN_ALL, "scan all memory blocks" },
-	{ "leak", 1, (void *)SCAN_LEAK, "scan only leaked allocations" },
-	{ "new", 1, (void *)SCAN_NEW, "scan only allocations since last scan" },
+	{ "all", 1, (void *)SCAN_ALL, "scan all memory blocks", NULL, NULL },
+	{ "leak", 1, (void *)SCAN_LEAK, "scan only leaked allocations", NULL, NULL },
+	{ "new", 1, (void *)SCAN_NEW, "scan only allocations since last scan", NULL, NULL },
 	{ },
 };
 
@@ -144,21 +144,24 @@ static struct cmd_opt cmds[] = {
 		1,
 		do_proclist,
 		"list processes",
-		""
+		"",
+		NULL
 	},
 	{
 		quit_str,
 		1,
 		do_quit,
 		"exit the program",
-		""
+		"",
+		NULL
 	},
 	{
 		reset_str,
 		1,
 		do_reset,
 		"reset all current memory allocation",
-		"[<pid>]"
+		"[<pid>]",
+		NULL
 	},
 	{
 		scan_str,
@@ -189,21 +192,24 @@ static struct cmd_opt cmds[] = {
 		4,
 		do_start,
 		"start allocation tracing",
-		""
+		"",
+		NULL
 	},
 	{
 		status_str,
 		4,
 		do_status,
 		"show allocation status",
-		"[<pid>]"
+		"[<pid>]",
+		NULL
 	},
 	{
 		stop_str,
 		3,
 		do_stop,
 		"stop allocation tracing",
-		""
+		"",
+		NULL
 	},
 	{ },
 };
@@ -513,6 +519,8 @@ static int do_set_depth(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, cons
 
 static int do_show_info(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[])
 {
+	(void)argv;
+
 	if (argc > 2) {
 		fprintf(stderr, "%s: too many option argument for '%s'\n", cmd->name, opt->name);
 		return -1;
@@ -527,6 +535,8 @@ static int do_show_info(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, cons
 static int do_show_searchpath(struct cmd_opt *cmd, struct cmd_opt *opt, int argc, const char *argv[])
 {
 	struct opt_b_t *p = options.opt_b;
+
+	(void)argv;
 
 	if (argc > 3) {
 		fprintf(stderr, "%s: too many option argument for '%s'\n", cmd->name, opt->name);
@@ -661,6 +671,9 @@ static int show_process(struct process *process)
 
 static int do_proclist(struct cmd_opt *cmd, int argc, const char *argv[])
 {
+	(void)cmd;
+	(void)argv;
+
 	if (argc > 1) {
 		fprintf(stderr, "%s: expect no arguments\n", proclist_str);
 		return -1;
@@ -674,6 +687,10 @@ static int do_proclist(struct cmd_opt *cmd, int argc, const char *argv[])
 
 static int do_quit(struct cmd_opt *cmd, int argc, const char *argv[])
 {
+	(void)cmd;
+	(void)argc;
+	(void)argv;
+
 	quit = 1;
 
 	return 0;
@@ -682,6 +699,9 @@ static int do_quit(struct cmd_opt *cmd, int argc, const char *argv[])
 static int do_reset(struct cmd_opt *cmd, int argc, const char *argv[])
 {
 	struct process *process;
+
+	(void)cmd;
+	(void)argc;
 
 	process = get_process(argv[1]);
 	if (!process)
@@ -701,6 +721,8 @@ static int do_scan(struct cmd_opt *cmd, int argc, const char *argv[])
 	size_t len;
 	unsigned int i;
 	int mode;
+
+	(void)argc;
 
 	if (!client_connected())
 		return -1;
@@ -798,6 +820,9 @@ static int do_start(struct cmd_opt *cmd, int argc, const char *argv[])
 {
 	struct process *process;
 
+	(void)cmd;
+	(void)argc;
+
 	if (!client_connected())
 		return -1;
 
@@ -819,6 +844,9 @@ static int do_status(struct cmd_opt *cmd, int argc, const char *argv[])
 {
 	struct process *process;
 
+	(void)cmd;
+	(void)argc;
+
 	process = get_process(argv[1]);
 	if (!process)
 		return -1;
@@ -831,6 +859,9 @@ static int do_status(struct cmd_opt *cmd, int argc, const char *argv[])
 static int do_stop(struct cmd_opt *cmd, int argc, const char *argv[])
 {
 	struct process *process;
+
+	(void)cmd;
+	(void)argc;
 
 	if (!client_connected())
 		return -1;

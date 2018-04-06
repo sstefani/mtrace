@@ -46,15 +46,18 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 {
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
-	if (task->event.type != EVENT_NONE)
-		return 1;
+	assert(task->event.type == EVENT_BREAKPOINT);
+	assert(task->stopped);
+	assert(task->skip_bp == NULL);
 
 	if (bp->enabled && !bp->hw) {
 		int ret = 0;
 		struct timespec start;
 
-		if (task->skip_bp)
+		if (task->skip_bp) {
+			task->event.type = EVENT_NONE;
 			return 1;
+		}
 
 		if (unlikely(options.verbose > 1))
 			start_time(&start);
@@ -68,6 +71,7 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 
 		if (unlikely(ret)) {
 			task->skip_bp = breakpoint_get(bp);
+			assert(task->skip_bp);
 			return ret;
 		}
 	}
@@ -85,26 +89,10 @@ void fix_about_exit(struct task *task)
 	}
 }
 
-void detach_task(struct task *task)
-{
-	int sig = 0;
-
-	task_reset_bp(task);
-
-	if (task->event.type == EVENT_SIGNAL)
-		sig = task->event.e_un.signum;
-	else
-	if (task->event.type == EVENT_BREAKPOINT)
-		breakpoint_put(task->event.e_un.breakpoint);
-
-	remove_event(task);
-	breakpoint_hw_destroy(task);
-	fix_about_exit(task);
-	untrace_task(task, sig);
-}
-
 static void detach_cb(struct task *task, void *data)
 {
+	(void)data;
+
 	remove_task(task);
 }
 
@@ -115,7 +103,7 @@ void detach_proc(struct task *leader)
 	breakpoint_disable_all(leader);
 
 	if (unlikely(options.verbose > 1))
-		fprintf(stderr, "+++ process detach pid=%d +++\n", leader->pid);
+		fprintf(stderr, "+++ process detach pid=%d\n", leader->pid);
 
 	each_task(leader, &detach_cb, NULL);
 }

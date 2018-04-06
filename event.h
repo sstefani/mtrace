@@ -36,7 +36,8 @@ enum event_type {
 	EVENT_CLONE,
 	EVENT_VFORK,
 	EVENT_EXEC,
-	EVENT_BREAKPOINT
+	EVENT_BREAKPOINT,
+	EVENT_NEW,
 };
 
 struct event {
@@ -54,7 +55,7 @@ void init_event(struct task *task);
 void remove_event(struct task *task);
 struct task *next_event(void);
 void queue_event(struct task *task);
-int handle_event(void);
+int handle_event(struct task *task);
 
 #endif
 

@@ -54,15 +54,19 @@ struct pid_hash *pid_hash[PID_HASH_SIZE];
 #ifndef OS_HAVE_PROCESS_DATA
 static inline int os_task_init(struct task *task)
 {
+	(void)task;
 	return 0;
 }
 
 static inline void os_task_destroy(struct task *task)
 {
+	(void)task;
 }
 
-static inline int os_task_clone(struct task *retp, struct task *task)
+static inline int os_task_clone(struct task *task, struct task *newtask)
 {
+	(void)task;
+	(void)newtask;
 	return 0;
 }
 #endif
@@ -70,15 +74,19 @@ static inline int os_task_clone(struct task *retp, struct task *task)
 #ifndef ARCH_HAVE_PROCESS_DATA
 static inline int arch_task_init(struct task *task)
 {
+	(void)task;
 	return 0;
 }
 
 static inline void arch_task_destroy(struct task *task)
 {
+	(void)task;
 }
 
-static inline int arch_task_clone(struct task *retp, struct task *task)
+static inline int arch_task_clone(struct task *task, struct task *newtask)
 {
+	(void)task;
+	(void)newtask;
 	return 0;
 }
 #endif
@@ -101,29 +109,53 @@ static inline void delete_pid(struct task *task)
 
 static inline void insert_pid(struct task *task)
 {
-	struct pid_hash *entry = pid_hash[PID_HASH(task->pid)];
+	unsigned int pidhash = PID_HASH(task->pid);
+	struct pid_hash *entry = pid_hash[pidhash];
 
-	if (!entry->size) {
+	if (!entry) {
 		entry = malloc(sizeof(*entry) + 8 * sizeof(entry->tasks[0]));
 		entry->num = 0;
 		entry->size = 8;
 
-		pid_hash[PID_HASH(task->pid)] = entry;
+		pid_hash[pidhash] = entry;
 	}
 	else
 	if (entry->size == entry->num) {
 		entry->size += 8;
 		entry = realloc(entry, sizeof(*entry) + entry->size * sizeof(entry->tasks[0]));
 
-		pid_hash[PID_HASH(task->pid)] = entry;
+		pid_hash[pidhash] = entry;
 	}
 
 	entry->tasks[entry->num++] = task;
 }
 
-static int leader_setup(struct task *leader)
+struct task *pid2task(pid_t pid)
 {
-	if (!elf_read_main_binary(leader))
+	struct pid_hash *entry = pid_hash[PID_HASH(pid)];
+
+	if (!entry)
+		return NULL;
+
+	struct task **p = entry->tasks;
+	unsigned int n = entry->num;
+
+	while(n) {
+		struct task *task = *p;
+
+		if (likely(task->pid == pid))
+			return task;
+
+		p++;
+		n--;
+	}
+
+	return NULL;
+}
+
+static int leader_setup(struct task *leader, int was_attached)
+{
+	if (!elf_read_main_binary(leader, was_attached))
 		return -1;
 
 	return backtrace_init(leader);
@@ -175,8 +207,6 @@ static int task_init(struct task *task)
 		list_add_tail(&task->task_list, &leader->task_list);
 	}
 
-	task->attached = 1;
-
 	breakpoint_hw_destroy(task);
 
 	return 0;
@@ -216,10 +246,18 @@ static void task_destroy(struct task *task)
 
 	task->deleted = 1;
 
+	stop_task(task);
+
+	if (task->event.type == EVENT_BREAKPOINT)
+		breakpoint_put(task->event.e_un.breakpoint);
+
 	arch_task_destroy(task);
 	os_task_destroy(task);
-	detach_task(task);
+	task_reset_bp(task);
+	remove_event(task);
+	breakpoint_hw_destroy(task);
 	delete_pid(task);
+	untrace_task(task);
 
 	if (leader != task) {
 		list_del(&task->task_list);
@@ -239,9 +277,11 @@ struct task *task_new(pid_t pid)
 	memset(task, 0, sizeof(*task));
 
 	task->pid = pid;
-	task->traced = 0;
+	task->attached = 0;
 	task->stopped = 0;
-	task->was_stopped = 0;
+	task->is_new = 1;
+	task->defer_func = NULL;
+	task->defer_data = NULL;
 
 	INIT_LIST_HEAD(&task->task_list);
 	INIT_LIST_HEAD(&task->leader_list);
@@ -278,8 +318,9 @@ int process_exec(struct task *task)
 {
 	struct task *leader = task->leader;
 
+	breakpoint_invalidate_all(leader);
+
 	each_task(leader, &remove_task_cb, leader);
-	breakpoint_disable_all(leader);
 
 	os_task_destroy(leader);
 	arch_task_destroy(leader);
@@ -290,13 +331,10 @@ int process_exec(struct task *task)
 	if (task_init(leader) < 0)
 		goto fail;
 
-	if (server_connected())
-		task->attached = 0;
-
 	assert(leader->leader == leader);
 	assert(leader->threads_stopped == 1);
 
-	if (leader_setup(leader) < 0)
+	if (leader_setup(leader, 0) < 0)
 		goto fail;
 
 	return 0;
@@ -310,8 +348,6 @@ struct task *task_create(char **argv)
 	struct task *task;
 	pid_t pid;
 
-	debug(DEBUG_FUNCTION, "`%s'", options.command);
-
 	pid = fork();
 	if (pid < 0) {
 		perror("fork");
@@ -320,6 +356,7 @@ struct task *task_create(char **argv)
 
 	if (!pid) { /* child */
 		change_uid();
+
 		trace_me();
 		execvp(options.command, argv);
 		fprintf(stderr, "Can't execute `%s': %s\n", options.command, strerror(errno));
@@ -336,10 +373,10 @@ struct task *task_create(char **argv)
 	if (trace_set_options(task) < 0)
 		goto fail2;
 
-	if (server_connected())
-		task->attached = 0;
+	if (leader_setup(task, 0) < 0)
+		goto fail1;
 
-	if (leader_setup(task) < 0)
+	if (handle_event(task))
 		goto fail1;
 
 	return task;
@@ -354,15 +391,11 @@ fail1:
 
 int task_clone(struct task *task, struct task *newtask)
 {
+	assert(newtask->attached);
 	assert(newtask->leader != newtask);
-	assert(newtask->event.type == EVENT_SIGNAL);
-	assert(newtask->event.e_un.signum == 0);
-	assert(newtask->traced);
-	assert(newtask->stopped);
 	assert(newtask->backtrace == NULL);
 
 	newtask->is_64bit = task->is_64bit;
-	newtask->attached = task->attached;
 
 	breakpoint_hw_clone(newtask);
 
@@ -374,10 +407,7 @@ int task_fork(struct task *task, struct task *newtask)
 	struct task *leader = task->leader;
 
 	assert(newtask->leader == newtask);
-	assert(newtask->event.type == EVENT_SIGNAL);
-	assert(newtask->event.e_un.signum == 0);
-	assert(newtask->traced);
-	assert(newtask->stopped);
+	assert(newtask->attached);
 	assert(newtask->backtrace == NULL);
 
 	newtask->is_64bit = task->is_64bit;
@@ -454,7 +484,9 @@ fail1:
 
 static void show_attached(struct task *task, void *data)
 {
-	fprintf(stderr, "+++ process pid=%d attached (%s) +++\n", task->pid, library_execname(task->leader));
+	(void)data;
+
+	fprintf(stderr, "+++ process pid=%d attached (%s)\n", task->pid, library_execname(task->leader));
 }
 
 
@@ -513,7 +545,7 @@ void open_pid(pid_t pid)
 		old_ntasks = ntasks;
 	}
 
-	if (leader_setup(leader) < 0)
+	if (leader_setup(leader, 1) < 0)
 		goto fail1;
 
 	list_for_each(it, &leader->task_list) {
@@ -550,13 +582,12 @@ void each_task(struct task *leader, void (*cb)(struct task *task, void *data), v
 {
 	struct list_head *it, *next;
 
-	(*cb)(leader, data);
-
 	list_for_each_safe(it, next, &leader->task_list) {
 		struct task *task = container_of(it, struct task, task_list);
 
 		(*cb)(task, data);
 	};
+	(*cb)(leader, data);
 }
 
 void remove_task(struct task *task)
@@ -572,8 +603,18 @@ void remove_proc(struct task *leader)
 
 	assert(leader->leader == leader);
 
-	breakpoint_disable_all(leader);
-	each_task(leader, &remove_task_cb, NULL);
+	each_task(leader, &remove_task_cb, leader);
+	task_destroy(leader);
+}
+
+void untrace_proc(struct task *leader)
+{
+	debug(DEBUG_FUNCTION, "pid=%d", leader->pid);
+
+	assert(leader->leader == leader);
+
+	breakpoint_invalidate_all(leader);
+	remove_proc(leader);
 }
 
 int task_list_empty(void)
@@ -587,26 +628,20 @@ void each_pid(void (*cb)(struct task *task))
 
 	for(i = 0; i < ARRAY_SIZE(pid_hash); ++i) {
 		struct pid_hash *entry = pid_hash[i];
-		unsigned int n = entry->num;
 
-		if (n) {
-			struct task **p = alloca(n * sizeof(*p));
+		if (entry) {
+			unsigned int n = entry->num;
 
-			memcpy(p, entry->tasks, n * sizeof(*p));
+			if (n) {
+				struct task **p = alloca(n * sizeof(*p));
 
-			do {
-				(*cb)(*p++);
-			} while(--n);
+				memcpy(p, entry->tasks, n * sizeof(*p));
+
+				do {
+					(*cb)(*p++);
+				} while(--n);
+			}
 		}
 	}
-}
-
-void init_pid_hash(void)
-{
-	static const struct pid_hash preset = { .size = 0, .num = 0 };
-	unsigned int i;
-
-	for(i = 0; i < ARRAY_SIZE(pid_hash); ++i)
-		pid_hash[i] = (void *)&preset;
 }
 

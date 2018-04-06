@@ -23,6 +23,8 @@
 #ifndef _INC_REPORT_H
 #define _INC_REPORT_H
 
+#include <unistd.h>
+
 #include "forward.h"
 
 struct function {
@@ -44,7 +46,7 @@ int report_add_map(struct task *task, struct library *lib);
 int report_del_map(struct task *task, struct library *lib);
 int report_info(int do_trace);
 int report_scan(pid_t pid, const void *data, unsigned int data_len);
-int report_attach(struct task *task);
+int report_attach(struct task *task, int was_attached);
 int report_fork(struct task *task, struct task *ptask);
 int report_exit(struct task *task);
 int report_about_exit(struct task *task);

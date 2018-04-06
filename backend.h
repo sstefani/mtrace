@@ -56,8 +56,8 @@ int trace_set_options(struct task *task);
 /* make the forked process traceable */
 void trace_me(void);
 
-/* stop tracing a task.  */
-int untrace_task(struct task *task, int signum);
+/* stop tracing of a task. */
+int untrace_task(struct task *task);
 
 /* Called when mtrace-ng needs to attach to task */
 int trace_attach(struct task *task);

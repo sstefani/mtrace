@@ -43,12 +43,12 @@ struct task {
 	struct event event;
 
 	unsigned int is_64bit:1;
-	unsigned int traced:1;
 	unsigned int attached:1;
 	unsigned int deleted:1;
 	unsigned int about_exit:1;
-	unsigned int was_stopped:1;
 	unsigned int stopped:1;
+	unsigned int is_new:1;
+	unsigned int bad:1;
 
 	struct breakpoint *breakpoint;
 	struct library_symbol *libsym;
@@ -101,6 +101,12 @@ struct task {
 	/* halt time for debugging purpose */
 	struct timespec halt_time;
 
+	/* defered event function */
+	int (*defer_func)(struct task *task, void *data);
+
+	/* defered event data */
+	void *defer_data;
+
 #if HW_BREAKPOINTS > 1
 	/* set in leader: list of hw breakpoints */
 	struct list_head hw_bp_list;
@@ -144,8 +150,14 @@ void each_pid(void (*cb)(struct task *task));
 /* Remove task from the list of traced processes, drop any events in the event queue, destroy it and free memory. */
 void remove_task(struct task *task);
 
+/* invalidate all breakpoints and call remove_proc */
+void untrace_proc(struct task *leader);
+
 /* Remove all threads of the process from the list of traced processes, drop any events in the event queue, destroy it and free memory. */
 void remove_proc(struct task *leader);
+
+/* halt a task */
+void stop_task(struct task *task);
 
 /* return true if no more task is traced */
 int task_list_empty(void);
@@ -166,27 +178,6 @@ struct pid_hash {
 #define PID_HASH_SIZE	256
 
 extern struct pid_hash *pid_hash[PID_HASH_SIZE];
-
-void init_pid_hash(void);
-
-static inline struct task *pid2task(pid_t pid)
-{
-	struct pid_hash *entry = pid_hash[PID_HASH(pid)];
-	struct task **p = entry->tasks;
-	unsigned int n = entry->num;
-
-	while(n) {
-		struct task *task = *p;
-
-		if (likely(task->pid == pid))
-			return task;
-
-		p++;
-		n--;
-	}
-
-	return NULL;
-}
-
+extern struct task *pid2task(pid_t pid);
 #endif
 

@@ -137,6 +137,7 @@ static inline int is_signal_frame(struct dwarf_cursor *c)
 
 static inline int is_plt_entry(struct dwarf_addr_space *as)
 {
+	(void)as;
 #if 0
 	struct dwarf_cursor *c = &as->cursor;
 	uint8_t data[12];
@@ -334,7 +335,7 @@ int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
 			unsigned int i;
 			unsigned char *addr = libref->image_addr + ip - p->off - libref->load_addr;
 
-			for(i = 0; i < call_op[i].len; ++i) {
+			for(i = 0; i < p->len; ++i) {
 				if (unlikely((addr[i] & p->mask[i]) != p->op[i]))
 					break;
 			}

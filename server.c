@@ -241,6 +241,8 @@ static void *server_listen_thread(void *ptr)
 {
 	int ret;
 
+	(void)ptr;
+
 	for(;;) {
 		if (!server_connected()) {
 			thread_enable_cancel();
@@ -306,6 +308,8 @@ int server_start(void)
 static void *server_pair_thread(void *ptr)
 {
 	int ret;
+
+	(void)ptr;
 
 	for(;;) {
 		if (!server_connected())
@@ -389,8 +393,11 @@ int server_stop(void)
 
 	if (listen_fd != -1) {
 		thread_cancel(thread);
-		if (thread)
+		if (thread) {
 			thread_join(thread);
+			free(thread);
+			thread = NULL;
+		}
 
 		if (is_named(options.address))
 			unlink(options.address);

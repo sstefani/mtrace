@@ -106,17 +106,17 @@ static int set_breakpoint_mode(struct task *task, unsigned int n, int type, int 
 	uint32_t mode;
 	uint32_t dr7, mask;
 
-	mask = (0b1111 << (16 + 4 * n)) | (0b11 << (2 * n));
+	mask = (0b1111U << (16 + 4 * n)) | (0b11U << (2 * n));
 
 	switch(type) {
 	case BP_X:
-		mode = 0b0000;
+		mode = 0b0000U;
 		break;
 	case BP_W:
-		mode = 0b0001;
+		mode = 0b0001U;
 		break;
 	case BP_RW:
-		mode = 0b0011;
+		mode = 0b0011U;
 		break;
 	default:
 		fprintf(stderr, "invalid hw breakpoint type\n");
@@ -125,16 +125,16 @@ static int set_breakpoint_mode(struct task *task, unsigned int n, int type, int 
 
 	switch(len) {
 	case 1:
-		mode |= 0b0000;
+		mode |= 0b0000U;
 		break;
 	case 2:
-		mode |= 0b0100;
+		mode |= 0b0100U;
 		break;
 	case 4:
-		mode |= 0b1100;
+		mode |= 0b1100U;
 		break;
 	case 8:
-		mode |= 0b1000;
+		mode |= 0b1000U;
 		break;
 	}
 
@@ -143,19 +143,19 @@ static int set_breakpoint_mode(struct task *task, unsigned int n, int type, int 
 	dr7 |= mode << (16 + 4 * n);
 
 	if (local) {
-		dr7 |= 0b01 << (2 * n);
+		dr7 |= 0b01U << (2 * n);
 		dr7 |= 1 << 8;
 	}
 	else
-	if (!(dr7 & 0b01010101))
+	if (!(dr7 & 0b01010101U))
 		dr7 &= ~(1 << 8);
 
 	if (global) {
-		dr7 |= 0b10 << (2 * n);
+		dr7 |= 0b10U << (2 * n);
 		dr7 |= 1 << 9;
 	}
 	else
-	if (!(dr7 & 0b10101010))
+	if (!(dr7 & 0b10101010U))
 		dr7 &= ~(1 << 9);
 
 	return apply_hw_bp(task, dr7);
@@ -183,14 +183,14 @@ int reset_hw_bp(struct task *task, unsigned int n)
 {
 	uint32_t dr7, mask;
 
-	mask = (0b1111 << (16 + 4 * n)) | (0b11 << (2 * n));
+	mask = (0b1111U << (16 + 4 * n)) | (0b11U << (2 * n));
 
 	dr7 = task->arch.dr7 & ~mask;
 
-	if (!(dr7 & 0b01010101))
+	if (!(dr7 & 0b01010101U))
 		dr7 &= ~(1 << 8);
 
-	if (!(dr7 & 0b10101010))
+	if (!(dr7 & 0b10101010U))
 		dr7 &= ~(1 << 9);
 
 	return apply_hw_bp(task, dr7);
@@ -210,7 +210,7 @@ int arch_task_init(struct task *task)
 {
 	unsigned int i;
 
-	for(i = 0; i < HW_BREAKPOINTS; ++i)
+	for(i = 0; i != HW_BREAKPOINTS; ++i)
 		task->arch.hw_bp[i] = 0;
 
 	return _apply_hw_bp(task, 0);
@@ -223,6 +223,9 @@ void arch_task_destroy(struct task *task)
 
 int arch_task_clone(struct task *retp, struct task *task)
 {
+	(void)retp;
+	(void)task;
+
 	return 0;
 }
 

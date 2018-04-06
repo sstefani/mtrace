@@ -70,28 +70,37 @@ static void enable_sw_breakpoint(struct task *task, struct breakpoint *bp)
 {
 	static unsigned char break_insn[] = BREAKPOINT_VALUE;
 
+	assert(task->stopped);
+	assert(bp->sw == 0);
+	assert(bp->hw == 0);
+
 	debug(DEBUG_PROCESS, "pid=%d, addr=%#lx", task->pid, bp->addr);
 
 	copy_from_to_proc(task, bp->addr, break_insn, bp->orig_value, BREAKPOINT_LENGTH);
 
 	bp->break_insn = !memcmp(break_insn, bp->orig_value, BREAKPOINT_LENGTH);
 	bp->was_hw = 0;
+	bp->sw = 1;
+	bp->enabled = 1;
+
+	if (bp->break_insn)
+		fprintf(stderr, "!!!break insn pid=%d, addr=%#lx\n", task->pid, bp->addr);
 }
 
-static void disable_sw_breakpoint(struct task *task, const struct breakpoint *bp)
+static void disable_sw_breakpoint(struct task *task, struct breakpoint *bp)
 {
 	debug(DEBUG_PROCESS, "pid=%d, addr=%lx", task->pid, bp->addr);
 
+	assert(task->stopped);
+	assert(bp->sw);
+	assert(bp->hw == 0);
+
 	copy_to_proc(task, bp->addr, bp->orig_value, BREAKPOINT_LENGTH);
+
+	bp->sw = 0;
+	bp->enabled = 0;
 }
 
-int breakpoint_on_hit(struct task *task, struct breakpoint *bp)
-{
-	if (bp->on_hit)
-		return (bp->on_hit)(task, bp);
-
-	return 0;
-}
 
 struct breakpoint *breakpoint_find(struct task *task, arch_addr_t addr)
 {
@@ -109,6 +118,7 @@ static void enable_hw_bp(struct task *task, struct breakpoint *bp)
 
 	assert(bp->type != BP_SW);
 	assert(bp->type < BP_HW || task->hw_bp[slot] == NULL);
+	assert(bp->sw == 0);
 
 	task->hw_bp[slot] = bp;
 
@@ -119,6 +129,8 @@ static void enable_hw_bp(struct task *task, struct breakpoint *bp)
 static void disable_hw_bp(struct task *task, struct breakpoint *bp)
 {
 	unsigned int slot = bp->hw_bp_slot;
+
+	assert(bp->sw == 0);
 
 	if (unlikely(!task->hw_bp[slot]))
 		return;
@@ -185,13 +197,16 @@ void reorder_hw_bp(struct task *task)
 		}
 	}
 
-	if (!n)
+	if (n < HW_BREAKPOINTS - 1) {
+		for(i = 0; i < n; ++i)
+			bp_list[i]->hwcnt = 0;
 		return;
+	}
 
 	qsort(bp_list, n, sizeof(*bp_list), hw_bp_sort);
 
 	for(i = 0; i < n; ++i)
-		bp_list[i]->hwcnt = (i < HW_BREAKPOINTS - 1) ? BP_REORDER_THRESHOLD >> (i + 4) : 0;
+		bp_list[i]->hwcnt = 0;
 
 	if (n > HW_BREAKPOINTS - 1) 
 		n = HW_BREAKPOINTS - 1;
@@ -205,9 +220,11 @@ void reorder_hw_bp(struct task *task)
 			assert((hw_bp_set & 1 << bp_list[i]->hw_bp_slot) == 0);
 
 			hw_bp_set |= 1 << bp_list[i]->hw_bp_slot;
+
+			continue;
 		}
-		else
-			*p++ = bp_list[i];
+
+		*p++ = bp_list[i];
 	}
 
 	if (p == bp_list)
@@ -231,6 +248,7 @@ void reorder_hw_bp(struct task *task)
 		if (leader->hw_bp[i])
 			hw2sw_bp(leader, leader->hw_bp[i]);
 
+		bp->enabled = 1;
 		bp->hw_bp_slot = i;
 		bp->hw = 1;
 		bp->was_hw = 1;
@@ -366,6 +384,7 @@ struct breakpoint *breakpoint_new_ext(struct task *task, arch_addr_t addr, struc
 	bp->ext = ext;
 	bp->refcnt = 1;
 	bp->count = 0;
+	bp->sw = 0;
 #if HW_BREAKPOINTS > 1
 	bp->hwcnt = 0;
 #endif
@@ -432,7 +451,6 @@ void breakpoint_enable(struct task *task, struct breakpoint *bp)
 #endif
 		bp->hw = 0;
 		enable_sw_breakpoint(task, bp);
-		bp->enabled = 1;
 	}
 }
 
@@ -467,7 +485,6 @@ void breakpoint_disable(struct task *task, struct breakpoint *bp)
 		}
 #endif
 		disable_sw_breakpoint(task, bp);
-		bp->enabled = 0;
 	}
 }
 
@@ -529,6 +546,8 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 
 static int enable_nonlocked_bp_cb(unsigned long key, const void *value, void *data)
 {
+	(void)key;
+
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *leader = (struct task *)data;
 
@@ -550,6 +569,8 @@ void breakpoint_enable_all_nonlocked(struct task *leader)
 
 static int disable_nonlocked_bp_cb(unsigned long key, const void *value, void *data)
 {
+	(void)key;
+
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *leader = (struct task *)data;
 
@@ -567,13 +588,14 @@ void breakpoint_disable_all_nonlocked(struct task *leader)
 
 	if (leader->breakpoints)
 		dict_apply_to_all(leader->breakpoints, disable_nonlocked_bp_cb, leader);
-	leader->attached = 1;
 }
 
 static int enable_bp_cb(unsigned long key, const void *value, void *data)
 {
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *leader = (struct task *)data;
+
+	(void)key;
 
 	debug(DEBUG_FUNCTION, "pid=%d", leader->pid);
 
@@ -595,6 +617,8 @@ static int disable_bp_cb(unsigned long key, const void *value, void *data)
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *leader = (struct task *)data;
 
+	(void)key;
+
 	debug(DEBUG_FUNCTION, "pid=%d", leader->pid);
 
 	breakpoint_disable(leader, bp);
@@ -608,13 +632,38 @@ void breakpoint_disable_all(struct task *leader)
 
 	if (leader->breakpoints)
 		dict_apply_to_all(leader->breakpoints, disable_bp_cb, leader);
-	leader->attached = 1;
+}
+
+static int invalidate_bp_cb(unsigned long key, const void *value, void *data)
+{
+	struct breakpoint *bp = (struct breakpoint *)value;
+	struct task *leader = (struct task *)data;
+
+	(void)key;
+
+	debug(DEBUG_FUNCTION, "pid=%d", leader->pid);
+
+	bp->enabled = 0;
+	bp->sw = 0;
+	bp->hw = 0;
+
+	return 0;
+}
+
+void breakpoint_invalidate_all(struct task *leader)
+{
+	debug(DEBUG_FUNCTION, "pid=%d", leader->pid);
+
+	if (leader->breakpoints)
+		dict_apply_to_all(leader->breakpoints, invalidate_bp_cb, leader);
 }
 
 static int destroy_breakpoint_cb(unsigned long key, const void *value, void *data)
 {
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *leader = (struct task *)data;
+
+	(void)key;
 
 	breakpoint_delete(leader, bp);
 	return 0;
@@ -624,7 +673,9 @@ void breakpoint_clear_all(struct task *leader)
 {
 	if (leader->breakpoints) {
 		dict_apply_to_all(leader->breakpoints, &destroy_breakpoint_cb, leader);
+#if HW_BREAKPOINTS > 0
 		assert(leader->hw_bp_num == 0);
+#endif
 		dict_clear(leader->breakpoints);
 		leader->breakpoints = NULL;
 	}
@@ -642,6 +693,8 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 	struct breakpoint *bp = (struct breakpoint *)value;
 	struct task *new_task = (struct task *)data;
 	size_t ext = bp->ext;
+
+	(void)key;
 
 	if (bp->deleted)
 		return 0;
@@ -665,6 +718,7 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 	new_bp->enabled = bp->enabled;
 	new_bp->locked = bp->locked;
 	new_bp->hw = bp->hw;
+	new_bp->sw = bp->sw;
 	new_bp->type = bp->type;
 	new_bp->ext = ext;
 	new_bp->refcnt = 1;
@@ -695,7 +749,8 @@ static int clone_single_cb(unsigned long key, const void *value, void *data)
 	}
 	else
 #endif
-	memcpy(new_bp->orig_value, bp->orig_value, sizeof(bp->orig_value));
+	if (new_bp->sw)
+		memcpy(new_bp->orig_value, bp->orig_value, sizeof(bp->orig_value));
 
 	if (ext)
 		memcpy((void *)new_bp + ext, (void *)bp + ext, ext);
@@ -731,6 +786,8 @@ int breakpoint_put(struct breakpoint *bp)
 
 		if (--bp->refcnt)
 			return 0;
+
+		assert(bp->enabled == 0);
 
 		free(bp);
 	}

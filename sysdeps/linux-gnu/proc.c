@@ -489,6 +489,8 @@ static int rdebug_bp_on_hit(struct task *task, struct breakpoint *bp)
 	struct lt_r_debug_64 rdbg;
 	struct task *leader = task->leader;
 
+	(void)bp;
+
 	debug(DEBUG_FUNCTION, "pid=%d", task->pid);
 
 	if (load_debug_struct(task, leader->os.debug_addr, &rdbg) < 0)
@@ -615,6 +617,7 @@ int os_task_init(struct task *task)
 
 void os_task_destroy(struct task *task)
 {
+	(void)task;
 }
 
 int os_task_clone(struct task *retp, struct task *task)

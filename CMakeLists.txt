@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.9)
 set(MT "mtrace-ng")
-project(${MT})
+project(${MT} C)
 
-set(MT_VERSION_STRING "0.7")
+set(MT_VERSION_STRING "0.8")
 
 option(DISABLE_CLIENT "whether to disable client support" OFF)
 
@@ -10,7 +10,7 @@ set(default_build_type "Release")
 if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 	set(CMAKE_BUILD_TYPE "${default_build_type}" CACHE STRING "Choose type of build" FORCE)
 	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
-		"Debug" "Relase" "LTO")
+		"Debug" "Release" "LTO")
 endif()
 
 include(CheckFunctionExists)
@@ -45,10 +45,13 @@ include_directories(
  "${PROJECT_SOURCE_DIR}/sysdeps"
 )
 
-set(CMAKE_C_FLAGS_DEBUG "-O0 -ggdb -Wall")
-set(CMAKE_C_FLAGS_RELEASE "-O3 -Wall -DNDEBUG")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined -D__FORITFY_SOURCE=2 -rdynamic")
+set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
+
 set(CMAKE_C_FLAGS_LTO "${CMAKE_C_FLAGS_RELEASE} -flto")
-set(CMAKE_EXE_LINKER_FLAGS_LTO "-flto")
+set(CMAKE_EXE_LINKER_FLAGS_LTO "${CMAKE_LINKER_FLAGS_RELEASE} -flto")
+
+add_compile_options(-Wall -Wextra -Werror -Werror -Wno-implicit-fallthrough)
 
 check_ipo_supported(RESULT IPO)
 #if (IPO)

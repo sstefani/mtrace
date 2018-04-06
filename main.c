@@ -61,6 +61,8 @@ struct mt_timer report_in_time;
 struct mt_timer report_out_time;
 struct mt_timer skip_bp_time;
 
+pid_t mtrace_pid;
+
 static int do_exit;
 
 void mtrace_request_exit(void)
@@ -69,7 +71,7 @@ void mtrace_request_exit(void)
 		return;
 
 	if (unlikely(options.verbose))
-		fprintf(stderr, "+++ request exit +++\n");
+		fprintf(stderr, "+++ request exit\n");
 
 	do_exit = 1;
 	wait_event_wakeup();
@@ -110,6 +112,8 @@ static void mtrace_init(char **cmd_args)
 {
 	struct opt_p_t *opt_p_tmp;
 
+	mtrace_pid = getpid();
+
 	if (options.command) {
 		struct task *task = task_create(cmd_args);
 
@@ -117,7 +121,7 @@ static void mtrace_init(char **cmd_args)
 			exit(EXIT_FAILURE);
 
 		if (unlikely(options.verbose))
-			fprintf(stderr, "+++ process pid=%d created (%s) +++\n", task->pid, library_execname(task));
+			fprintf(stderr, "+++ process pid=%d created (%s)\n", task->pid, library_execname(task));
 	}
 
 	for(opt_p_tmp = options.opt_p; opt_p_tmp; opt_p_tmp = opt_p_tmp->next)
@@ -126,12 +130,17 @@ static void mtrace_init(char **cmd_args)
 
 static void mtrace_main(void)
 {
+	struct task *task;
+
 	while(!do_exit)  {
 		if (task_list_empty())
 			break;
 
-		if (handle_event() == -1)
-			break;
+		task = next_event();
+		if (task) {
+			if (handle_event(task) == -1)
+				break;
+		}
 
 		if (server_poll() == -1)
 			break;
@@ -141,8 +150,6 @@ static void mtrace_main(void)
 int main(int argc, char *argv[])
 {
 	char **cmd_args = process_options(argc, argv);
-
-	init_pid_hash();
 
 	if (options.trace) {
 		if (options.logfile) {

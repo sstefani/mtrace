@@ -1166,7 +1166,7 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			set_reg(rs_current, regnum, DWARF_WHERE_REG, n);
 			break;
 		case DW_CFA_remember_state:
-			rs_tmp = malloc(regs_size(as));
+			rs_tmp = malloc(sizeof(struct dwarf_reg_stack) + regs_size(as));
 			memcpy(&rs_tmp->store, rs_current, regs_size(as));
 			rs_tmp->next = rs_stack;
 			rs_stack = rs_tmp;

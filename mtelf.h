@@ -53,15 +53,10 @@ struct mt_elf {
 	GElf_Addr pltgot;
 };
 
-struct elf_image {
-	void *addr;	/* pointer to mmap'd image */
-	size_t size;	/* (file-) size of the image */
-};
-
 int elf_read_library(struct task *task, struct libref *libref, const char *filename, GElf_Addr bias);
 
 /* Create a library object representing the main binary. */
-struct libref *elf_read_main_binary(struct task *task);
+struct libref *elf_read_main_binary(struct task *task, int was_attached);
 
 #endif
 

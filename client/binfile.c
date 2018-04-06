@@ -151,7 +151,7 @@ struct rb_sym *bin_file_lookup(struct bin_file *binfile, bfd_vma addr, unsigned 
 		if (!name || !*name)
 			name = "?";
 		else {
-			alloc = bfd_demangle(binfile->abfd, name, DMGL_TYPES | DMGL_VERBOSE | DMGL_ANSI | DMGL_PARAMS);
+			alloc = bfd_demangle(binfile->abfd, name, DMGL_ANSI | DMGL_PARAMS | DMGL_RET_DROP | DMGL_AUTO);
 			if (alloc)
 				name = alloc;
 		}
@@ -289,10 +289,9 @@ void bin_file_sym_put(struct rb_sym *sym)
 	if (!--sym->refcnt) {
 		free(sym->sym);
 
-		if (!binfile)
-			return;
-
-		rb_erase(&sym->node, &binfile->sym_table);
+		if (binfile)
+			rb_erase(&sym->node, &binfile->sym_table);
+		free(sym);
 	}
 	bin_file_put(binfile);
 }

@@ -73,8 +73,6 @@ static void report_alloc64(struct task *task, enum mt_operation op, unsigned lon
 		}
 	}
 
-	skip_breakpoint(task, task->event.e_un.breakpoint);
-
 	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint64_t));
 }
 
@@ -108,8 +106,6 @@ static void report_alloc32(struct task *task, enum mt_operation op, unsigned lon
 		}
 	}
 
-	skip_breakpoint(task, task->event.e_un.breakpoint);
-
 	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
 }
 
@@ -137,6 +133,23 @@ static void _report_alloc_op(struct task *task, struct library_symbol *libsym, e
 static void _report_malloc(struct task *task, struct library_symbol *libsym)
 {
 	_report_alloc_op(task, libsym, MT_MALLOC);
+}
+
+#if 0
+static void _report_malloc1(struct task *task, struct library_symbol *libsym)
+{
+	unsigned long ret = fetch_retval(task);
+
+	report_alloc(task, MT_MALLOC, ret, 1, options.bt_depth, libsym);
+}
+#endif
+
+static void _report_reallocarray(struct task *task, struct library_symbol *libsym)
+{
+	unsigned long size = fetch_param(task, 1) * fetch_param(task, 2);
+	unsigned long ret = fetch_retval(task);
+
+	report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
 }
 
 static void _report_new(struct task *task, struct library_symbol *libsym)
@@ -173,31 +186,34 @@ static void report_delete_array(struct task *task, struct library_symbol *libsym
 
 static void _report_realloc(struct task *task, struct library_symbol *libsym)
 {
+	unsigned long addr = fetch_param(task, 0);
+	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	if (ret) {
-		unsigned long size = fetch_param(task, 1);
-
-		report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
+	if (!addr) {
+		if (ret)
+			report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
+		return;
 	}
 
-	if (fetch_param(task, 0)) {
-		if (task_is_64bit(task)) {
-			struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc));
+	if (ret)
+		report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
 
-			alloc->ptr = (uint64_t)ret;
-			alloc->size = (uint64_t)task->pid;
+	if (task_is_64bit(task)) {
+		struct mt_alloc_payload_64 *alloc = alloca(sizeof(*alloc));
 
-			server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
-		}
-		else {
-			struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc));
+		alloc->ptr = (uint64_t)ret;
+		alloc->size = (uint64_t)task->pid;
 
-			alloc->ptr = (uint32_t)ret;
-			alloc->size = (uint32_t)task->pid;
+		server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
+	}
+	else {
+		struct mt_alloc_payload_32 *alloc = alloca(sizeof(*alloc));
 
-			server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
-		}
+		alloc->ptr = (uint32_t)ret;
+		alloc->size = (uint32_t)task->pid;
+
+		server_send_msg(MT_REALLOC_DONE, task->leader->pid, alloc, sizeof(*alloc));
 	}
 }
 
@@ -205,7 +221,8 @@ static void report_realloc(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 
-	report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
+	if (addr)
+		report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
 }
 
 static void _report_calloc(struct task *task, struct library_symbol *libsym)
@@ -350,6 +367,16 @@ static const struct function flist[] = {
 	{ "pvalloc",						"pvalloc",		1,	NULL,			_report_pvalloc },
 	{ "mremap",						"mremap",		0,	report_mremap,		_report_mremap },
 	{ "cfree",						"cfree",		1,	report_free,		NULL },
+	{ "reallocarray",					"reallocarray",		0,	NULL,			_report_reallocarray },
+#if 0
+	{ "strdup",						"strdup",		0,	NULL,			_report_malloc1 },
+	{ "strndup",						"strndup",		0,	NULL,			_report_malloc1 },
+	{ "__strdup",						"__strdup",		0,	NULL,			_report_malloc1 },
+	{ "__strndup",						"__strndup",		0,	NULL,			_report_malloc1 },
+	{ "asprintf",						"asprintf",		0,	NULL,			_report_malloc1 },
+	{ "vasprintf",						"vasprintf",		0,	NULL,			_report_malloc1 },
+	{ "__asprintf",						"__asprintf",		0,	NULL,			_report_malloc1 },
+#endif
 
 	{ "new(unsigned int)",					"_Znwj",		1,	NULL,			_report_new },
 	{ "new[](unsigned int)",				"_Znaj",		1,	NULL,			_report_new_array },
@@ -361,14 +388,32 @@ static const struct function flist[] = {
 	{ "new(unsigned long, std::nothrow_t const&)",		"_ZnwmRKSt9nothrow_t",	1,	NULL,			_report_new },
 	{ "new[](unsigned long, std::nothrow_t const&)",	"_ZnamRKSt9nothrow_t",	1,	NULL,			_report_new_array },
 
+	{ "new(unsigned int, std::align_val_t, std::nothrow_t const&)",		"_ZnwjSt11align_val_tRKSt9nothrow_t",	1,	NULL,	_report_new },
+	{ "new[](unsigned int, std::align_val_t, std::nothrow_t const&)",	"_ZnajSt11align_val_tRKSt9nothrow_t",	1,	NULL,	_report_new_array },
+	{ "new(unsigned int, std::align_val_t)",				"_ZnwjSt11align_val_t",			1,	NULL,	_report_new },
+	{ "new[](unsigned int, std::align_val_t)",				"_ZnajSt11align_val_t",			1,	NULL,	_report_new_array },
+	{ "new(unsigned long, std::align_val_t, std::nothrow_t const&)",	"_ZnwmSt11align_val_tRKSt9nothrow_t",	1,	NULL,	_report_new },
+	{ "new[](unsigned long, std::align_val_t, std::nothrow_t const&)",	"_ZnamSt11align_val_tRKSt9nothrow_t",	1,	NULL,	_report_new_array },
+	{ "new(unsigned long, std::align_val_t)",				"_ZnwmSt11align_val_t",			1,	NULL,	_report_new },
+	{ "new[](unsigned long, std::align_val_t)",				"_ZnamSt11align_val_t",			1,	NULL,	_report_new_array },
+
 	{ "delete(void*)",					"_ZdlPv",		1,	report_delete,		NULL },
 	{ "delete[](void*)",					"_ZdaPv",		1,	report_delete_array,	NULL },
 	{ "delete(void*, std::nothrow_t const&)",		"_ZdlPvRKSt9nothrow_t",	1,	report_delete,		NULL },
 	{ "delete[](void*, std::nothrow_t const&)",		"_ZdaPvRKSt9nothrow_t",	1,	report_delete_array,	NULL },
+	{ "delete(void*, unsigned int)",			"_ZdlPvj",		1,	report_delete,		NULL },
+	{ "delete[](void*, unsigned int)",			"_ZdaPvj",		1,	report_delete_array,	NULL },
 	{ "delete(void*, unsigned long)",			"_ZdlPvm",		1,	report_delete,		NULL },
-	{ "delete[](void*, unsigned long)",			"_ZdaPvj",		1,	report_delete_array,	NULL },
-	{ "delete(void*, unsigned long)",			"_ZdlPvj",		1,	report_delete,		NULL },
 	{ "delete[](void*, unsigned long)",			"_ZdaPvm",		1,	report_delete_array,	NULL },
+
+	{ "delete(void*, std::align_val_t)",				"_ZdlPvSt11align_val_t",		1,	report_delete,		NULL },
+	{ "delete[](void*, std::align_val_t)",				"_ZdaPvSt11align_val_t",		1,	report_delete_array,	NULL },
+	{ "delete(void*, std::align_val_t, std::nothrow_t const&)",	"_ZdlPvSt11align_val_tRKSt9nothrow_t",	1,	report_delete,		NULL },
+	{ "delete[](void*, std::align_val_t, std::nothrow_t const&)",	"_ZdaPvSt11align_val_tRKSt9nothrow_t",	1,	report_delete_array,	NULL },
+	{ "delete(void*, unsigned int, std::align_val_t)",		"_ZdlPvjSt11align_val_t",		1,	report_delete,		NULL },
+	{ "delete[](void*, unsigned int, std::align_val_t)",		"_ZdaPvjSt11align_val_t",		1,	report_delete_array,	NULL },
+	{ "delete(void*, unsigned long, std::align_val_t)",		"_ZdlPvmSt11align_val_t",		1,	report_delete,		NULL },
+	{ "delete[](void*, unsigned long, std::align_val_t)",		"_ZdaPvmSt11align_val_t",		1,	report_delete_array,	NULL },
 };
 
 const struct function *flist_matches_symbol(const char *sym_name)
@@ -466,9 +511,9 @@ int report_scan(pid_t pid, const void *data, unsigned int data_len)
 	return server_send_msg(MT_SCAN, pid, data, data_len);
 }
 
-int report_attach(struct task *task)
+int report_attach(struct task *task, int was_attached)
 {
-	struct mt_attached_payload state = { .attached = task->attached };
+	struct mt_attached_payload state = { .attached = !!was_attached };
 
 	if (!server_connected())
 		return -1;
@@ -530,7 +575,7 @@ static void report_process(struct task *leader)
 {
 	struct list_head *it;
 
-	report_attach(leader);
+	report_attach(leader, 1);
 
 	list_for_each(it, &leader->libraries_list) {
 		struct library *lib = container_of(it, struct library, list);

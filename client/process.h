@@ -90,15 +90,15 @@ void process_set_status(struct process *process, enum process_status status);
 void process_start_input(struct process *process);
 void process_stop_input(struct process *process);
 void process_about_exit(struct process *process);
-void process_exit(struct process *process);
+int process_exit(struct process *process);
 void process_status(struct process *process);
-void *process_scan(struct process *curr, void *leaks, uint32_t payload_len);
+int process_scan(struct process *curr, void *leaks, uint32_t payload_len);
 void process_alloc(struct process *process, struct mt_msg *msg, void *payload);
 void process_free(struct process *process, struct mt_msg *msg, void *payload);
 void process_munmap(struct process *process, struct mt_msg *msg, void *payload);
 void process_add_map(struct process *process, void *payload, uint32_t payload_len);
 void process_del_map(struct process *process, void *payload, uint32_t payload_len);
-void process_detach(struct process *process);
+int process_detach(struct process *process);
 void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *payload);
 
 unsigned long process_leaks_scan(struct process *process, int mode);

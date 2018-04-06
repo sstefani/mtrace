@@ -23,6 +23,8 @@
 #ifndef _INC_MAIN_H
 #define _INC_MAIN_H
 
+#include <sys/types.h>
+
 #include "timer.h"
 
 void mtrace_request_exit(void);
@@ -36,5 +38,6 @@ struct mt_timer report_in_time;
 struct mt_timer report_out_time;
 struct mt_timer skip_bp_time;
 
+pid_t mtrace_pid;
 #endif
 
