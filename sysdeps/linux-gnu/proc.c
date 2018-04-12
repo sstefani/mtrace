@@ -163,14 +163,14 @@ int process_tasks(pid_t pid, pid_t ** ret_tasks, size_t *ret_n)
 	for(;;) {
 		struct dirent *result;
 
+		errno = 0;
 		result = readdir(d);
-		if (!result) {
-			free(tasks);
-			return -1;
-		}
 
-		if (result == NULL)
+		if (!result) {
+			if (errno)
+				goto fail;
 			break;
+		}
 
 		if (result->d_type == DT_DIR && all_digits(result->d_name)) {
 			pid_t npid = atoi(result->d_name);
@@ -181,10 +181,9 @@ int process_tasks(pid_t pid, pid_t ** ret_tasks, size_t *ret_n)
 				alloc = n > 0 ? (2 * n) : 8;
 
 				ntasks = realloc(tasks, sizeof(*tasks) * alloc);
-				if (!ntasks) {
-					free(tasks);
-					return -1;
-				}
+				if (!ntasks)
+					goto fail;
+
 				tasks = ntasks;
 			}
 			tasks[n++] = npid;
@@ -197,6 +196,14 @@ int process_tasks(pid_t pid, pid_t ** ret_tasks, size_t *ret_n)
 	*ret_n = n;
 
 	return 0;
+fail:
+	free(tasks);
+	closedir(d);
+
+	*ret_tasks = NULL;
+	*ret_n = 0;
+
+	return -1;
 }
 
 /* On native 64-bit system, we need to be careful when handling cross
