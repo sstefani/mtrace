@@ -256,6 +256,9 @@ void *mem_scan(struct task *task, struct mt_msg *cmd, void *payload, unsigned lo
 	unsigned long start;
 	unsigned long end;
 
+	if (unlikely(options.verbose))
+		fprintf(stderr, "+++ scan for memory leaks...\n");
+
 	if (!n)
 		return NULL;
 

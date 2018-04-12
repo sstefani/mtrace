@@ -21,6 +21,8 @@
  * 02110-1301 USA
  */
 
+#define _GNU_SOURCE
+
 #include "config.h"
 
 #include <sys/types.h>
@@ -153,6 +155,15 @@ struct task *pid2task(pid_t pid)
 	return NULL;
 }
 
+static void delete_task(struct task *task)
+{
+	arch_task_destroy(task);
+	os_task_destroy(task);
+	delete_pid(task);
+	breakpoint_clear_all(task);
+	free(task);
+}
+
 static int leader_setup(struct task *leader, int was_attached)
 {
 	if (!elf_read_main_binary(leader, was_attached))
@@ -212,29 +223,13 @@ static int task_init(struct task *task)
 	return 0;
 }
 
-static int leader_cleanup(struct task *leader)
+static void leader_cleanup(struct task *leader)
 {
-	if (!leader)
-		return 0;
-
-	if (--leader->threads)
-		return 0;
-
 	library_clear_all(leader);
 	breakpoint_clear_all(leader);
 	backtrace_destroy(leader);
 
 	list_del(&leader->leader_list);
-
-	return 1;
-}
-
-static void leader_release(struct task *leader)
-{
-	if (!leader_cleanup(leader))
-		return;
-
-	free(leader);
 }
 
 static void task_destroy(struct task *task)
@@ -248,23 +243,32 @@ static void task_destroy(struct task *task)
 
 	stop_task(task);
 
+	if (leader != task)
+		list_del(&task->task_list);
+
+	leader->threads--;
+	leader->threads_stopped--;
+
 	if (task->event.type == EVENT_BREAKPOINT)
 		breakpoint_put(task->event.e_un.breakpoint);
 
 	arch_task_destroy(task);
 	os_task_destroy(task);
 	task_reset_bp(task);
-	remove_event(task);
 	breakpoint_hw_destroy(task);
 	delete_pid(task);
+
+	if (!leader->threads)
+		leader_cleanup(leader);
+
 	untrace_task(task);
+	remove_event(task);
 
-	if (leader != task) {
-		list_del(&task->task_list);
+	if (leader != task)
 		free(task);
-	}
 
-	leader_release(leader);
+	if (!leader->threads)
+		free(leader);
 }
 
 struct task *task_new(pid_t pid)
@@ -279,6 +283,7 @@ struct task *task_new(pid_t pid)
 	task->pid = pid;
 	task->attached = 0;
 	task->stopped = 0;
+	task->bp_skipped = 0;
 	task->is_new = 1;
 	task->defer_func = NULL;
 	task->defer_data = NULL;
@@ -288,7 +293,6 @@ struct task *task_new(pid_t pid)
 #if HW_BREAKPOINTS > 1
 	INIT_LIST_HEAD(&task->hw_bp_list);
 #endif
-
 	library_setup(task);
 
 	init_event(task);
@@ -322,16 +326,17 @@ int process_exec(struct task *task)
 
 	each_task(leader, &remove_task_cb, leader);
 
+	assert(leader->threads == 1);
+
 	os_task_destroy(leader);
 	arch_task_destroy(leader);
 	leader_cleanup(leader);
-
-	assert(leader->threads == 0);
 
 	if (task_init(leader) < 0)
 		goto fail;
 
 	assert(leader->leader == leader);
+	assert(leader->threads == 1);
 	assert(leader->threads_stopped == 1);
 
 	if (leader_setup(leader, 0) < 0)
@@ -347,9 +352,10 @@ struct task *task_create(char **argv)
 {
 	struct task *task;
 	pid_t pid;
+	int ret;
 
 	pid = fork();
-	if (pid < 0) {
+	if (pid == -1) {
 		perror("fork");
 		return NULL;
 	}
@@ -365,27 +371,34 @@ struct task *task_create(char **argv)
 
 	task = task_new(pid);
 	if (!task)
-		goto fail2;
+		goto fail1;
 
 	if (trace_wait(task))
 		goto fail1;
 
 	if (trace_set_options(task) < 0)
-		goto fail2;
+		goto fail1;
 
 	if (leader_setup(task, 0) < 0)
-		goto fail1;
+		goto fail2;
 
-	if (handle_event(task))
-		goto fail1;
+	ret = handle_event(task);
+	if (ret < 0)
+		goto fail2;
+
+	if (ret > 0)
+		return NULL;
 
 	return task;
-fail2:
-	fprintf(stderr, "failed to initialize process %d\n", pid);
 fail1:
-	if (task)
-		remove_proc(task);
-	kill(pid, SIGKILL);
+	fprintf(stderr, "failed to initialize process %d\n", pid);
+	if (task) {
+		delete_task(task);
+		kill(pid, SIGKILL);
+	}
+	return NULL;
+fail2:
+	remove_proc(task);
 	return NULL;
 }
 
@@ -475,9 +488,12 @@ static struct task *open_one_pid(pid_t pid)
 	if (trace_set_options(task) < 0)
 		goto fail2;
 
+	queue_event(task);
+
 	return task;
 fail2:
-	task_destroy(task);
+	delete_task(task);
+	kill(pid, SIGCONT);
 fail1:
 	return NULL;
 }
@@ -571,7 +587,9 @@ void each_process(void (*cb)(struct task *task))
 {
 	struct list_head *it, *next;
 
-	list_for_each_safe(it, next, &list_of_leaders) {
+	for(it = list_of_leaders.prev; it != &list_of_leaders; it = next) {
+		next = it->prev;
+
 		struct task *task = container_of(it, struct task, leader_list);
 
 		(*cb)(task);
@@ -603,7 +621,10 @@ void remove_proc(struct task *leader)
 
 	assert(leader->leader == leader);
 
+	stop_threads(leader);
+	breakpoint_disable_all(leader);
 	each_task(leader, &remove_task_cb, leader);
+	assert(leader->threads == 1);
 	task_destroy(leader);
 }
 

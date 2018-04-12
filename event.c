@@ -114,26 +114,26 @@ static int do_clone(struct task *task, struct task *newtask)
 	debug(DEBUG_EVENT, "+++ process %s pid=%d, newpid=%d", get_clone_type(task->event.type), task->pid, newtask->pid);
 
 	if (unlikely(options.verbose))
-		fprintf(stderr, "+++ process %s(%d) pid=%d, newpid=%d\n", get_clone_type(task->event.type), task->event.type, task->pid, newtask->pid);
+		fprintf(stderr, "+++ process %s pid=%d, newpid=%d\n", get_clone_type(task->event.type), task->pid, newtask->pid);
 
 	assert(task->stopped);
 	assert(newtask->stopped);
 	assert(newtask->is_new);
 
-	if (newtask->event.type != EVENT_NEW)
+	if (unlikely(options.verbose && newtask->event.type != EVENT_NEW))
 		fprintf(stderr, "!!!task new unexpected event for pid=%d: %d\n", newtask->pid, newtask->event.type);
 	else
-	if (newtask->event.e_un.signum)
+	if (unlikely(options.verbose && newtask->event.e_un.signum))
 		fprintf(stderr, "!!!task new unexpected signal for pid=%d: %d\n", newtask->pid, newtask->event.e_un.signum);
 
 	if (newtask->leader == newtask) {
-		if (!options.follow) {
-			untrace_proc(newtask);
-			return RET_DELETED;
-		}
-
 		if (task_fork(task, newtask) < 0)
 			goto fail;
+
+		if (!options.follow) {
+			remove_proc(newtask);
+			return RET_DELETED;
+		}
 
 		report_fork(newtask, task);
 	}
@@ -207,7 +207,7 @@ static int handle_new(struct task *task)
 
 	assert(task->is_new);
 
-	if (task->event.e_un.signum)
+	if (unlikely(options.verbose && task->event.e_un.signum))
 		fprintf(stderr, "!!!task unexpected signal for pid=%d: %d\n", task->pid, task->event.e_un.signum);
 	task->is_new = 0;
 
@@ -338,7 +338,8 @@ static int handle_breakpoint(struct task *task)
 			goto end;
 		}
 
-		fprintf(stderr, "%s:%d\n", __func__, __LINE__);
+		if (unlikely(options.verbose))
+			fprintf(stderr, "!!!unhandled skip breakpoint for pid=%d\n", task->pid);
 	}
 
 	if (unlikely(bp->deleted)) {
@@ -396,7 +397,10 @@ static int handle_breakpoint(struct task *task)
 		}
 	}
 
-	skip_breakpoint(task, bp);
+	if (task->bp_skipped)
+		task->bp_skipped = 0;
+	else
+		skip_breakpoint(task, bp);
 end:
 	breakpoint_put(bp);
 	return 0;
@@ -416,10 +420,12 @@ int handle_event(struct task *task)
 	if (task->defer_func) {
 		ret = task->defer_func(task, task->defer_data);
 
+		if (ret == RET_DELETED)
+			return 1;
+
 		task->defer_func = NULL;
 		task->defer_data = NULL;
-
-		return ret;
+		goto out2;
 	}
 
 	struct event *event = &task->event;
@@ -434,7 +440,7 @@ int handle_event(struct task *task)
 		break;
 	case EVENT_ABOUT_EXIT:
 		ret = handle_about_exit(task);
-		goto out;
+		goto out1;
 	case EVENT_EXIT:
 		ret = handle_exit(task);
 		break;
@@ -451,12 +457,12 @@ int handle_event(struct task *task)
 		break;
 	case EVENT_BREAKPOINT:
 		ret = handle_breakpoint(task);
-		goto out;
+		goto out1;
 	case EVENT_NEW:
 		ret = handle_new(task);
 		break;
 	default:
-		fprintf(stderr, "!!!pid=%d, unknown event %d\n", task->pid, type);
+		fprintf(stderr, "fatal error, unknown event %d\n", type);
 		abort();
 	}
 
@@ -467,8 +473,9 @@ int handle_event(struct task *task)
 		assert(task->event.type == EVENT_NONE);
 		assert(task->stopped == 0);
 	}
+out2:
 	assert(task->is_new == 0);
-out:
+out1:
 	return (ret < 0) ? ret : 0;
 }
 

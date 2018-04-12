@@ -353,9 +353,8 @@ static void readline_handler(char *line)
 	char *linedup;
 	char *s;
 
-	linedup = strdup(line);
-	if (!linedup)
-		goto finish;
+	linedup = alloca(strlen(line) + 1);
+	strcpy(linedup, line);
 
 	argv = malloc(argv_size * sizeof(*argv));
 	if (!argv)
@@ -407,7 +406,7 @@ static void readline_handler(char *line)
 		s += n + 1;
 	}
 	if (!i)
-		return;
+		goto finish;
 
 	argc = i;
 	argv[i++] = NULL;
@@ -445,7 +444,6 @@ static void readline_handler(char *line)
 	printf("unknown command '%s'\n", argv[0]);
 finish:
 	free(argv);
-	free(linedup);
 
 	if (quit)
 		rl_callback_handler_remove();
@@ -919,5 +917,6 @@ void readline_exit(void)
 {
 	if (!quit)
 		rl_callback_handler_remove();
+	rl_clear_history();
 }
 

@@ -49,6 +49,7 @@ struct task {
 	unsigned int stopped:1;
 	unsigned int is_new:1;
 	unsigned int bad:1;
+	unsigned int bp_skipped:1;
 
 	struct breakpoint *breakpoint;
 	struct library_symbol *libsym;

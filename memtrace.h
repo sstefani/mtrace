@@ -31,7 +31,7 @@
 #define	IS64BIT	0
 #endif
 
-#define	MEMTRACE_SI_VERSION	8
+#define	MEMTRACE_SI_VERSION	9
 
 #define	MEMTRACE_SI_FORK	1
 #define	MEMTRACE_SI_EXEC	2
@@ -100,6 +100,7 @@ struct __attribute__((packed)) mt_pid_payload {
 
 struct __attribute__((packed)) mt_scan_payload {
 	uint32_t ptr_size;
+	uint32_t pad;	// for 64 bit alignment
 	uint64_t mask;
 	char data[0];
 };

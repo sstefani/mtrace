@@ -83,7 +83,7 @@ static void enable_sw_breakpoint(struct task *task, struct breakpoint *bp)
 	bp->sw = 1;
 	bp->enabled = 1;
 
-	if (bp->break_insn)
+	if (unlikely(options.verbose && bp->break_insn))
 		fprintf(stderr, "!!!break insn pid=%d, addr=%#lx\n", task->pid, bp->addr);
 }
 
@@ -529,13 +529,11 @@ void breakpoint_delete(struct task *task, struct breakpoint *bp)
 
 	if (unlikely(options.verbose > 1 && bp->libsym)) {
 		fprintf(stderr,
-			"delete %s breakpoint %s:%s [%#lx] count=%u was_hw=%u\n",
+			"delete %s breakpoint %s:%s [%#lx]\n",
 				bp->type == BP_SW ? "sw" : "hw",
 				bp->libsym->libref->filename,
 				bp->libsym->func->demangled_name,
-				bp->addr,
-				bp->count,
-				bp->was_hw);
+				bp->addr);
 	}
 
 	bp->deleted = 1;

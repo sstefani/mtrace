@@ -50,7 +50,7 @@ int skip_breakpoint(struct task *task, struct breakpoint *bp)
 	assert(task->stopped);
 	assert(task->skip_bp == NULL);
 
-	if (bp->enabled && !bp->hw) {
+	if (bp->sw && bp->enabled) {
 		int ret = 0;
 		struct timespec start;
 

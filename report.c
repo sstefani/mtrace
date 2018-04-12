@@ -106,6 +106,9 @@ static void report_alloc32(struct task *task, enum mt_operation op, unsigned lon
 		}
 	}
 
+	task->bp_skipped = 1;
+	skip_breakpoint(task, task->event.e_un.breakpoint);
+
 	server_send_msg(op, task->leader->pid, alloc, sizeof(*alloc) + i * sizeof(uint32_t));
 }
 
