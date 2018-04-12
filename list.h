@@ -1,6 +1,6 @@
 /*
  * This file is part of mtrace-ng.
- * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
+ * Copyright (C) 2018 Stefani Seibold <stefani@seibold.net>
  *  This file is based on linux kernel list.h
  *
  * This program is free software; you can redistribute it and/or

@@ -1,7 +1,6 @@
 /*
  * This file is part of mtrace-ng.
- * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
- *  This file is based on the ltrace source
+ * Copyright (C) 2018 Stefani Seibold <stefani@seibold.net>
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.
  *
@@ -544,7 +543,7 @@ char **process_options(int argc, char **argv)
 			break;
 		case 'V':
 			printf("mtrace-ng version " PACKAGE_VERSION ".\n"
-			       "Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>.\n"
+			       "Copyright (C) 2018 Stefani Seibold <stefani@seibold.net>.\n"
 			       "\n"
 			       "This software was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.\n"
 			       "\n"

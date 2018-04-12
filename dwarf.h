@@ -1,6 +1,6 @@
 /*
  * This file is part of mtrace-ng.
- * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
+ * Copyright (C) 2018 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the libunwind source
  *
  * This work was sponsored by Rohde & Schwarz GmbH & Co. KG, Munich/Germany.

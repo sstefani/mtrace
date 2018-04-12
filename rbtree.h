@@ -1,7 +1,6 @@
 /*
  * Red Black Trees
  * This file is part of mtrace-ng.
- * Copyright (C) 2015 Stefani Seibold <stefani@seibold.net>
  *  This file is based on the linux kernel source
  *   Copyright (C) 1999  Andrea Arcangeli <andrea@suse.de>
  *
