@@ -33,6 +33,10 @@ struct mt_elf {
 	int fd;
 	const char *filename;
 	Elf *elf;
+	unsigned int loadsegs;
+	GElf_Phdr loadseg[4];
+	unsigned long loadbase;
+	unsigned long loadsize;
 	GElf_Ehdr ehdr;
 	Elf_Data *dynsym;
 	size_t dynsym_count;

@@ -66,8 +66,8 @@ void libref_delete(struct libref *libref)
 		free(sym);
 	}
 
-	if (libref->image_addr)
-		munmap(libref->image_addr, libref->load_size);
+	if (libref->mmap_addr)
+		munmap(libref->mmap_addr, libref->txt_size);
 
 	free((void *)libref->filename);
 	free(libref);
@@ -170,10 +170,10 @@ void library_delete_list(struct task *leader, struct list_head *list)
 		struct library *lib = container_of(it, struct library, list);
 		struct libref *libref = lib->libref;
 
-		debug(DEBUG_FUNCTION, "%s@%#lx pid=%d ", libref->filename, libref->base, leader->pid);
+		debug(DEBUG_FUNCTION, "%s@%#lx pid=%d ", libref->filename, libref->key, leader->pid);
 
 		if (unlikely(options.verbose > 1))
-			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
+			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->key, libref->txt_vaddr, libref->txt_vaddr + libref->txt_size);
 
 		library_delete(leader, lib);
 	}
@@ -212,7 +212,7 @@ static void library_each_symbol(struct libref *libref, void (*cb)(struct library
 
 static inline int lib_addr_match(struct libref *libref, arch_addr_t addr)
 {
-	return addr >= libref->load_addr && addr < libref->load_addr + libref->load_size;
+	return addr >= libref->txt_vaddr && addr < libref->txt_vaddr + libref->txt_size;
 }
 
 struct libref *addr2libref(struct task *leader, arch_addr_t addr)
@@ -226,7 +226,7 @@ struct libref *addr2libref(struct task *leader, arch_addr_t addr)
 		if (lib_addr_match(this, addr))
 			return this;
 
-		if (this->load_addr < addr)
+		if (this->txt_vaddr < addr)
 			new = &((*new)->rb_left);
 		else
 			new = &((*new)->rb_right);
@@ -245,7 +245,7 @@ static void insert_lib(struct task *leader, struct library *lib)
 
 		parent = *new;
 
-		if (this->libref->load_addr < lib->libref->load_addr)
+		if (this->libref->txt_vaddr < lib->libref->txt_vaddr)
 			new = &((*new)->rb_left);
 		else
 			new = &((*new)->rb_right);
@@ -258,7 +258,7 @@ static void insert_lib(struct task *leader, struct library *lib)
 
 static struct library *_library_add(struct task *leader, struct libref *libref)
 {
-	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", libref->filename, libref->base, leader->pid);
+	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", libref->filename, libref->key, leader->pid);
 
 	assert(leader->leader == leader);
 
@@ -273,7 +273,7 @@ static struct library *_library_add(struct task *leader, struct libref *libref)
 	insert_lib(leader, lib);
 
 	if (unlikely(options.verbose > 1))
-		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->base, libref->load_addr, libref->load_addr + libref->load_size);
+		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->key, libref->txt_vaddr, libref->txt_vaddr + libref->txt_size);
 
 	return lib;
 }
@@ -321,3 +321,15 @@ const char *library_execname(struct task *leader)
 	return container_of(leader->libraries_list.next, struct library, list)->libref->filename;
 }
 
+arch_addr_t vaddr_to_off(struct libref *libref, arch_addr_t addr)
+{
+	for(unsigned int i = 0; i < libref->loadsegs; ++i) {
+		GElf_Phdr *phdr = &libref->loadseg[i];
+
+		if (phdr->p_vaddr >= addr && phdr->p_vaddr + phdr->p_filesz < addr)
+			return phdr->p_offset + addr - phdr->p_vaddr;
+	}
+
+fprintf(stderr, "%s:%d\n", __func__, __LINE__);
+	return ~0LU;
+}

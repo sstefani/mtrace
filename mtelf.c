@@ -47,6 +47,9 @@
 #include "common.h"
 #include "report.h"
 
+#define PAGESIZE	4096
+#define PAGEALIGN	(PAGESIZE - 1)
+
 static int open_elf(struct mt_elf *mte, struct task *task, const char *filename)
 {
 	char *cwd;
@@ -216,10 +219,9 @@ static int populate_symtab(struct mt_elf *mte, struct libref *libref)
 	return populate_this_symtab(mte, libref, mte->dynsym, mte->dynstr, mte->dynsym_count);
 }
 
-static inline int elf_map_image(struct mt_elf *mte, void **image_addr)
+static inline int elf_map_image(struct mt_elf *mte, void **mmap_addr)
 {
 	void *addr;
-	volatile char *p;
 
 	addr = mmap(NULL, mte->txt_hdr.p_filesz, PROT_READ, MAP_PRIVATE, mte->fd, mte->txt_hdr.p_offset);
 	if (addr == MAP_FAILED) {
@@ -227,39 +229,40 @@ static inline int elf_map_image(struct mt_elf *mte, void **image_addr)
 		return -1;
 	}
 
-	*image_addr = addr;
-
-	/* prefetch */
-	for(p = addr; (void *)p <= addr + mte->txt_hdr.p_filesz; p += PAGE_SIZE)
-		*p;
+	*mmap_addr = addr;
 
 	return 0;
 }
 
 static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *libref)
 {
-	if (elf_map_image(mte, &libref->image_addr))
+	if (elf_map_image(mte, &libref->mmap_addr))
 		return -1;
 
-	libref->base = ARCH_ADDR_T(mte->base_addr);
 	libref->entry = ARCH_ADDR_T(mte->entry_addr);
-	libref->load_offset = mte->txt_hdr.p_offset;
-	libref->load_addr = mte->txt_hdr.p_vaddr + mte->bias;
-	libref->load_size = mte->txt_hdr.p_filesz;
+	libref->mmap_offset = mte->txt_hdr.p_offset;
+	libref->mmap_size = mte->loadsize;
+	libref->txt_vaddr = mte->txt_hdr.p_vaddr + mte->bias;
+	libref->txt_size = mte->txt_hdr.p_filesz;
 	libref->bias = mte->bias;
-	libref->seg_offset = mte->eh_hdr.p_offset;
-	libref->gp = mte->pltgot;
+	libref->eh_frame_hdr = mte->eh_hdr.p_offset;
+	libref->pltgot = mte->pltgot;
 	libref->key = mte->dyn;
+
+	libref->loadsegs = mte->loadsegs;
+
+	for(unsigned int i = 0; i < libref->loadsegs; ++i)
+		libref->loadseg[i] = mte->loadseg[i];
 
 #ifdef __arm__
 	if (mte->exidx_hdr.p_filesz) {
-		libref->exidx_data = libref->image_addr + mte->exidx_hdr.p_offset;
+		libref->exidx_data = libref->mmap_addr + mte->exidx_hdr.p_offset;
 		libref->exidx_len = mte->exidx_hdr.p_memsz;
 	}
 #endif
 
 	if (mte->eh_hdr.p_filesz && mte->dyn) {
-		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->image_addr - libref->load_offset + mte->eh_hdr.p_offset)) < 0)
+		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->mmap_addr - libref->mmap_offset + mte->eh_hdr.p_offset)) < 0)
 			return -1;
 	}
 
@@ -279,6 +282,9 @@ static void close_elf(struct mt_elf *mte)
 
 static int elf_read(struct mt_elf *mte, struct task *task, const char *filename, GElf_Addr bias)
 {
+	unsigned long loadsize = 0;
+	unsigned long loadbase = ~0;
+
 	debug(DEBUG_FUNCTION, "filename=%s", filename);
 
 	if (open_elf(mte, task, filename) < 0)
@@ -291,15 +297,28 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 	memset(&mte->eh_hdr, 0, sizeof(mte->eh_hdr));
 	memset(&mte->exidx_hdr, 0, sizeof(mte->exidx_hdr));
 
+	mte->loadsegs = 0;
+
 	for (i = 0; gelf_getphdr(mte->elf, i, &phdr) != NULL; ++i) {
 
 		switch (phdr.p_type) {
 		case PT_LOAD:
-			if (!mte->base_addr || mte->base_addr > phdr.p_vaddr + bias)
-				mte->base_addr = phdr.p_vaddr + bias;
+			if (mte->loadsegs >= ARRAY_SIZE(mte->loadseg)) {
+				fprintf(stderr, "Unable to handle more than %lu loadable segments in %s\n", ARRAY_SIZE(mte->loadseg), filename);
+				return -1;
+			}
+
+			mte->loadseg[mte->loadsegs++] = phdr;
+
+			if (loadbase > phdr.p_vaddr)
+				loadbase = phdr.p_vaddr;
+
+			if (loadsize < phdr.p_offset + phdr.p_filesz)
+				loadsize = phdr.p_offset + phdr.p_filesz;
 
 			if ((phdr.p_flags & (PF_X | PF_W)) == PF_X)
 				mte->txt_hdr = phdr;
+
 			break;
 		case PT_GNU_EH_FRAME:
 			mte->eh_hdr = phdr;
@@ -320,12 +339,17 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 		}
 	}
 
-	if (!mte->base_addr) {
-		fprintf(stderr, "Couldn't determine base address of %s\n", filename);
+	if (!mte->loadsegs) {
+		fprintf(stderr, "No loadable segemnts in %s\n", filename);
 		return -1;
 	}
 
-	debug(DEBUG_FUNCTION, "filename=`%s' load_offset=%#llx addr=%#llx size=%#llx",
+fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, filename, loadbase, loadsize);
+	mte->loadbase = loadbase & ~PAGEALIGN;
+	mte->loadsize = (loadsize + (loadbase - mte->loadbase) + PAGEALIGN) & ~PAGEALIGN;
+fprintf(stderr, "%s:%d loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, mte->loadbase, mte->loadsize);
+
+	debug(DEBUG_FUNCTION, "filename=`%s' mmap_offset=%#llx addr=%#llx size=%#llx",
 			filename,
 			(unsigned long long)mte->txt_hdr.p_offset,
 			(unsigned long long)mte->txt_hdr.p_vaddr + bias,

@@ -330,9 +330,9 @@ int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
 	struct libref *libref = c->libref;
 
 	for(p = call_op; p->len; ++p) {
-		if (likely(ip - ARCH_ADDR_T(libref->load_addr) >= p->off)) {
+		if (likely(ip - ARCH_ADDR_T(libref->txt_vaddr) >= p->off)) {
 			unsigned int i;
-			unsigned char *addr = libref->image_addr + ip - p->off - libref->load_addr;
+			unsigned char *addr = libref->mmap_addr + ip - p->off - libref->txt_vaddr;
 
 			for(i = 0; i < p->len; ++i) {
 				if (unlikely((addr[i] & p->mask[i]) != p->op[i]))

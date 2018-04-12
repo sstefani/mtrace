@@ -47,8 +47,8 @@ struct libref {
 	 * they have the same key.  */
 	arch_addr_t key;
 
-	/* Address where the library is mapped.  */
-	arch_addr_t base;
+	/* base address assign by the loader */
+	unsigned long bias;
 
 	/* Absolute address of the entry point.  Useful for main
 	 * binary, though I suppose the value might be useful for the
@@ -59,19 +59,24 @@ struct libref {
 	const char *filename;
 
 	/* executable segment */
-	unsigned long load_offset;
-	unsigned long load_addr;
-	unsigned long load_size;
-	unsigned long bias;
+	unsigned long txt_vaddr;
+	unsigned long txt_size;
+
+	/* loadable segments */
+	unsigned int loadsegs;
+	GElf_Phdr loadseg[4];
 
 	/* mapped image */
-	void *image_addr;
+	void *mmap_addr;
+	unsigned long mmap_offset;
+	unsigned long mmap_size;
 
 	/* global-pointer */
-	arch_addr_t gp;
-	unsigned long seg_offset;
-	void *table_data;
-	unsigned long table_len;
+	arch_addr_t pltgot;
+	unsigned long eh_frame_hdr;
+	void *fde_tab;
+	unsigned long fde_count;
+	unsigned long eh_frame;
 	unsigned int type;
 
 #ifdef __arm__
@@ -135,6 +140,9 @@ void libref_set_filename(struct libref *libref, const char *new_name);
 
 /* find library by address */
 struct libref *addr2libref(struct task *leader, arch_addr_t addr);
+
+/* return offset for virtual address */
+arch_addr_t vaddr_to_off(struct libref *libref, arch_addr_t addr);
 
 #endif
 

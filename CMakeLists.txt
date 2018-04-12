@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.9)
 set(MT "mtrace-ng")
 project(${MT} C)
 
-set(MT_VERSION_STRING "0.8")
+set(MT_VERSION_STRING "0.8.1")
 
 option(DISABLE_CLIENT "whether to disable client support" OFF)
 

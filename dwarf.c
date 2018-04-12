@@ -463,7 +463,7 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 {
 	struct dwarf_addr_space *indirect_as = as;
 	arch_addr_t val, initial_addr = *addr;
-	arch_addr_t gp = as->cursor.libref->gp;
+	arch_addr_t gp = as->cursor.libref->pltgot;
 	int is_64bit = as->is_64bit;
 	void *tmp_ptr;
 	int ret;
@@ -481,10 +481,10 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 	struct dwarf_cursor *c = &as->cursor;
 	struct libref *libref = c->libref;
 
-	if (*addr < ARCH_ADDR_T(libref->image_addr))
-		fatal("invalid access mem: addr %#lx < %p", *addr, libref->image_addr);
-	if (*addr >= ARCH_ADDR_T(libref->image_addr + libref->load_size))
-		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->image_addr + libref->load_size);
+	if (*addr < ARCH_ADDR_T(libref->mmap_addr))
+		fatal("invalid access mem: addr %#lx < %p", *addr, libref->mmap_addr);
+	if (*addr >= ARCH_ADDR_T(libref->mmap_addr + libref->txt_size))
+		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->mmap_addr + libref->txt_size);
 #endif
 
 	memset(&tmp, 0, sizeof(tmp));
@@ -873,7 +873,7 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 
 static inline int lib_addr_match(struct libref *libref, arch_addr_t ip)
 {
-	return ip >= libref->load_addr && ip < libref->load_addr + libref->load_size;
+	return ip >= libref->txt_vaddr && ip < libref->txt_vaddr + libref->txt_size;
 }
 
 int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
@@ -895,16 +895,16 @@ int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 	return 0;
 }
 
-static const struct table_entry *lookup(const struct table_entry *table, size_t table_len, int32_t rel_ip)
+static const struct table_entry *lookup(const struct table_entry *table, size_t fde_count, int32_t rel_ip)
 {
 	const struct table_entry *e, *f;
 	unsigned long lo, hi;
 
-	if (!table_len)
+	if (!fde_count)
 		return NULL;
 
 	lo = 0;
-	hi = table_len;
+	hi = fde_count;
 	f = NULL;
 	do {
 		unsigned long mid = (lo + hi) / 2;
@@ -922,7 +922,7 @@ static const struct table_entry *lookup(const struct table_entry *table, size_t 
 	return f;
 }
 
-static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip, void *table_data, unsigned long table_len)
+static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip, void *fde_tab, unsigned long fde_count)
 {
 	const struct table_entry *e;
 	void *fde_addr;
@@ -930,19 +930,19 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 	struct dwarf_cie_info *dci = &as->cursor.dci;
 	struct libref *libref = as->cursor.libref;
 
-	e = lookup(table_data, table_len, ip - libref->load_addr - libref->seg_offset);
+	e = lookup(fde_tab, fde_count, ip - libref->txt_vaddr - libref->eh_frame_hdr);
 	if (unlikely(!e)) {
 		/* IP is inside this table's range, but there is no explicit unwind info. */
 		debug(DEBUG_DWARF, "no unwind info found for IP %#lx", ip);
 		return -DWARF_ENOINFO;
 	}
 
-	fde_addr = libref->image_addr - libref->load_offset + e->fde_offset + libref->seg_offset;
+	fde_addr = libref->mmap_addr - libref->mmap_offset + e->fde_offset + libref->eh_frame_hdr;
 
 	if (unlikely((ret = dwarf_extract_cfi_from_fde(as, fde_addr)) < 0))
 		return ret;
 
-	dci->start_ip -= ARCH_ADDR_T(libref->image_addr) - libref->load_addr;
+	dci->start_ip -= ARCH_ADDR_T(libref->mmap_addr) - libref->txt_vaddr;
 
 	if (!as->is_64bit)
 		dci->start_ip &= 0xffffffff;
@@ -1808,7 +1808,7 @@ static int fetch_proc_info(struct dwarf_addr_space *as, arch_addr_t ip)
 	struct libref *libref = c->libref;
 	int ret;
 
-	ret = dwarf_search_unwind_table(as, ip, libref->table_data, libref->table_len);
+	ret = dwarf_search_unwind_table(as, ip, libref->fde_tab, libref->fde_count);
 	if (ret < 0)
 		return ret;
 
@@ -1998,7 +1998,9 @@ fail:
 
 int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr)
 {
-	arch_addr_t addr, fde_count;
+	arch_addr_t addr;
+	arch_addr_t fde_count = 0;
+	arch_addr_t eh_frame = 0;
 	int ret;
 	struct dwarf_addr_space tmp_as;
 
@@ -2015,8 +2017,8 @@ int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwar
 
 	addr = ARCH_ADDR_T(hdr + 1);
 
-	/* (Optionally) read eh_frame_ptr: */
-	if ((ret = dwarf_read_encoded_pointer_local(&tmp_as, &addr, hdr->eh_frame_ptr_enc, NULL, 0)) < 0)
+	/* read eh_frame_ptr: */
+	if ((ret = dwarf_read_encoded_pointer_local(&tmp_as, &addr, hdr->eh_frame_ptr_enc, &eh_frame, 0)) < 0)
 		return -DWARF_ENOINFO;
 
 	/* (Optionally) read fde_count: */
@@ -2028,8 +2030,8 @@ int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwar
 		return -DWARF_EINVAL;
 	}
 
-	libref->table_data = (void *)addr;
-	libref->table_len = fde_count;
+	libref->fde_tab = (void *)addr;
+	libref->fde_count = fde_count;
 
 	return 0;
 }

@@ -439,9 +439,9 @@ int _report_map(struct task *task, struct library *lib, enum mt_operation op)
 	size_t len = strlen(libref->filename) + 1;
 	struct mt_map_payload *payload = alloca(sizeof(struct mt_map_payload) + len);
 
-	payload->addr = libref->load_addr;
-	payload->offset = libref->load_offset;
-	payload->size = libref->load_size;
+	payload->addr = libref->txt_vaddr;
+	payload->offset = libref->mmap_offset;
+	payload->size = libref->txt_size;
 	payload->bias = libref->bias;
 
 	memcpy(payload->filename, libref->filename, len);
