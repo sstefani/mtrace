@@ -483,8 +483,8 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 
 	if (*addr < ARCH_ADDR_T(libref->mmap_addr))
 		fatal("invalid access mem: addr %#lx < %p", *addr, libref->mmap_addr);
-	if (*addr >= ARCH_ADDR_T(libref->mmap_addr + libref->txt_size))
-		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->mmap_addr + libref->txt_size);
+	if (*addr >= ARCH_ADDR_T(libref->mmap_addr + libref->mmap_size))
+		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->mmap_addr + libref->mmap_size);
 #endif
 
 	memset(&tmp, 0, sizeof(tmp));
@@ -687,7 +687,7 @@ static int parse_cie(struct dwarf_addr_space *as, arch_addr_t addr, struct dwarf
 		return ret;
 
 	if (version != DWARF_CIE_VERSION && version != DWARF_CIE_VERSION_GCC) {
-		debug(DEBUG_DWARF, "Got CIE version %u, expected version " STR(DWARF_CIE_VERSION) "or" STR(DWARF_CIE_VERSION_GCC), version);
+		debug(DEBUG_DWARF, "Got CIE version %u, expected version " STR(DWARF_CIE_VERSION) " or " STR(DWARF_CIE_VERSION_GCC), version);
 		return -DWARF_EBADVERSION;
 	}
 
@@ -937,7 +937,7 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 		return -DWARF_ENOINFO;
 	}
 
-	fde_addr = libref->mmap_addr - libref->mmap_offset + e->fde_offset + libref->eh_frame_hdr;
+	fde_addr = libref->mmap_addr - (libref->txt_offset - libref->mmap_offset) + e->fde_offset + libref->eh_frame_hdr;
 
 	if (unlikely((ret = dwarf_extract_cfi_from_fde(as, fde_addr)) < 0))
 		return ret;

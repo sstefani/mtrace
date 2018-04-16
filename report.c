@@ -189,15 +189,16 @@ static void report_delete_array(struct task *task, struct library_symbol *libsym
 
 static void _report_realloc(struct task *task, struct library_symbol *libsym)
 {
-	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
 	unsigned long ret = fetch_retval(task);
 
-	if (!addr) {
+	if (!task->in_realloc) {
 		if (ret)
 			report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
 		return;
 	}
+
+	task->in_realloc = 0;
 
 	if (ret)
 		report_alloc(task, MT_REALLOC, ret, size, options.bt_depth, libsym);
@@ -224,8 +225,12 @@ static void report_realloc(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 
-	if (addr)
+	assert(!task->in_realloc);
+
+	if (addr) {
+		task->in_realloc = 1;
 		report_alloc(task, MT_REALLOC_ENTER, addr, task->pid, options.sanity ? options.bt_depth : 0, libsym);
+	}
 }
 
 static void _report_calloc(struct task *task, struct library_symbol *libsym)
@@ -440,7 +445,7 @@ int _report_map(struct task *task, struct library *lib, enum mt_operation op)
 	struct mt_map_payload *payload = alloca(sizeof(struct mt_map_payload) + len);
 
 	payload->addr = libref->txt_vaddr;
-	payload->offset = libref->mmap_offset;
+	payload->offset = libref->txt_offset;
 	payload->size = libref->txt_size;
 	payload->bias = libref->bias;
 

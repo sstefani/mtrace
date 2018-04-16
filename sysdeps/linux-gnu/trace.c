@@ -127,10 +127,10 @@ static int child_event(struct task *task, enum event_type ev)
 {
 	unsigned long data = 0;
 
-	debug(DEBUG_EVENT, "child event %d pid=%d, newpid=%d", ev, task->pid, task->event.e_un.newpid);
+	debug(DEBUG_TRACE, "child event %d pid=%d, newpid=%d", ev, task->pid, task->event.e_un.newpid);
 
 	if (unlikely(ptrace(PTRACE_GETEVENTMSG, task->pid, NULL, &data) == -1))
-		debug(DEBUG_EVENT, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
+		debug(DEBUG_TRACE, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
 
 	int pid = data;
 
@@ -161,7 +161,7 @@ static int _process_event(struct task *task, int status)
 	assert(task->event.type == EVENT_NONE);
 
 	if (WIFSIGNALED(status)) {
-		debug(DEBUG_EVENT, "EXIT_SIGNAL: pid=%d, signum=%d", task->pid, task->event.e_un.signum);
+		debug(DEBUG_TRACE, "EXIT_SIGNAL: pid=%d, signum=%d", task->pid, task->event.e_un.signum);
 
 		task->event.type = EVENT_EXIT_SIGNAL;
 		task->event.e_un.signum = WTERMSIG(status);
@@ -169,7 +169,7 @@ static int _process_event(struct task *task, int status)
 	}
 
 	if (WIFEXITED(status)) {
-		debug(DEBUG_EVENT, "EXIT: pid=%d, status=%d", task->pid, task->event.e_un.ret_val);
+		debug(DEBUG_TRACE, "EXIT: pid=%d, status=%d", task->pid, task->event.e_un.ret_val);
 
 		task->event.type = EVENT_EXIT;
 		task->event.e_un.ret_val = WEXITSTATUS(status);
@@ -201,26 +201,26 @@ static int _process_event(struct task *task, int status)
 	case 0:
 		break;
 	case PTRACE_EVENT_VFORK:
-		debug(DEBUG_EVENT, "VFORK: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
+		debug(DEBUG_TRACE, "VFORK: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
 		return child_event(task, EVENT_VFORK);
 	case PTRACE_EVENT_FORK:
-		debug(DEBUG_EVENT, "FORK: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
+		debug(DEBUG_TRACE, "FORK: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
 		return child_event(task, EVENT_FORK);
 	case PTRACE_EVENT_CLONE:
-		debug(DEBUG_EVENT, "CLONE: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
+		debug(DEBUG_TRACE, "CLONE: pid=%d, newpid=%d", task->pid, task->event.e_un.newpid);
 		return child_event(task, EVENT_CLONE);
 	case PTRACE_EVENT_EXEC:
 		task->event.type = EVENT_EXEC;
-		debug(DEBUG_EVENT, "EXEC: pid=%d", task->pid);
+		debug(DEBUG_TRACE, "EXEC: pid=%d", task->pid);
 		return 0;
 	case PTRACE_EVENT_EXIT:
 	 {
 		unsigned long data = 0;
 
-		debug(DEBUG_EVENT, "ABOUT_EXIT: pid=%d", task->pid);
+		debug(DEBUG_TRACE, "ABOUT_EXIT: pid=%d", task->pid);
 
 		if (unlikely(ptrace(PTRACE_GETEVENTMSG, task->pid, NULL, &data) == -1))
-			debug(DEBUG_EVENT, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
+			debug(DEBUG_TRACE, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
 
 		task->event.e_un.ret_val = WEXITSTATUS(data);
 		task->event.type = EVENT_ABOUT_EXIT;
@@ -253,7 +253,7 @@ static int _process_event(struct task *task, int status)
 	task->event.type = EVENT_SIGNAL;
 	task->event.e_un.signum = sig;
 
-	debug(DEBUG_EVENT, "SIGNAL: pid=%d, signum=%d", task->pid, sig);
+	debug(DEBUG_TRACE, "SIGNAL: pid=%d, signum=%d", task->pid, sig);
 	return sig;
 }
 
@@ -334,7 +334,7 @@ static struct task * process_event(struct task *task, int status)
 	task->event.type = EVENT_BREAKPOINT;
 	task->event.e_un.breakpoint = breakpoint_get(bp);
 
-	debug(DEBUG_EVENT, "BREAKPOINT: pid=%d, addr=%#lx", task->pid, task->event.e_un.breakpoint->addr);
+	debug(DEBUG_TRACE, "BREAKPOINT: pid=%d, addr=%#lx", task->pid, task->event.e_un.breakpoint->addr);
 
 	return task;
 }
@@ -467,7 +467,7 @@ static void do_stop_cb(struct task *task, void *data)
 	if (task->stopped)
 		return;
 
-	debug(DEBUG_EVENT, "task stop pid=%d", task->pid);
+	debug(DEBUG_TRACE, "task stop pid=%d", task->pid);
 
 	task_kill(task, SIGSTOP);
 }
@@ -478,7 +478,7 @@ void stop_threads(struct task *task)
 
 	assert(task->leader != NULL);
 
-	debug(DEBUG_EVENT, "stop threads pid=%d", task->pid);
+	debug(DEBUG_TRACE, "stop threads pid=%d", task->pid);
 
 	if (leader->threads != leader->threads_stopped) {
 		struct timespec start;
@@ -581,7 +581,7 @@ struct task *wait_event(void)
 	pid = wait_task(NULL, &status);
 	if (unlikely(pid == -1)) {
 		if (errno == ECHILD)
-			debug(DEBUG_EVENT, "No more traced programs");
+			debug(DEBUG_TRACE, "No more traced programs");
 		return NULL;
 	}
 
@@ -631,10 +631,10 @@ struct task *wait_event(void)
 			if (unlikely(options.verbose))
 				fprintf(stderr, "!!!%s: exit event for stopped pid=%d\n", __func__, task->pid);
 
-			debug(DEBUG_EVENT, "ABOUT_EXIT: pid=%d", task->pid);
+			debug(DEBUG_TRACE, "ABOUT_EXIT: pid=%d", task->pid);
 
 			if (unlikely(ptrace(PTRACE_GETEVENTMSG, task->pid, NULL, &data) == -1))
-				debug(DEBUG_EVENT, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
+				debug(DEBUG_TRACE, "PTRACE_GETEVENTMSG pid=%d %s", task->pid, strerror(errno));
 
 			task->event.e_un.ret_val = WEXITSTATUS(data);
 			task->event.type = EVENT_ABOUT_EXIT;

@@ -283,6 +283,7 @@ struct task *task_new(pid_t pid)
 	task->attached = 0;
 	task->stopped = 0;
 	task->bp_skipped = 0;
+	task->in_realloc = 0;
 	task->is_new = 1;
 	task->defer_func = NULL;
 	task->defer_data = NULL;

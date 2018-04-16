@@ -45,7 +45,7 @@ include_directories(
  "${PROJECT_SOURCE_DIR}/sysdeps"
 )
 
-set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined -D__FORITFY_SOURCE=2 -rdynamic")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined -D__FORITFY_SOURCE=2 -rdynamic -DDEBUG")
 set(CMAKE_LINKER_FLAGS_DEBUG "${CMAKE_LINKER_FLAGS_DEBUG} -fno-omit-frame-pointer -fsanitize=address -fsanitize=undefined")
 
 set(CMAKE_C_FLAGS_LTO "${CMAKE_C_FLAGS_RELEASE} -flto")

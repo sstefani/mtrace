@@ -223,7 +223,7 @@ static inline int elf_map_image(struct mt_elf *mte, void **mmap_addr)
 {
 	void *addr;
 
-	addr = mmap(NULL, mte->txt_hdr.p_filesz, PROT_READ, MAP_PRIVATE, mte->fd, mte->txt_hdr.p_offset);
+	addr = mmap(NULL, mte->loadsize, PROT_READ, MAP_PRIVATE, mte->fd, mte->loadbase);
 	if (addr == MAP_FAILED) {
 		fprintf(stderr, "mmap failed\n");
 		return -1;
@@ -240,10 +240,11 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 		return -1;
 
 	libref->entry = ARCH_ADDR_T(mte->entry_addr);
-	libref->mmap_offset = mte->txt_hdr.p_offset;
+	libref->mmap_offset = mte->loadbase;
 	libref->mmap_size = mte->loadsize;
 	libref->txt_vaddr = mte->txt_hdr.p_vaddr + mte->bias;
 	libref->txt_size = mte->txt_hdr.p_filesz;
+	libref->txt_offset = mte->txt_hdr.p_offset;
 	libref->bias = mte->bias;
 	libref->eh_frame_hdr = mte->eh_hdr.p_offset;
 	libref->pltgot = mte->pltgot;
@@ -262,7 +263,7 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 #endif
 
 	if (mte->eh_hdr.p_filesz && mte->dyn) {
-		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->mmap_addr - libref->mmap_offset + mte->eh_hdr.p_offset)) < 0)
+		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->mmap_addr - libref->txt_offset + mte->eh_hdr.p_offset)) < 0)
 			return -1;
 	}
 
@@ -310,8 +311,8 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 
 			mte->loadseg[mte->loadsegs++] = phdr;
 
-			if (loadbase > phdr.p_vaddr)
-				loadbase = phdr.p_vaddr;
+			if (loadbase > phdr.p_offset)
+				loadbase = phdr.p_offset;
 
 			if (loadsize < phdr.p_offset + phdr.p_filesz)
 				loadsize = phdr.p_offset + phdr.p_filesz;
@@ -344,12 +345,12 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 		return -1;
 	}
 
-fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, filename, loadbase, loadsize);
+//fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, filename, loadbase, loadsize);
 	mte->loadbase = loadbase & ~PAGEALIGN;
 	mte->loadsize = (loadsize + (loadbase - mte->loadbase) + PAGEALIGN) & ~PAGEALIGN;
-fprintf(stderr, "%s:%d loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, mte->loadbase, mte->loadsize);
+//fprintf(stderr, "%s:%d loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, mte->loadbase, mte->loadsize);
 
-	debug(DEBUG_FUNCTION, "filename=`%s' mmap_offset=%#llx addr=%#llx size=%#llx",
+	debug(DEBUG_FUNCTION, "filename=`%s' text offset=%#llx addr=%#llx size=%#llx",
 			filename,
 			(unsigned long long)mte->txt_hdr.p_offset,
 			(unsigned long long)mte->txt_hdr.p_vaddr + bias,

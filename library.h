@@ -61,6 +61,7 @@ struct libref {
 	/* executable segment */
 	unsigned long txt_vaddr;
 	unsigned long txt_size;
+	unsigned long txt_offset;
 
 	/* loadable segments */
 	unsigned int loadsegs;

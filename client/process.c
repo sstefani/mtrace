@@ -92,8 +92,7 @@ struct realloc_entry {
 	unsigned long addr;
 	unsigned long size;
 	unsigned long flags;
-	struct rb_stack *stack;
-	enum mt_operation operation;
+	struct rb_stack *stack_node;
 };
 
 struct regex_list {
@@ -815,8 +814,8 @@ static void process_init(struct process *process, unsigned int swap_endian, unsi
 
 static void realloc_del(struct realloc_entry *re)
 {
-	if (re->stack)
-		stack_put(re->stack);
+	if (re->stack_node)
+		stack_put(re->stack_node);
 	list_del(&re->list);
 	free(re);
 }
@@ -1390,6 +1389,22 @@ static int is_sane(struct rb_block *block, enum mt_operation op)
 	return 1;
 }
 
+static void realloc_add(struct process *process, unsigned long pid, unsigned long addr, unsigned long size, unsigned long flags, struct rb_stack *stack_node)
+{
+	struct realloc_entry *re = malloc(sizeof(*re));
+
+	re->addr = addr;
+	re->size = size;
+	re->flags = flags;
+	re->pid = pid;
+	re->stack_node = stack_node;
+
+	if (re->stack_node)
+		stack_get(re->stack_node);
+
+	list_add_tail(&re->list, &process->realloc_list);
+}
+
 void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 {
 	struct rb_block *block = NULL;
@@ -1444,20 +1459,8 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 			}
 		}
 
-		if (mt_msg->operation == MT_REALLOC_ENTER) {
-			struct realloc_entry *re = malloc(sizeof(*re));
-
-			re->addr = block->addr;
-			re->size = block->size;
-			re->flags = block->flags;
-			re->operation = block->stack_node->stack->operation;
-			re->pid = pid;
-			re->stack = block->stack_node;
-
-			stack_get(re->stack);
-
-			list_add_tail(&re->list, &process->realloc_list);
-		}
+		if (mt_msg->operation == MT_REALLOC_ENTER)
+			realloc_add(process, pid, block->addr, block->size, block->flags, block->stack_node);
 
 		process_rb_delete_block(process, block);
 	}
@@ -1475,6 +1478,9 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 				stack->tsc = process->tsc++;
 			}
 		}
+
+		if (mt_msg->operation == MT_REALLOC_ENTER)
+			realloc_add(process, pid, 0, 0, 0, NULL);
 	}
 }
 
@@ -1509,7 +1515,7 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 
 		if (re->pid == pid) {
 			if (!ptr && re->addr)
-				process_rb_insert_block(process, re->addr, re->size, re->stack, re->flags, re->operation);
+				process_rb_insert_block(process, re->addr, re->size, re->stack_node, re->flags, re->stack_node->stack->operation);
 
 			realloc_del(re);
 			return;

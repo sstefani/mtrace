@@ -25,16 +25,14 @@
 
 #include "config.h"
 
-#define DEBUG
-
 /* debug levels:
  */
 enum {
-	DEBUG_EVENT_HANDLER = 01,
-	DEBUG_DWARF = 02,
-	DEBUG_EVENT = 010,
-	DEBUG_PROCESS = 020,
-	DEBUG_FUNCTION = 040
+	DEBUG_TRACE = 1,
+	DEBUG_DWARF = 2,
+	DEBUG_EVENT = 4,
+	DEBUG_PROCESS = 8,
+	DEBUG_FUNCTION = 16,
 };
 
 #ifdef DEBUG
