@@ -115,7 +115,7 @@ int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip);
 
 int dwarf_get(struct dwarf_addr_space *as, struct dwarf_loc loc, arch_addr_t *valp);
 
-int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr);
+int dwarf_get_unwind_table(struct task *task, struct libref *libref);
 
 int dwarf_arch_init(struct dwarf_addr_space *as);
 int dwarf_arch_init_unwind(struct dwarf_addr_space *as);

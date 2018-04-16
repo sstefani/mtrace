@@ -43,9 +43,8 @@ struct library_symbol {
 };
 
 struct libref {
-	/* Unique key. Two library objects are considered equal, if
-	 * they have the same key.  */
-	arch_addr_t key;
+	/* Unique dynamic entry address */
+	arch_addr_t dyn;
 
 	/* base address assign by the loader */
 	unsigned long bias;
@@ -127,8 +126,8 @@ const char *library_execname(struct task *leader);
 /* Iterate through list of symbols of library. */
 struct library_symbol *library_find_symbol(struct libref *libref, arch_addr_t addr);
 
-/* find a library with a given key */
-struct library *library_find_with_key(struct list_head *list, arch_addr_t key);
+/* find a library with a given dynamic entry address */
+struct library *library_find_by_dyn(struct list_head *list, arch_addr_t dyn);
 
 /* create a library reference. */
 struct libref *libref_new(unsigned int type);

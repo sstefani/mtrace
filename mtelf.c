@@ -50,6 +50,33 @@
 #define PAGESIZE	4096
 #define PAGEALIGN	(PAGESIZE - 1)
 
+struct mt_elf {
+	int fd;
+	const char *filename;
+	Elf *elf;
+	unsigned int loadsegs;
+	GElf_Phdr loadseg[4];
+	unsigned long loadbase;
+	unsigned long loadsize;
+	unsigned long vstart;
+	GElf_Ehdr ehdr;
+	Elf_Data *dynsym;
+	size_t dynsym_count;
+	const char *dynstr;
+	Elf_Data *symtab;
+	const char *strtab;
+	size_t symtab_count;
+	GElf_Addr bias;
+	GElf_Addr entry_addr;
+	GElf_Addr base_addr;
+	GElf_Addr interp;
+	GElf_Phdr txt_hdr;
+	GElf_Phdr eh_hdr;
+	GElf_Addr dyn;
+	GElf_Phdr exidx_hdr;
+	GElf_Addr pltgot;
+};
+
 static int open_elf(struct mt_elf *mte, struct task *task, const char *filename)
 {
 	char *cwd;
@@ -242,14 +269,13 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 	libref->entry = ARCH_ADDR_T(mte->entry_addr);
 	libref->mmap_offset = mte->loadbase;
 	libref->mmap_size = mte->loadsize;
-	libref->txt_vaddr = mte->txt_hdr.p_vaddr + mte->bias;
+	libref->txt_vaddr = mte->txt_hdr.p_vaddr - mte->vstart + mte->bias;
 	libref->txt_size = mte->txt_hdr.p_filesz;
-	libref->txt_offset = mte->txt_hdr.p_offset;
+	libref->txt_offset = mte->txt_hdr.p_offset - mte->loadbase;
 	libref->bias = mte->bias;
-	libref->eh_frame_hdr = mte->eh_hdr.p_offset;
+	libref->eh_frame_hdr = mte->eh_hdr.p_offset - mte->loadbase;
 	libref->pltgot = mte->pltgot;
-	libref->key = mte->dyn;
-
+	libref->dyn = mte->dyn - mte->vstart + mte->bias;
 	libref->loadsegs = mte->loadsegs;
 
 	for(unsigned int i = 0; i < libref->loadsegs; ++i)
@@ -257,13 +283,13 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 
 #ifdef __arm__
 	if (mte->exidx_hdr.p_filesz) {
-		libref->exidx_data = libref->mmap_addr + mte->exidx_hdr.p_offset;
-		libref->exidx_len = mte->exidx_hdr.p_memsz;
+		libref->exidx_data = libref->mmap_addr + mte->exidx_hdr.p_offset - mte->loadbase;
+		libref->exidx_len = mte->exidx_hdr.p_filesz;
 	}
 #endif
 
 	if (mte->eh_hdr.p_filesz && mte->dyn) {
-		if (dwarf_get_unwind_table(task, libref, (struct dwarf_eh_frame_hdr *)(libref->mmap_addr - libref->txt_offset + mte->eh_hdr.p_offset)) < 0)
+		if (dwarf_get_unwind_table(task, libref) < 0)
 			return -1;
 	}
 
@@ -278,13 +304,18 @@ static void close_elf(struct mt_elf *mte)
 	if (mte->fd != -1) {
 		elf_end(mte->elf);
 		close(mte->fd);
+
+		mte->fd = -1;
+		mte->filename = NULL;
 	}
 }
 
-static int elf_read(struct mt_elf *mte, struct task *task, const char *filename, GElf_Addr bias)
+static int elf_read(struct mt_elf *mte, struct task *task, const char *filename)
 {
 	unsigned long loadsize = 0;
 	unsigned long loadbase = ~0;
+	unsigned long align;
+	unsigned long vstart;
 
 	debug(DEBUG_FUNCTION, "filename=%s", filename);
 
@@ -301,7 +332,6 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 	mte->loadsegs = 0;
 
 	for (i = 0; gelf_getphdr(mte->elf, i, &phdr) != NULL; ++i) {
-
 		switch (phdr.p_type) {
 		case PT_LOAD:
 			if (mte->loadsegs >= ARRAY_SIZE(mte->loadseg)) {
@@ -310,6 +340,15 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 			}
 
 			mte->loadseg[mte->loadsegs++] = phdr;
+
+			align = phdr.p_align;
+			if (align)
+				align -= 1;
+
+			vstart = phdr.p_vaddr & ~align;
+
+			if (mte->vstart > vstart)
+				mte->vstart = vstart;
 
 			if (loadbase > phdr.p_offset)
 				loadbase = phdr.p_offset;
@@ -330,10 +369,10 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 			break;
 #endif
 		case PT_INTERP:
-			mte->interp = phdr.p_vaddr + bias;
+			mte->interp = phdr.p_vaddr;
 			break;
 		case PT_DYNAMIC:
-			mte->dyn = phdr.p_vaddr + bias;
+			mte->dyn = phdr.p_vaddr;
 			break;
 		default:
 			break;
@@ -348,12 +387,12 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 //fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, filename, loadbase, loadsize);
 	mte->loadbase = loadbase & ~PAGEALIGN;
 	mte->loadsize = (loadsize + (loadbase - mte->loadbase) + PAGEALIGN) & ~PAGEALIGN;
-//fprintf(stderr, "%s:%d loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, mte->loadbase, mte->loadsize);
+fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, mte->filename, mte->loadbase, mte->loadsize);
 
 	debug(DEBUG_FUNCTION, "filename=`%s' text offset=%#llx addr=%#llx size=%#llx",
 			filename,
 			(unsigned long long)mte->txt_hdr.p_offset,
-			(unsigned long long)mte->txt_hdr.p_vaddr + bias,
+			(unsigned long long)mte->txt_hdr.p_vaddr,
 			(unsigned long long)mte->txt_hdr.p_filesz);
 
 	for (i = 1; i < mte->ehdr.e_shnum; ++i) {
@@ -394,14 +433,7 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename,
 					break;
 				}
 			}
-
-			mte->dyn_addr = shdr.sh_addr + bias;
 		}
-	}
-
-	if (!mte->dyn_addr) {
-		fprintf(stderr, "Couldn't find .dynamic section \"%s\"\n", filename);
-		return -1;
 	}
 
 	if (!mte->dynsym || !mte->dynstr) {
@@ -419,11 +451,11 @@ int elf_read_library(struct task *task, struct libref *libref, const char *filen
 
 	libref_set_filename(libref, filename);
 
-	if (elf_read(&mte, task, filename, bias) == -1)
+	if (elf_read(&mte, task, filename) == -1)
 		return -1;
 
 	mte.bias = bias;
-	mte.entry_addr = mte.ehdr.e_entry + bias;
+	mte.entry_addr = mte.ehdr.e_entry - mte.vstart + bias;
 
 	ret = elf_lib_init(&mte, task, libref);
 
@@ -522,9 +554,11 @@ struct libref *elf_read_main_binary(struct task *task, int was_attached)
 
 	fname[ret] = 0;
 
+	free(filename);
+
 	libref_set_filename(libref, fname);
 
-	if (elf_read(&mte, task, filename, 0) == -1)
+	if (elf_read(&mte, task, fname) == -1)
 		goto fail3;
 
 	task->is_64bit = is_64bit(&mte);
@@ -534,10 +568,8 @@ struct libref *elf_read_main_binary(struct task *task, int was_attached)
 		goto fail3;
 	}
 
-	free(filename);
-
-	mte.bias = (GElf_Addr) (uintptr_t) entry - mte.ehdr.e_entry;
-	mte.entry_addr = (GElf_Addr) (uintptr_t) entry;
+	mte.bias = entry - mte.ehdr.e_entry - mte.vstart;
+	mte.entry_addr = entry;
 
 	if (elf_lib_init(&mte, task, libref))
 		goto fail3;
@@ -553,12 +585,12 @@ struct libref *elf_read_main_binary(struct task *task, int was_attached)
 
 	struct mt_elf mte_ld = { };
 
-	if (copy_str_from_proc(task, ARCH_ADDR_T(mte.bias + mte.interp), fname, sizeof(fname)) == -1) {
+	if (copy_str_from_proc(task, ARCH_ADDR_T(mte.bias + mte.interp - mte.vstart), fname, sizeof(fname)) == -1) {
 		fprintf(stderr, "fatal error: cannot get loader name for pid=%d\n", task->pid);
 		abort();
 	}
 
-	if (!elf_read(&mte_ld, task, fname, (GElf_Addr)base)) {
+	if (!elf_read(&mte_ld, task, fname)) {
 		struct libref *libref;
 
 		libref = libref_new(LIBTYPE_LOADER);
@@ -567,14 +599,14 @@ struct libref *elf_read_main_binary(struct task *task, int was_attached)
 
 		libref_set_filename(libref, fname);
 
-		mte_ld.bias = (GElf_Addr)base;
-		mte_ld.entry_addr = mte_ld.ehdr.e_entry + (GElf_Addr)base;
+		mte_ld.bias = base;
+		mte_ld.entry_addr = base + mte_ld.ehdr.e_entry  - mte.vstart;
 
 		ret = elf_lib_init(&mte_ld, task, libref);
 		if (!ret) {
 			library_add(task, libref);
 
-			if (linkmap_init(task, ARCH_ADDR_T(mte.bias + mte.dyn))) {
+			if (linkmap_init(task, ARCH_ADDR_T(mte.bias + mte.dyn - mte.vstart))) {
 				arch_addr_t addr = find_solib_break(&mte_ld);
 				if (!addr)
 					addr = ARCH_ADDR_T(entry);
@@ -589,7 +621,7 @@ struct libref *elf_read_main_binary(struct task *task, int was_attached)
 				else {
 					entry_bp->breakpoint.on_hit = entry_breakpoint_on_hit;
 					entry_bp->breakpoint.locked = 1;
-					entry_bp->dyn_addr = ARCH_ADDR_T(mte.bias + mte.dyn);
+					entry_bp->dyn_addr = ARCH_ADDR_T(mte.bias + mte.dyn - mte.vstart);
 
 					breakpoint_enable(task, &entry_bp->breakpoint);
 				}
@@ -623,5 +655,10 @@ fail2:
 fail1:
 	free(filename);
 	return libref;
+}
+
+int mte_cmp_machine(struct mt_elf *mte, Elf64_Half type)
+{
+	return mte->ehdr.e_machine == type;
 }
 

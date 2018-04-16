@@ -402,7 +402,7 @@ static void linkmap_add(struct task *task, struct lt_r_debug_64 *dbg)
 		}
 
 		/* Do we have that library already?  */
-		lib = library_find_with_key(&task->libraries_list, ARCH_ADDR_T(rlm.l_ld));
+		lib = library_find_by_dyn(&task->libraries_list, ARCH_ADDR_T(rlm.l_ld));
 		if (lib)
 			continue;
 
@@ -468,7 +468,7 @@ static void linkmap_del(struct task *task, struct lt_r_debug_64 *dbg)
 
 		addr = ARCH_ADDR_T(rlm.l_next);
 
-		lib = library_find_with_key(&tmp_list, ARCH_ADDR_T(rlm.l_ld));
+		lib = library_find_by_dyn(&tmp_list, ARCH_ADDR_T(rlm.l_ld));
 		if (lib)
 			list_move_tail(&lib->list, &task->libraries_list);
 	}

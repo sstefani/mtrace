@@ -29,37 +29,12 @@
 #include "forward.h"
 #include "sysdep.h"
 
-struct mt_elf {
-	int fd;
-	const char *filename;
-	Elf *elf;
-	unsigned int loadsegs;
-	GElf_Phdr loadseg[4];
-	unsigned long loadbase;
-	unsigned long loadsize;
-	GElf_Ehdr ehdr;
-	Elf_Data *dynsym;
-	size_t dynsym_count;
-	const char *dynstr;
-	Elf_Data *symtab;
-	const char *strtab;
-	size_t symtab_count;
-	GElf_Addr dyn_addr;
-	GElf_Addr bias;
-	GElf_Addr entry_addr;
-	GElf_Addr base_addr;
-	GElf_Addr interp;
-	GElf_Phdr txt_hdr;
-	GElf_Phdr eh_hdr;
-	GElf_Addr dyn;
-	GElf_Phdr exidx_hdr;
-	GElf_Addr pltgot;
-};
-
 int elf_read_library(struct task *task, struct libref *libref, const char *filename, GElf_Addr bias);
 
 /* Create a library object representing the main binary. */
 struct libref *elf_read_main_binary(struct task *task, int was_attached);
+
+int mte_cmp_machine(struct mt_elf *mte, Elf64_Half type);
 
 #endif
 

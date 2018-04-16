@@ -25,6 +25,6 @@
 
 int is_64bit(struct mt_elf *mte)
 {
-	return mte->ehdr.e_machine != EM_PPC;
+	return !mte_cmp_machine(mte, EM_PPC);
 }
 

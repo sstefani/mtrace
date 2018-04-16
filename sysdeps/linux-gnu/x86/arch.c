@@ -203,7 +203,7 @@ int reset_all_hw_bp(struct task *task)
 
 int is_64bit(struct mt_elf *mte)
 {
-	return mte->ehdr.e_machine != EM_386;
+	return !mte_cmp_machine(mte, EM_386);
 }
 
 int arch_task_init(struct task *task)

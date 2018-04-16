@@ -1996,13 +1996,14 @@ fail:
 	return ret;
 }
 
-int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwarf_eh_frame_hdr *hdr)
+int dwarf_get_unwind_table(struct task *task, struct libref *libref)
 {
 	arch_addr_t addr;
 	arch_addr_t fde_count = 0;
 	arch_addr_t eh_frame = 0;
 	int ret;
 	struct dwarf_addr_space tmp_as;
+	struct dwarf_eh_frame_hdr *hdr = (struct dwarf_eh_frame_hdr *)(libref->mmap_addr + libref->eh_frame_hdr);
 
 	memset(&tmp_as, 0, sizeof(tmp_as));
 
@@ -2012,21 +2013,27 @@ int dwarf_get_unwind_table(struct task *task, struct libref *libref, struct dwar
 
 	if (hdr->version != DW_EH_VERSION) {
 		debug(DEBUG_DWARF, "exception table has unexpected version %d", hdr->version);
+		abort();
 		return -DWARF_ENOINFO;
 	}
 
 	addr = ARCH_ADDR_T(hdr + 1);
 
 	/* read eh_frame_ptr: */
-	if ((ret = dwarf_read_encoded_pointer_local(&tmp_as, &addr, hdr->eh_frame_ptr_enc, &eh_frame, 0)) < 0)
+	if ((ret = dwarf_read_encoded_pointer_local(&tmp_as, &addr, hdr->eh_frame_ptr_enc, &eh_frame, 0)) < 0) {
+		abort();
 		return -DWARF_ENOINFO;
+	}
 
 	/* (Optionally) read fde_count: */
-	if ((ret = dwarf_read_encoded_pointer_local(&tmp_as, &addr, hdr->fde_count_enc, &fde_count, 0)) < 0)
+	if ((ret = dwarf_read_encoded_pointer_local(&tmp_as, &addr, hdr->fde_count_enc, &fde_count, 0)) < 0) {
+		abort();
 		return -DWARF_ENOINFO;
+	}
 
 	if (hdr->table_enc != (DW_EH_PE_datarel | DW_EH_PE_sdata4)) {
 		debug(DEBUG_DWARF, "unsupported unwind table encoding.");
+		abort();
 		return -DWARF_EINVAL;
 	}
 

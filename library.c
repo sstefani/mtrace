@@ -149,14 +149,14 @@ struct library_symbol *library_find_symbol(struct libref *libref, arch_addr_t ad
 	return NULL;
 }
 
-struct library *library_find_with_key(struct list_head *list, arch_addr_t key)
+struct library *library_find_by_dyn(struct list_head *list, arch_addr_t dyn)
 {
 	struct list_head *it;
 
 	list_for_each(it, list) {
 		struct library *lib = container_of(it, struct library, list);
 
-		if (lib->libref->key == key)
+		if (lib->libref->dyn == dyn)
 			return lib;
 	}
 	return NULL;
@@ -170,10 +170,10 @@ void library_delete_list(struct task *leader, struct list_head *list)
 		struct library *lib = container_of(it, struct library, list);
 		struct libref *libref = lib->libref;
 
-		debug(DEBUG_FUNCTION, "%s@%#lx pid=%d ", libref->filename, libref->key, leader->pid);
+		debug(DEBUG_FUNCTION, "%s@%#lx pid=%d ", libref->filename, libref->dyn, leader->pid);
 
 		if (unlikely(options.verbose > 1))
-			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->key, libref->txt_vaddr, libref->txt_vaddr + libref->txt_size);
+			fprintf(stderr, "+++ library del pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->dyn, libref->txt_vaddr, libref->txt_vaddr + libref->txt_size);
 
 		library_delete(leader, lib);
 	}
@@ -258,7 +258,7 @@ static void insert_lib(struct task *leader, struct library *lib)
 
 static struct library *_library_add(struct task *leader, struct libref *libref)
 {
-	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", libref->filename, libref->key, leader->pid);
+	debug(DEBUG_PROCESS, "%s@%#lx to pid=%d", libref->filename, libref->dyn, leader->pid);
 
 	assert(leader->leader == leader);
 
@@ -273,7 +273,7 @@ static struct library *_library_add(struct task *leader, struct libref *libref)
 	insert_lib(leader, lib);
 
 	if (unlikely(options.verbose > 1))
-		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->key, libref->txt_vaddr, libref->txt_vaddr + libref->txt_size);
+		fprintf(stderr, "+++ library add pid=%d %s@%#lx %#lx-%#lx\n", leader->pid, libref->filename, libref->dyn, libref->txt_vaddr, libref->txt_vaddr + libref->txt_size);
 
 	return lib;
 }
