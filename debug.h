@@ -40,6 +40,11 @@ void _debug(int level, const char *file, const char *function, int line, const c
 #else
 static inline void _debug(int level, const char *file, const char *function, int line, const char *fmt, ...)
 {
+	(void)level;
+	(void)file;
+	(void)function;
+	(void)line;
+	(void)fmt;
 }
 #endif
 
