@@ -871,20 +871,16 @@ static int dwarf_extract_cfi_from_fde(struct dwarf_addr_space *as, void *addrp)
 	return 0;
 }
 
-static inline int lib_addr_match(struct libref *libref, arch_addr_t ip)
-{
-	return ip >= libref->txt_vaddr && ip < libref->txt_vaddr + libref->txt_size;
-}
-
 int dwarf_locate_map(struct dwarf_addr_space *as, arch_addr_t ip)
 {
 	struct dwarf_cursor *c = &as->cursor;
+	struct libref *libref = c->libref;
 
 	if (c->use_prev_instr)
 		ip -= 1;
 
 	if (likely(c->libref)) {
-		if (lib_addr_match(c->libref, ip))
+		if (ip >= libref->txt_vaddr && ip < libref->txt_vaddr + libref->txt_size)
 			return 0;
 	}
 
@@ -930,20 +926,19 @@ static int dwarf_search_unwind_table(struct dwarf_addr_space *as, arch_addr_t ip
 	struct dwarf_cie_info *dci = &as->cursor.dci;
 	struct libref *libref = as->cursor.libref;
 
-	e = lookup(fde_tab, fde_count, ip - libref->txt_vaddr - libref->eh_frame_hdr);
+	e = lookup(fde_tab, fde_count, ip - libref->eh_hdr_vaddr);
 	if (unlikely(!e)) {
 		/* IP is inside this table's range, but there is no explicit unwind info. */
 		debug(DEBUG_DWARF, "no unwind info found for IP %#lx", ip);
 		return -DWARF_ENOINFO;
 	}
 
-	fde_addr = libref->mmap_addr - (libref->txt_offset - libref->mmap_offset) + e->fde_offset + libref->eh_frame_hdr;
+	fde_addr = libref->mmap_addr + e->fde_offset + libref->eh_hdr_offset;
 
 	if (unlikely((ret = dwarf_extract_cfi_from_fde(as, fde_addr)) < 0))
 		return ret;
 
-	dci->start_ip -= ARCH_ADDR_T(libref->mmap_addr) - libref->txt_vaddr;
-
+	dci->start_ip = dci->start_ip - (arch_addr_t)libref->mmap_addr + libref->txt_vaddr;
 	if (!as->is_64bit)
 		dci->start_ip &= 0xffffffff;
 
@@ -1942,8 +1937,6 @@ fail:
 	c->ip = ip;
 
 	if (ret == -DWARF_ENOINFO) {
-		debug(DEBUG_DWARF, "try arch specific step");
-
 		ret = dwarf_arch_step(as);
 		if (!ret) {
 			if (dwarf_locate_map(as, c->ip) < 0)
@@ -1988,7 +1981,8 @@ fail:
 				break;
 		}
 #endif
-		debug(DEBUG_DWARF, "error %d", ret);
+		if (ret != -DWARF_ENOINFO && ret != -DWARF_EBADFRAME)
+			debug(DEBUG_DWARF, "error %d", ret);
 
 		c->valid = 0;
 	}
@@ -2003,7 +1997,7 @@ int dwarf_get_unwind_table(struct task *task, struct libref *libref)
 	arch_addr_t eh_frame = 0;
 	int ret;
 	struct dwarf_addr_space tmp_as;
-	struct dwarf_eh_frame_hdr *hdr = (struct dwarf_eh_frame_hdr *)(libref->mmap_addr + libref->eh_frame_hdr);
+	struct dwarf_eh_frame_hdr *hdr = (struct dwarf_eh_frame_hdr *)(libref->mmap_addr + libref->eh_hdr_offset);
 
 	memset(&tmp_as, 0, sizeof(tmp_as));
 

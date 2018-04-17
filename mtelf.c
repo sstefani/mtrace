@@ -54,8 +54,6 @@ struct mt_elf {
 	int fd;
 	const char *filename;
 	Elf *elf;
-	unsigned int loadsegs;
-	GElf_Phdr loadseg[4];
 	unsigned long loadbase;
 	unsigned long loadsize;
 	unsigned long vstart;
@@ -273,13 +271,10 @@ static int elf_lib_init(struct mt_elf *mte, struct task *task, struct libref *li
 	libref->txt_size = mte->txt_hdr.p_filesz;
 	libref->txt_offset = mte->txt_hdr.p_offset - mte->loadbase;
 	libref->bias = mte->bias;
-	libref->eh_frame_hdr = mte->eh_hdr.p_offset - mte->loadbase;
-	libref->pltgot = mte->pltgot;
+	libref->eh_hdr_offset = mte->eh_hdr.p_offset - mte->loadbase;
+	libref->eh_hdr_vaddr = mte->eh_hdr.p_vaddr - mte->vstart + mte->bias;
+	libref->pltgot = mte->pltgot - mte->vstart + mte->bias;
 	libref->dyn = mte->dyn - mte->vstart + mte->bias;
-	libref->loadsegs = mte->loadsegs;
-
-	for(unsigned int i = 0; i < libref->loadsegs; ++i)
-		libref->loadseg[i] = mte->loadseg[i];
 
 #ifdef __arm__
 	if (mte->exidx_hdr.p_filesz) {
@@ -316,6 +311,7 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename)
 	unsigned long loadbase = ~0;
 	unsigned long align;
 	unsigned long vstart;
+	unsigned int loadsegs = 0;
 
 	debug(DEBUG_FUNCTION, "filename=%s", filename);
 
@@ -329,17 +325,10 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename)
 	memset(&mte->eh_hdr, 0, sizeof(mte->eh_hdr));
 	memset(&mte->exidx_hdr, 0, sizeof(mte->exidx_hdr));
 
-	mte->loadsegs = 0;
-
 	for (i = 0; gelf_getphdr(mte->elf, i, &phdr) != NULL; ++i) {
 		switch (phdr.p_type) {
 		case PT_LOAD:
-			if (mte->loadsegs >= ARRAY_SIZE(mte->loadseg)) {
-				fprintf(stderr, "Unable to handle more than %lu loadable segments in %s\n", ARRAY_SIZE(mte->loadseg), filename);
-				return -1;
-			}
-
-			mte->loadseg[mte->loadsegs++] = phdr;
+			loadsegs++;
 
 			align = phdr.p_align;
 			if (align)
@@ -379,15 +368,13 @@ static int elf_read(struct mt_elf *mte, struct task *task, const char *filename)
 		}
 	}
 
-	if (!mte->loadsegs) {
+	if (!loadsegs) {
 		fprintf(stderr, "No loadable segemnts in %s\n", filename);
 		return -1;
 	}
 
-//fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, filename, loadbase, loadsize);
 	mte->loadbase = loadbase & ~PAGEALIGN;
 	mte->loadsize = (loadsize + (loadbase - mte->loadbase) + PAGEALIGN) & ~PAGEALIGN;
-fprintf(stderr, "%s:%d %s loadbase:%#lx loadsize:%#lx\n", __func__, __LINE__, mte->filename, mte->loadbase, mte->loadsize);
 
 	debug(DEBUG_FUNCTION, "filename=`%s' text offset=%#llx addr=%#llx size=%#llx",
 			filename,

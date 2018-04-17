@@ -62,10 +62,6 @@ struct libref {
 	unsigned long txt_size;
 	unsigned long txt_offset;
 
-	/* loadable segments */
-	unsigned int loadsegs;
-	GElf_Phdr loadseg[4];
-
 	/* mapped image */
 	void *mmap_addr;
 	unsigned long mmap_offset;
@@ -73,10 +69,10 @@ struct libref {
 
 	/* global-pointer */
 	arch_addr_t pltgot;
-	unsigned long eh_frame_hdr;
+	unsigned long eh_hdr_offset;
+	unsigned long eh_hdr_vaddr;
 	void *fde_tab;
 	unsigned long fde_count;
-	unsigned long eh_frame;
 	unsigned int type;
 
 #ifdef __arm__
@@ -140,9 +136,6 @@ void libref_set_filename(struct libref *libref, const char *new_name);
 
 /* find library by address */
 struct libref *addr2libref(struct task *leader, arch_addr_t addr);
-
-/* return offset for virtual address */
-arch_addr_t vaddr_to_off(struct libref *libref, arch_addr_t addr);
 
 #endif
 

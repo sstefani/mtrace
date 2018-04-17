@@ -1035,7 +1035,7 @@ static int sort_total(const struct rb_stack **p, const struct rb_stack **q)
 
 static void _process_dump(struct process *process, int (*sortby)(const struct rb_stack **, const struct rb_stack **), int (*skipfunc)(struct rb_stack *), FILE *file, int lflag)
 {
-	struct rb_stack **arr;
+	struct rb_stack **arr = NULL;
 	unsigned long i;
 	void *data;
 	unsigned long stack_trees = process->stack_trees;
@@ -1045,9 +1045,12 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 	if (dump_init(file) == -1)
 		return;
 
+	if (!stack_trees)
+		goto skip;
+
 	arr = malloc(sizeof(struct rb_stack *) * stack_trees);
 	if (!arr)
-		return;
+		goto skip;
 
 	for(i = 0, data = rb_first(&process->stack_table); data; data = rb_next(data)) {
 		struct rb_stack *stack_node = container_of(data, struct rb_stack, node);
@@ -1059,9 +1062,6 @@ static void _process_dump(struct process *process, int (*sortby)(const struct rb
 		fatal("invalid stack tree count!\n");
 
 	dump_printf("Process dump %d %s\n", process->pid, process->filename ? process->filename : "<unknown>");
-
-	if (!stack_trees)
-		goto skip;
 
 	qsort(arr, stack_trees, sizeof(struct rb_stack *), (void *)sortby);
 
@@ -1245,8 +1245,10 @@ int process_scan(struct process *process, void *leaks, uint32_t payload_len)
 	for(i = 0; i < new; ++i) {
 		struct rb_block *block = process_rb_search(&process->block_table, process->get_ulong(new_leaks));
 
-		if (dump_printf(" leaked at 0x%08lx (%lu bytes)\n", (unsigned long)block->addr, (unsigned long)block->size) == -1)
-			break;
+		if (options.verbose > 1) {
+			if (dump_printf(" leaked at 0x%08lx (%lu bytes)\n", (unsigned long)block->addr, (unsigned long)block->size) == -1)
+				break;
+		}
 
 		new_leaks += process->ptr_size;
 	}

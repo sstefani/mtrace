@@ -210,11 +210,6 @@ static void library_each_symbol(struct libref *libref, void (*cb)(struct library
 	}
 }
 
-static inline int lib_addr_match(struct libref *libref, arch_addr_t addr)
-{
-	return addr >= libref->txt_vaddr && addr < libref->txt_vaddr + libref->txt_size;
-}
-
 struct libref *addr2libref(struct task *leader, arch_addr_t addr)
 {
 	struct rb_node **new = &(leader->libraries_tree.rb_node);
@@ -223,7 +218,7 @@ struct libref *addr2libref(struct task *leader, arch_addr_t addr)
 	while (*new) {
 		struct libref *this = container_of(*new, struct library, rb_node)->libref;
 
-		if (lib_addr_match(this, addr))
+		if (addr >= this->txt_vaddr && addr < this->txt_vaddr + this->txt_size)
 			return this;
 
 		if (this->txt_vaddr < addr)
@@ -321,15 +316,3 @@ const char *library_execname(struct task *leader)
 	return container_of(leader->libraries_list.next, struct library, list)->libref->filename;
 }
 
-arch_addr_t vaddr_to_off(struct libref *libref, arch_addr_t addr)
-{
-	for(unsigned int i = 0; i < libref->loadsegs; ++i) {
-		GElf_Phdr *phdr = &libref->loadseg[i];
-
-		if (phdr->p_vaddr >= addr && phdr->p_vaddr + phdr->p_filesz < addr)
-			return phdr->p_offset + addr - phdr->p_vaddr;
-	}
-
-fprintf(stderr, "%s:%d\n", __func__, __LINE__);
-	return ~0LU;
-}

@@ -58,7 +58,6 @@
 #define DWARF_EINVAL		4	/* unsupported operation or bad value */
 #define DWARF_EBADVERSION	5	/* unwind info has unsupported version */
 #define DWARF_ENOINFO		6	/* no unwind info found */
-#define DWARF_STOPUNWIND	7	/* no unwind info found */
 
 struct dwarf_cie_info {
 	arch_addr_t start_ip;		/* first IP covered by this procedure */
