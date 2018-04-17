@@ -477,16 +477,6 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 		arch_addr_t addr;
 	} tmp;
 
-#ifdef DEBUG
-	struct dwarf_cursor *c = &as->cursor;
-	struct libref *libref = c->libref;
-
-	if (*addr < ARCH_ADDR_T(libref->mmap_addr))
-		fatal("invalid access mem: addr %#lx < %p", *addr, libref->mmap_addr);
-	if (*addr >= ARCH_ADDR_T(libref->mmap_addr + libref->mmap_size))
-		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->mmap_addr + libref->mmap_size);
-#endif
-
 	memset(&tmp, 0, sizeof(tmp));
 
 	if (valp)
@@ -621,6 +611,15 @@ static int dwarf_read_encoded_pointer(struct dwarf_addr_space *as, int local,
 
 static inline int dwarf_read_encoded_pointer_local(struct dwarf_addr_space *as, arch_addr_t *addr, unsigned char encoding, arch_addr_t *valp, arch_addr_t start_ip)
 {
+#ifdef DEBUG
+	struct dwarf_cursor *c = &as->cursor;
+	struct libref *libref = c->libref;
+
+	if (*addr < ARCH_ADDR_T(libref->mmap_addr))
+		fatal("invalid access mem: addr %#lx < %p", *addr, libref->mmap_addr);
+	if (*addr >= ARCH_ADDR_T(libref->mmap_addr + libref->mmap_size))
+		fatal("invalid access mem: addr %#lx >= %p", *addr, libref->mmap_addr + libref->mmap_size);
+#endif
 	return dwarf_read_encoded_pointer(as, 1, addr, encoding, valp, start_ip);
 }
 
