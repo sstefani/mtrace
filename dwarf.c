@@ -969,18 +969,18 @@ static int dwarf_access_reg(struct dwarf_addr_space *as, unsigned int reg, arch_
 
 int dwarf_get(struct dwarf_addr_space *as, struct dwarf_loc loc, arch_addr_t *valp)
 {
-	arch_addr_t val = DWARF_GET_LOC(loc);
+	arch_addr_t addr = DWARF_GET_LOC(loc);
 
 	if (DWARF_IS_REG_LOC(loc))
-		return dwarf_access_reg(as, val, valp);
+		return dwarf_access_reg(as, addr, valp);
 
 	if (!as->is_64bit)
-		val &= 0xffffffff;
+		addr &= 0xffffffff;
 
 	if (DWARF_IS_MEM_LOC(loc))
-		return dwarf_readw(as, &val, valp, as->is_64bit);
+		return dwarf_readw(as, &addr, valp, as->is_64bit);
 
-	*valp = val;
+	*valp = addr;
 	return 0;
 }
 
@@ -1049,10 +1049,9 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 	struct dwarf_cursor *c = &as->cursor;
 	struct dwarf_cie_info *dci = &c->dci;
 	unsigned int num_regs = as->num_regs;
-	struct dwarf_reg_stack {
-		struct dwarf_reg_stack *next;	/* for reg state stack */
-		struct dwarf_reg_state store;
-	} *rs_stack = NULL, *rs_tmp;
+	unsigned int reg_stack_ptr = 0;
+	unsigned int reg_stack_entry_len = regs_size(as);
+	unsigned char reg_stack[16 * reg_stack_entry_len];
 
 	curr_ip = dci->start_ip;
 
@@ -1161,21 +1160,22 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 			set_reg(rs_current, regnum, DWARF_WHERE_REG, n);
 			break;
 		case DW_CFA_remember_state:
-			rs_tmp = malloc(sizeof(struct dwarf_reg_stack) + regs_size(as));
-			memcpy(&rs_tmp->store, rs_current, regs_size(as));
-			rs_tmp->next = rs_stack;
-			rs_stack = rs_tmp;
+			if (unlikely(sizeof(reg_stack) - reg_stack_ptr < reg_stack_entry_len)) {
+				debug(DEBUG_DWARF, "register-state stack overflow");
+				ret = -DWARF_EINVAL;
+				goto fail;
+			}
+			memcpy(reg_stack + reg_stack_ptr, rs_current, reg_stack_entry_len);
+			reg_stack_ptr += reg_stack_entry_len;
 			break;
 		case DW_CFA_restore_state:
-			if (unlikely(!rs_stack)) {
+			if (unlikely(!reg_stack_ptr)) {
 				debug(DEBUG_DWARF, "register-state stack underflow");
 				ret = -DWARF_EINVAL;
 				goto fail;
 			}
-			rs_tmp = rs_stack;
-			memcpy(rs_current, &rs_tmp->store, regs_size(as));
-			rs_stack = rs_tmp->next;
-			free(rs_tmp);
+			reg_stack_ptr -= reg_stack_entry_len;
+			memcpy(rs_current, reg_stack + reg_stack_ptr, reg_stack_entry_len);
 			break;
 		case DW_CFA_def_cfa:
 			if ((unlikely((ret = read_regnum(num_regs, addr, &regnum)) < 0)
@@ -1264,12 +1264,6 @@ static int run_cfi_program(struct dwarf_addr_space *as, struct dwarf_reg_state *
 	ret = 0;
 
 fail:
-	/* Free the register-state stack, if not empty already.  */
-	while (rs_stack) {
-		rs_tmp = rs_stack;
-		rs_stack = rs_stack->next;
-		free(rs_tmp);
-	}
 	return ret;
 }
 
