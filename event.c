@@ -456,7 +456,7 @@ int handle_event(struct task *task)
 		break;
 	case EVENT_BREAKPOINT:
 		ret = handle_breakpoint(task);
-		goto out1;
+		goto out2;
 	case EVENT_NEW:
 		ret = handle_new(task);
 		break;

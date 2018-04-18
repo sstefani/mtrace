@@ -77,7 +77,7 @@ static int trace_setup(struct task *task, int status, int signum)
 
 	if (!WIFSTOPPED(status)) {
 		if (unlikely(options.verbose))
-			fprintf(stderr, "!!!pid=%d not stopped\n", task->pid);
+			fprintf(stderr, "!!!%s: pid=%d not stopped\n", __func__, task->pid);
 		return -1;
 	}
 
@@ -93,7 +93,7 @@ static int trace_setup(struct task *task, int status, int signum)
 		task->event.e_un.signum = sig;
 
 		if (unlikely(options.verbose))
-			fprintf(stderr, "!!!pid=%d unexpected trace signal (got:%d expected:%d)\n", task->pid, sig, signum);
+			fprintf(stderr, "!!!%s: pid=%d unexpected trace signal (got:%d expected:%d)\n", __func__, task->pid, sig, signum);
 		return -1;
 	}
 
@@ -178,7 +178,7 @@ static int _process_event(struct task *task, int status)
 
 	if (!WIFSTOPPED(status)) {
 		if (unlikely(options.verbose))
-			fprintf(stderr, "!!!not WIFSTOPPED pid=%d\n", task->pid);
+			fprintf(stderr, "!!!%s: not WIFSTOPPED pid=%d\n", __func__, task->pid);
 		return -1;
 	}
 
@@ -192,7 +192,7 @@ static int _process_event(struct task *task, int status)
 
 		if (!task->bad) {
 			if (unlikely(options.verbose))
-				fprintf(stderr, "!!!unexpected state for pid=%d, expected signal SIGSTOP (%d %d)\n", task->pid, sig, status >> 16);
+				fprintf(stderr, "!!!%s: unexpected state for pid=%d, expected signal SIGSTOP (%d %d)\n", __func__, task->pid, sig, status >> 16);
 			task->bad = 1;
 		}
 	}
@@ -228,7 +228,7 @@ static int _process_event(struct task *task, int status)
 	 }
 	default:
 		if (unlikely(options.verbose))
-			fprintf(stderr, "!!!PTRACE_EVENT_????? pid=%d %d\n", task->pid, status >> 16);
+			fprintf(stderr, "!!!%s: PTRACE_EVENT_????? pid=%d %d\n", __func__, task->pid, status >> 16);
 		break;
 	}
 
@@ -341,7 +341,7 @@ static struct task * process_event(struct task *task, int status)
 
 void trace_me(void)
 {
-	debug(DEBUG_PROCESS, "pid=%d", getpid());
+	debug(DEBUG_TRACE, "pid=%d", getpid());
 
 	prctl(PR_SET_PDEATHSIG, SIGKILL);
 
@@ -405,7 +405,7 @@ void stop_task(struct task *task)
 
 int trace_attach(struct task *task)
 {
-	debug(DEBUG_PROCESS, "pid=%d", task->pid);
+	debug(DEBUG_TRACE, "pid=%d", task->pid);
 
 	assert(task->attached == 0);
 
@@ -425,7 +425,7 @@ int trace_set_options(struct task *task)
 {
 	long options = PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC | PTRACE_O_TRACEEXIT;
 
-	debug(DEBUG_PROCESS, "pid=%d", task->pid);
+	debug(DEBUG_TRACE, "pid=%d", task->pid);
 
 	if (unlikely(ptrace(PTRACE_SETOPTIONS, task->pid, 0, (void *)options) == -1)) {
 		if (errno != ESRCH)
@@ -437,13 +437,13 @@ int trace_set_options(struct task *task)
 
 int continue_task(struct task *task, int signum)
 {
-	debug(DEBUG_PROCESS, "continue task pid=%d", task->pid);
+	debug(DEBUG_TRACE, "continue task pid=%d", task->pid);
 
 	assert(task->leader != NULL);
 	assert(task->stopped);
 
 	if (unlikely(options.verbose && signum >= 0x80))
-		fprintf(stderr, "!!!signum >= 0x80 pid=%d: %d\n", task->pid, signum);
+		fprintf(stderr, "!!!%s: signum >= 0x80 pid=%d: %d\n", __func__, task->pid, signum);
 
 	task->leader->threads_stopped--;
 	task->stopped = 0;
@@ -605,8 +605,6 @@ struct task *wait_event(void)
 	}
 
 	if (unlikely(task->stopped)) {
-		fprintf(stderr, "!!!%s: pid=%d already stopped (%u)\n", __func__, task->pid, task->event.type);
-
 		if (WIFSIGNALED(status)) {
 			if (unlikely(options.verbose))
 				fprintf(stderr, "!!!%s: exit signal for stopped pid=%d\n", __func__, task->pid);
@@ -640,6 +638,8 @@ struct task *wait_event(void)
 			task->event.type = EVENT_ABOUT_EXIT;
 			return NULL;
 		}
+
+		fprintf(stderr, "!!!%s: pid=%d already stopped (%u)\n", __func__, task->pid, task->event.type);
 	}
 
 	task = process_event(task, status);

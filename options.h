@@ -90,7 +90,7 @@ struct options_t {
 	int lflag;		/* long dump */
 };
 
-struct options_t options;
+extern struct options_t options;
 
 char **process_options(int argc, char **argv);
 
