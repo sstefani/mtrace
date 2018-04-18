@@ -112,18 +112,29 @@ static inline void insert_pid(struct task *task)
 {
 	unsigned int pidhash = PID_HASH(task->pid);
 	struct pid_hash *entry = pid_hash[pidhash];
+	unsigned long int size;
 
 	if (!entry) {
-		entry = malloc(sizeof(*entry) + 8 * sizeof(entry->tasks[0]));
+		size = 8;
+
+		entry = malloc(sizeof(*entry) + size * sizeof(entry->tasks[0]));
+		if (!entry)
+			abort();
+
 		entry->num = 0;
-		entry->size = 8;
+		entry->size = size;
 
 		pid_hash[pidhash] = entry;
 	}
 	else
 	if (entry->size == entry->num) {
-		entry->size += 8;
-		entry = realloc(entry, sizeof(*entry) + entry->size * sizeof(entry->tasks[0]));
+		size = entry->size + 8;
+
+		entry = realloc(entry, sizeof(*entry) + size * sizeof(entry->tasks[0]));
+		if (!entry)
+			abort();
+
+		entry->size = size;
 
 		pid_hash[pidhash] = entry;
 	}

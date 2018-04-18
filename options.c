@@ -122,11 +122,12 @@ static void usage_debug(void)
 	fprintf(stdout, "%s debugging option, --debug=<octal> or -D<octal>:\n", progname);
 	fprintf(stdout,
 		"\n"
-		" number  ref. in source   description\n"
-		"      1   general           Generally helpful progress information\n"
-		"     10   event             Shows every event received by a traced process\n"
-		"     20   process           Shows actions carried upon a traced processes\n"
-		"     40   function          Shows every entry to internal functions\n"
+		" number  description\n"
+		"      1   ptrace events\n"
+		"      2   dwarf issues\n"
+		"      4   Shows every event received by a traced process\n"
+		"      8   Shows actions carried upon a traced processes\n"
+		"     16   Shows every entry to internal functions\n"
 		"\n"
 		"Debugging options are mixed using bitwise-or.\n"
 		"Note that the meanings and values are subject to change.\n"

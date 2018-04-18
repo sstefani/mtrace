@@ -40,8 +40,6 @@
 #define OPT_SORT_MISMATCHED	8
 #define OPT_SORT_BADFREE	9
 
-struct options_t options;
-
 struct opt_p_t {
 	pid_t pid;
 	struct opt_p_t *next;
@@ -91,6 +89,8 @@ struct options_t {
 	int nohwbp;		/* disable hardware breakpoint support */
 	int lflag;		/* long dump */
 };
+
+struct options_t options;
 
 char **process_options(int argc, char **argv);
 
