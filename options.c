@@ -410,9 +410,9 @@ char **process_options(int argc, char **argv)
 					usage_debug();
 					exit(0);
 				}
-				options.debug = strtoul(optarg, &p, 8);
+				options.debug = strtoul(optarg, &p, 0);
 				if (*p) {
-					fprintf(stderr, "%s: --debug requires an octal argument\n", progname);
+					fprintf(stderr, "%s: --debug requires an numeric argument\n", progname);
 					err_usage();
 				}
 #endif
