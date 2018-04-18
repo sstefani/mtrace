@@ -119,7 +119,7 @@ static void usage(void)
 #ifdef DEBUG
 static void usage_debug(void)
 {
-	fprintf(stdout, "%s debugging option, --debug=<octal> or -D<octal>:\n", progname);
+	fprintf(stdout, "%s debugging option, --debug=<num> or -D<num>:\n", progname);
 	fprintf(stdout,
 		"\n"
 		" number  description\n"
