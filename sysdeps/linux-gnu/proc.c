@@ -350,27 +350,15 @@ static int (*rdebug_fetcher(struct task *task))(struct task *, arch_addr_t, stru
 	return select_32_64(task, fetch_rd32, fetch_rd64);
 }
 
-static int fetch_auxv64_entry(int fd, Elf64_auxv_t *ret)
+#ifdef _LP64
+#define Elf_auxv_t	Elf64_auxv_t
+#else
+#define Elf_auxv_t	Elf32_auxv_t
+#endif
+
+static int fetch_auxv_entry(int fd, Elf_auxv_t *ret)
 {
-	/* Reaching EOF is as much problem as not reading whole
-	 * entry.  */
 	return read(fd, ret, sizeof(*ret)) == sizeof(*ret) ? 0 : -1;
-}
-
-static int fetch_auxv32_entry(int fd, Elf64_auxv_t *ret)
-{
-	Elf32_auxv_t auxv;
-
-	if (read(fd, &auxv, sizeof(auxv)) != sizeof(auxv))
-		return -1;
-
-	ret->a_type = auxv.a_type;
-	ret->a_un.a_val = auxv.a_un.a_val;
-	return 0;
-}
-
-static int (*auxv_fetcher(struct task *task)) (int, Elf64_auxv_t *) {
-	return select_32_64(task, fetch_auxv32_entry, fetch_auxv64_entry);
 }
 
 static void linkmap_add(struct task *task, struct lt_r_debug_64 *dbg)
@@ -575,8 +563,9 @@ int process_get_entry(struct task *task, unsigned long *entryp, unsigned long *i
 	GElf_Addr at_bias = 0;
 
 	while (1) {
-		Elf64_auxv_t entry = { };
-		if (auxv_fetcher(task)(fd, &entry) < 0)
+		Elf_auxv_t entry = { };
+
+		if (fetch_auxv_entry(fd, &entry) < 0)
 			goto fail;
 
 		if (entry.a_type == AT_NULL)
@@ -588,8 +577,6 @@ int process_get_entry(struct task *task, unsigned long *entryp, unsigned long *i
 			break;
 		case AT_ENTRY:
 			at_entry = entry.a_un.a_val;
-			break;
-		case AT_NULL:
 			break;
 		default:
 			break;
