@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.5)
 set(MT "mtrace-ng")
 project(${MT} C)
 
@@ -17,7 +17,7 @@ include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckIncludeFiles)
 include(CheckSymbolExists)
-include(CheckIPOSupported)
+#include(CheckIPOSupported)
 
 include(${CMAKE_SOURCE_DIR}/Utilities.cmake)
 
@@ -53,7 +53,7 @@ set(CMAKE_EXE_LINKER_FLAGS_LTO "${CMAKE_LINKER_FLAGS_RELEASE} -flto")
 
 add_compile_options(-Wall -Wextra -Werror -Werror -Wno-implicit-fallthrough)
 
-check_ipo_supported(RESULT IPO)
+#check_ipo_supported(RESULT IPO)
 #if (IPO)
 #	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
 #endif()
