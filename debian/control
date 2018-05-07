@@ -2,7 +2,7 @@ Source: mtrace-ng
 Section: utils
 Priority: optional
 Maintainer: Package Maintainers <Package-Maintainers@debian.com>
-Build-Depends: debhelper (>= 8.0.0), autotools-dev, binutils-dev,  libreadline6-dev, libselinux1-dev, libtinfo-dev, libelfg0-dev
+Build-Depends: debhelper (>= 8.0.0), autotools-dev, binutils-dev,  libreadline6-dev, libselinux1-dev, libtinfo-dev, libelf-dev, zlib1g-dev, libncurses5-dev, libiberty-dev
 Standards-Version: 3.9.4
 Vcs-Git: https://github.com/sstefani/mtrace.git
 

@@ -663,7 +663,10 @@ static void signal_exit(int sig)
 	signal(SIGINT, SIG_IGN);
 	signal(SIGTERM, SIG_IGN);
 
+	#pragma GCC diagnostic push
+	#pragma GCC diagnostic ignored "-Wunused-result"
 	write(pipefd[1], &signum, 1);
+	#pragma GCC diagnostic pop
 }
 
 static int scan_process(struct process *process)
