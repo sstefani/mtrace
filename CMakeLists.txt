@@ -17,7 +17,6 @@ include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckIncludeFiles)
 include(CheckSymbolExists)
-#include(CheckIPOSupported)
 
 include(${CMAKE_SOURCE_DIR}/Utilities.cmake)
 
@@ -53,11 +52,6 @@ set(CMAKE_EXE_LINKER_FLAGS_LTO "${CMAKE_LINKER_FLAGS_RELEASE} -flto")
 
 add_compile_options(-Wall -Wextra -Werror -Werror -Wno-implicit-fallthrough)
 
-#check_ipo_supported(RESULT IPO)
-#if (IPO)
-#	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-#endif()
-
 if (NOT DISABLE_CLIENT)
 	SET(C_SRCS
 	 ${C_SRCS}
@@ -78,7 +72,7 @@ target_architecture(TARGET_ARCH)
 if (TARGET_ARCH)
 	message(STATUS "target architecture is ${TARGET_ARCH}")
 else()
-	message(FATAL_ERROR "unknow target architecture")
+	message(FATAL_ERROR "unknown target architecture")
 endif()
 
 if (TARGET_ARCH MATCHES "x86|x86_64")
@@ -95,7 +89,7 @@ target_os(TARGET_OS)
 if (TARGET_OS)
 	message(STATUS "target OS is ${TARGET_OS}")
 else()
-	message(FATAL_ERROR "unknow target OS: ${TARGET_OS}")
+	message(FATAL_ERROR "unknown target OS: ${TARGET_OS}")
 endif()
 
 if (TARGET_OS STREQUAL "linux")
