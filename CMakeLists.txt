@@ -115,9 +115,11 @@ if (NOT DISABLE_CLIENT)
 
 	find_and_test_library(LIB_READLINE readline "stdio.h;readline/readline.h" "rl_callback_read_char")
 
-	set(CMAKE_REQUIRED_DEFINITIONS "-DPACKAGE_VERSION=${MT_VERSION_STRING}")
-	find_and_test_library(LIB_BFD bfd "bfd.h" "bfd_openr")
-	unset(CMAKE_REQUIRED_DEFINITIONS)
+	set(CMAKE_REQUIRED_DEFINITIONS "-DPACKAGE_VERSION=${MT_VERSION_STRING} -DPACKAGE=1")
+	find_library(LIB_BFD bfd)
+	if(NOT LIB_BFD)
+		message(FATAL_ERROR "libbfd not found.")
+	endif()
 
 	CHECK_INCLUDE_FILES_ERROR("termcap.h" HAVE_TERMCAP_H)
 
@@ -138,7 +140,10 @@ if (LIB_ELF_INCLUDE_DIRS)
 endif()
 
 add_executable(${MT} ${C_SRCS})
-target_link_libraries(${MT} ${LIB_ELF_LIBRARIES} ${LIB_PTHREAD} ${LIB_DL} ${LIB_RT} ${LIB_READLINE} ${LIB_BFD})
+target_link_libraries(${MT} ${LIB_ELF_LIBRARIES} ${LIB_PTHREAD} ${LIB_DL} ${LIB_RT} ${LIB_READLINE})
+if(LIB_BFD)
+	target_link_libraries(${MT} ${LIB_BFD})
+endif()
 target_compile_options(${MT} PUBLIC ${LIB_ELF_CFLAGS_OTHER})
 
 install(TARGETS ${PROJECT_NAME} DESTINATION bin/)
