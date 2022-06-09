@@ -8,6 +8,6 @@
 #cmakedefine HAVE_LIBSELINUX
 #endif
 
-#ifdef DISABLE_CLIENT
+#ifndef DISABLE_CLIENT
 #cmakedefine DISABLE_CLIENT
 #endif
