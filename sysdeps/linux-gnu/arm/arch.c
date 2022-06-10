@@ -47,6 +47,7 @@
 
 int is_64bit(struct mt_elf *mte)
 {
+	(void)(mte);
 	return 0;
 }
 
