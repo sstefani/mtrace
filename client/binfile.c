@@ -28,6 +28,20 @@
 #include <string.h>
 #include <libiberty/demangle.h>
 
+#include <bfd.h>
+
+/* try to detect libfd version and set up wrapper accprdingly. */
+#ifdef  bfd_get_section_flags
+// 2.31 (and possibly earlier) has bfd_get_section_flags
+#define bfd_section_size_wrapper(_ptr, _section) bfd_section_size(_ptr, _section)
+#define bfd_section_vma_wrapper(_ptr, _section) bfd_section_vma(_ptr, _section)
+#else
+// works for 2.34
+#define bfd_get_section_flags(_unused, _section) bfd_section_flags(_section)
+#define bfd_section_size_wrapper(_unused, _section) bfd_section_size(_section)
+#define bfd_section_vma_wrapper(_unused, _section) bfd_section_vma(_section)
+#endif
+
 #include "binfile.h"
 #include "process.h"
 
@@ -92,10 +106,10 @@ static void find_address_in_section(bfd *abfd, asection *section, void *data __a
 	if ((bfd_get_section_flags(abfd, section) & SEC_ALLOC) == 0)
 		return;
 
-	vma = bfd_get_section_vma(abfd, section);
+	vma = bfd_section_vma_wrapper(abfd, section);
 	if (psi->pc < vma)
 		return;
-	size = bfd_section_size(abfd, section);
+	size = bfd_section_size_wrapper(abfd, section);
 	if (psi->pc >= vma + size)
 		return;
 
