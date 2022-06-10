@@ -917,6 +917,10 @@ void readline_exit(void)
 {
 	if (!quit)
 		rl_callback_handler_remove();
+#if (RL_VERSION_MAJOR<=5 || (RL_VERSION_MAJOR==6 && RL_VERSION_MINOR<=3))
+	clear_history();
+#else
 	rl_clear_history();
+#endif
 }
 
