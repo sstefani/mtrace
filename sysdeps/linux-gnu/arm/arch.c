@@ -691,7 +691,7 @@ int do_singlestep(struct task *task, struct breakpoint *bp)
 
 	bp1 = breakpoint_find(task, next_pcs[0]);
 	if (!bp1) {
-		bp1 = breakpoint_new(task, next_pcs[0], NULL, SW_BP);
+		bp1 = breakpoint_new(task, next_pcs[0], NULL, BP_SW);
 		if (!bp1)
 			return -1;
 	}
@@ -703,7 +703,7 @@ int do_singlestep(struct task *task, struct breakpoint *bp)
 	if (next_pcs[1]) {
 		bp2 = breakpoint_find(task, next_pcs[1]);
 		if (!bp2) {
-			bp2 = breakpoint_new(task, next_pcs[1], NULL, SW_BP);
+			bp2 = breakpoint_new(task, next_pcs[1], NULL, BP_SW);
 			if (!bp2)
 				return -1;
 		}
