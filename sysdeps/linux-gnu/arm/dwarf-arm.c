@@ -32,7 +32,7 @@
 #include "common.h"
 #include "backend.h"
 #include "debug.h"
-#include "dwarf.h"
+#include "../../../dwarf.h"
 #include "library.h"
 #include "task.h"
 
@@ -153,6 +153,7 @@ static int is_signal_frame(struct dwarf_cursor *c)
 
 int dwarf_arch_map_reg(struct dwarf_addr_space *as, unsigned int reg)
 {
+	(void)(as);
 	if (reg >= ARRAY_SIZE(dwarf_to_regnum_map))
 		return -DWARF_EBADREG;
 
@@ -177,11 +178,13 @@ static inline int access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void
 		struct dwarf_cursor *c = &as->cursor;
 		struct libref *libref = c->libref;
 
-		if (addr < ARCH_ADDR_T(libref->image_addr))
-			fatal("invalid access mem: addr %#lx < %p", addr, libref->image_addr);
-		if (addr >= ARCH_ADDR_T(libref->image_addr + libref->load_size))
-			fatal("invalid access mem: addr %#lx >= %p", addr, libref->image_addr + libref->load_size);
+		if (addr < ARCH_ADDR_T(libref->mmap_addr))
+			fatal("invalid access mem: addr %#lx < %p", addr, libref->mmap_addr);
+		if (addr >= ARCH_ADDR_T(libref->mmap_addr + libref->mmap_size))
+			fatal("invalid access mem: addr %#lx >= %p", addr, libref->mmap_addr + libref->mmap_size);
 	}
+#else
+	(void)(as);
 #endif
 
 	memcpy(valp, (void *)addr, size);
@@ -506,7 +509,7 @@ static unsigned long arm_search_unwind_table(struct dwarf_addr_space *as, arch_a
 {
 	struct dwarf_cursor *c = &as->cursor;
 	struct libref *libref = c->libref;
-	unsigned long map_offset = (unsigned long)libref->image_addr + libref->load_offset - libref->load_addr;
+	unsigned long map_offset = (unsigned long)libref->mmap_addr + libref->mmap_offset - libref->txt_vaddr;
 	unsigned long lo, hi, e, f;
 	arch_addr_t val;
 
@@ -647,6 +650,8 @@ int dwarf_arch_step(struct dwarf_addr_space *as)
 
 int dwarf_arch_check_call(struct dwarf_addr_space *as, arch_addr_t ip)
 {
+	(void)(as);
+	(void)(ip);
 	return 1;
 }
 
