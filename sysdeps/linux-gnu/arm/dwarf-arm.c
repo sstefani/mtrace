@@ -177,10 +177,10 @@ static inline int access_mem(struct dwarf_addr_space *as, arch_addr_t addr, void
 		struct dwarf_cursor *c = &as->cursor;
 		struct libref *libref = c->libref;
 
-		if (addr < ARCH_ADDR_T(libref->image_addr))
-			fatal("invalid access mem: addr %#lx < %p", addr, libref->image_addr);
-		if (addr >= ARCH_ADDR_T(libref->image_addr + libref->load_size))
-			fatal("invalid access mem: addr %#lx >= %p", addr, libref->image_addr + libref->load_size);
+		if (addr < ARCH_ADDR_T(libref->mmap_addr))
+			fatal("invalid access mem: addr %#lx < %p", addr, libref->mmap_addr);
+		if (addr >= ARCH_ADDR_T(libref->mmap_addr + libref->mmap_size))
+			fatal("invalid access mem: addr %#lx >= %p", addr, libref->mmap_addr + libref->mmap_size);
 	}
 #endif
 
@@ -506,7 +506,7 @@ static unsigned long arm_search_unwind_table(struct dwarf_addr_space *as, arch_a
 {
 	struct dwarf_cursor *c = &as->cursor;
 	struct libref *libref = c->libref;
-	unsigned long map_offset = (unsigned long)libref->image_addr + libref->load_offset - libref->load_addr;
+	unsigned long map_offset = (unsigned long)libref->mmap_addr + libref->mmap_offset - libref->txt_vaddr;
 	unsigned long lo, hi, e, f;
 	arch_addr_t val;
 
