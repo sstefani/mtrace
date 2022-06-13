@@ -53,7 +53,7 @@ set(CMAKE_EXE_LINKER_FLAGS_LTO "${CMAKE_LINKER_FLAGS_RELEASE} -flto")
 add_compile_options(-Wall -Wextra)
 
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 7)
-		add_compile_option(-Wno-implicit-fallthrough)
+		add_compile_options(-Wno-implicit-fallthrough)
 endif()
 
 if (NOT DISABLE_CLIENT)
