@@ -29,7 +29,7 @@
 #include "common.h"
 #include "backend.h"
 #include "debug.h"
-#include "dwarf.h"
+#include "../../../dwarf.h"
 #include "library.h"
 #include "task.h"
 
