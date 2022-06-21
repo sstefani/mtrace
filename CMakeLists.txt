@@ -125,9 +125,15 @@ if (NOT DISABLE_CLIENT)
 		message(FATAL_ERROR "libbfd not found.")
 	endif()
 
+	find_library(LIB_IBERTY iberty)
+	if(NOT LIB_IBERTY)
+		message(FATAL_ERROR "liberty not found.")
+	endif()
+
+	pkg_check_modules(LIB_ZLIB REQUIRED zlib)	
+
 	CHECK_INCLUDE_FILES_ERROR("termcap.h" HAVE_TERMCAP_H)
 
-	CHECK_INCLUDE_FILES_ERROR("libiberty/demangle.h" HAVE_DEMANGLE_H)
 endif()
 
 check_function_exists(process_vm_readv HAVE_PROCESS_VM_READV)
@@ -147,7 +153,7 @@ add_executable(${MT} ${C_SRCS})
 target_link_libraries(${MT} ${LIB_ELF_LIBRARIES} ${LIB_PTHREAD} ${LIB_DL} ${LIB_RT} ${LIB_READLINE})
 if(LIB_BFD)
 	target_compile_options(${MT} PRIVATE -DPACKAGE)
-	target_link_libraries(${MT} ${LIB_BFD})
+	target_link_libraries(${MT} ${LIB_BFD} ${LIB_ZLIB_LIBRARIES} ${LIB_IBERTY})
 endif()
 target_compile_options(${MT} PUBLIC ${LIB_ELF_CFLAGS_OTHER})
 
