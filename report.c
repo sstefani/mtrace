@@ -241,6 +241,9 @@ static void _report_calloc(struct task *task, struct library_symbol *libsym)
 	report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
 }
 
+
+static ssize_t arch_pagesize = -1;
+
 static void _report_mmap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long ret = fetch_retval(task);
@@ -249,6 +252,11 @@ static void _report_mmap(struct task *task, struct library_symbol *libsym)
 		return;
 
 	unsigned long size = fetch_param(task, 1);
+	if (unlikely(arch_pagesize==-1)) arch_pagesize=getpagesize();
+	// fixup size, if size is not a multiple of the pagesize, we get the "partial" page too. -
+	if (size % arch_pagesize) {
+		size += arch_pagesize - size % arch_pagesize;
+	}
 
 	report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
 }
@@ -277,6 +285,12 @@ static void _report_mmap64(struct task *task, struct library_symbol *libsym)
 	else
 		size.l = fetch_param(task, 1);
 
+	if (unlikely(arch_pagesize == -1)) arch_pagesize=getpagesize();
+	// fixup size, if size is not a multiple of the pagesize, we get the "partial" page too. -
+	if (size.l % arch_pagesize) {
+		size.l += arch_pagesize - size.l % arch_pagesize;
+	}
+
 	report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth, libsym);
 }
 
@@ -284,6 +298,12 @@ static void report_munmap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
+	if (unlikely(arch_pagesize==-1)) arch_pagesize=getpagesize();
+
+	// fixup size, if needed: all pages in [addr, addr+size] are unmapped -- see munmap(2)
+	if (size % arch_pagesize) {
+		size += arch_pagesize - size % arch_pagesize;
+	}
 
 	report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
