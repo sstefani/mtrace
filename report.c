@@ -294,19 +294,24 @@ static void _report_mmap64(struct task *task, struct library_symbol *libsym)
 	report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth, libsym);
 }
 
-static void report_munmap(struct task *task, struct library_symbol *libsym)
+static void _report_munmap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
-	if (unlikely(arch_pagesize==-1)) arch_pagesize=getpagesize();
+	unsigned long ret = fetch_retval(task);
+
+	if(ret != 0 ) return;
+
+	if(unlikely(arch_pagesize==-1)) arch_pagesize=getpagesize();
 
 	// fixup size, if needed: all pages in [addr, addr+size] are unmapped -- see munmap(2)
-	if (size % arch_pagesize) {
+	if(size % arch_pagesize) {
 		size += arch_pagesize - size % arch_pagesize;
 	}
 
 	report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
+
 
 static void _report_memalign(struct task *task, struct library_symbol *libsym)
 {
@@ -388,7 +393,7 @@ static const struct function flist[] = {
 	{ "posix_memalign",					"posix_memalign",	0,	NULL,			_report_posix_memalign },
 	{ "mmap",						"mmap",			0,	NULL,			_report_mmap },
 	{ "mmap64",						"mmap64",		1,	NULL,			_report_mmap64 },
-	{ "munmap",						"munmap",		0,	report_munmap,		NULL },
+	{ "munmap",						"munmap",		0,	NULL,			_report_munmap },
 	{ "memalign",						"memalign",		0,	NULL,			_report_memalign },
 	{ "aligned_alloc",					"aligned_alloc",	1,	NULL,			_report_aligned_alloc },
 	{ "valloc",						"valloc",		1,	NULL,			_report_valloc },
