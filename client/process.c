@@ -1298,20 +1298,32 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 
 	do {
 		block = process_rb_search_range(&process->block_table, ptr, size);
-		if (!block)
-			break;
 
-		if (!is_mmap(block->stack_node->stack->operation)) {
-			if (unlikely(options.kill)) {
-				fprintf(stderr, ">>> block missmatch pid:%d MAP<>MALLOC %#lx\n", process->pid, ptr);
-				abort();
-			}
-
-			break;
+		if (block && !is_mmap(block->stack_node->stack->operation)) {
+			// ignore blocks not mmap'ed
+			block = NULL;
 		}
 
+		if (!block) {
+			// printf("## no block found for %lx, %ld. Trying next page\n", ptr, size);
+			// it is legal to unmap arbitrary addresses, so ptr might be actually before the mmap and it might span muplitple mmaps areas.
+			// so we'll might need to search our blocks.
+			// eg this is legal: void* p=mmap(0,512*1024, PROT_WRITE|PROT_READ,  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0); munmap(p+4096,4096); munmap(p-4096, 512*1024+4096);
+			// FIXME pagesize is hardcoded as 4096 bytes, which should be safe (AFAIK 4k is the minimum "out there".) A more efficient way would be to transmit
+			// the target's PAGE_SIZE on startup.
+			if (size > 4096) {
+				size -= 4096;
+				ptr += 4096;
+				continue;
+			}
+			else {
+				break;
+			}
+		}
+
+		//  ptr in block -- this is already checked.
 		if (block->addr >= ptr) {
-			unsigned off = block->addr - ptr;
+			unsigned long off = block->addr - ptr;
 
 			size -= off;
 			ptr += off;
@@ -1331,33 +1343,32 @@ void process_munmap(struct process *process, struct mt_msg *mt_msg, void *payloa
 			process_rb_delete_block(process, block);
 		}
 		else {
-			unsigned off = ptr - block->addr;
+			unsigned long off = ptr - block->addr;
 
 			if (off + size < block->size) {
 				unsigned long new_addr = block->addr + (off + size);
 				unsigned long new_size = block->size - (off + size);
 
-				process_release_mem(process, block, block->size - off - new_size);
+				process_release_mem(process, block, block->size - off);
 
 				block->size = off;
 
 				if (process_rb_insert_block(process, new_addr, new_size, block->stack_node, 0, mt_msg->operation))
 					break;
 
-				process->n_allocations++;
 				process->total_allocations++;
 				process->bytes_used += new_size;
-
 				break;
 			}
+			else {
+				// freeing a chunk at the end of the mmap block.
+				size_t amount_freed = block->size - off;
+				process_release_mem(process, block, amount_freed);
 
-			process_release_mem(process, block, off);
-
-			block->addr += off;
-			block->size -= off;
-
-			size -= block->size;
-			ptr += block->size;
+				block->size -= amount_freed;
+				size -= amount_freed ;
+				ptr += amount_freed;
+			}
 		}
 	} while(size);
 }
