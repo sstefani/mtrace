@@ -604,7 +604,7 @@ static struct rb_block *process_rb_search_range(struct rb_root *root, unsigned l
 	while (node) {
 		struct rb_block *this = container_of(node, struct rb_block, node);
 
-		if ((addr <= this->addr) && (addr + size > this->addr))
+		if ((this->addr <= addr) && (this->addr + this->size > addr))
 			return this;
 
 		if (addr < this->addr)
