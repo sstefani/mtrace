@@ -241,6 +241,9 @@ static void _report_calloc(struct task *task, struct library_symbol *libsym)
 	report_alloc(task, MT_MALLOC, ret, size, options.bt_depth, libsym);
 }
 
+
+static ssize_t arch_pagesize = -1;
+
 static void _report_mmap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long ret = fetch_retval(task);
@@ -249,6 +252,11 @@ static void _report_mmap(struct task *task, struct library_symbol *libsym)
 		return;
 
 	unsigned long size = fetch_param(task, 1);
+	if (unlikely(arch_pagesize==-1)) arch_pagesize=getpagesize();
+	// fixup size, if size is not a multiple of the pagesize, we get the "partial" page too. -
+	if (size % arch_pagesize) {
+		size += arch_pagesize - size % arch_pagesize;
+	}
 
 	report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
 }
@@ -277,16 +285,33 @@ static void _report_mmap64(struct task *task, struct library_symbol *libsym)
 	else
 		size.l = fetch_param(task, 1);
 
+	if (unlikely(arch_pagesize == -1)) arch_pagesize=getpagesize();
+	// fixup size, if size is not a multiple of the pagesize, we get the "partial" page too. -
+	if (size.l % arch_pagesize) {
+		size.l += arch_pagesize - size.l % arch_pagesize;
+	}
+
 	report_alloc(task, MT_MMAP64, ret, size.l, options.bt_depth, libsym);
 }
 
-static void report_munmap(struct task *task, struct library_symbol *libsym)
+static void _report_munmap(struct task *task, struct library_symbol *libsym)
 {
 	unsigned long addr = fetch_param(task, 0);
 	unsigned long size = fetch_param(task, 1);
+	unsigned long ret = fetch_retval(task);
+
+	if(ret != 0 ) return;
+
+	if(unlikely(arch_pagesize==-1)) arch_pagesize=getpagesize();
+
+	// fixup size, if needed: all pages in [addr, addr+size] are unmapped -- see munmap(2)
+	if(size % arch_pagesize) {
+		size += arch_pagesize - size % arch_pagesize;
+	}
 
 	report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
 }
+
 
 static void _report_memalign(struct task *task, struct library_symbol *libsym)
 {
@@ -344,20 +369,20 @@ static void _report_pvalloc(struct task *task, struct library_symbol *libsym)
 	return report_alloc(task, MT_PVALLOC, ret, size, options.bt_depth, libsym);
 }
 
-static void report_mremap(struct task *task, struct library_symbol *libsym)
-{
-	unsigned long addr = fetch_param(task, 0);
-	unsigned long size = fetch_param(task, 1);
-
-	report_alloc(task, MT_MUNMAP, addr, size, 0, libsym);
-}
-
 static void _report_mremap(struct task *task, struct library_symbol *libsym)
 {
-	unsigned long size = fetch_param(task, 2);
+	unsigned long addr = fetch_param(task, 0);
+	unsigned long oldsize = fetch_param(task, 1);
+
+	unsigned long newsize = fetch_param(task, 2);
 	unsigned long ret = fetch_retval(task);
 
-	report_alloc(task, MT_MMAP, ret, size, options.bt_depth, libsym);
+	if( (void*)ret != MAP_FAILED) {
+		// mremap(2): if oldsize is zero and the mapping a shared mapping, a new mapping
+		// (Of the existing) will be created.
+		if (oldsize) report_alloc(task, MT_MUNMAP, addr, oldsize, 0, libsym);
+		report_alloc(task, MT_MMAP, ret, newsize, options.bt_depth, libsym);
+	}
 }
 
 static const struct function flist[] = {
@@ -368,12 +393,12 @@ static const struct function flist[] = {
 	{ "posix_memalign",					"posix_memalign",	0,	NULL,			_report_posix_memalign },
 	{ "mmap",						"mmap",			0,	NULL,			_report_mmap },
 	{ "mmap64",						"mmap64",		1,	NULL,			_report_mmap64 },
-	{ "munmap",						"munmap",		0,	report_munmap,		NULL },
+	{ "munmap",						"munmap",		0,	NULL,			_report_munmap },
 	{ "memalign",						"memalign",		0,	NULL,			_report_memalign },
 	{ "aligned_alloc",					"aligned_alloc",	1,	NULL,			_report_aligned_alloc },
 	{ "valloc",						"valloc",		1,	NULL,			_report_valloc },
 	{ "pvalloc",						"pvalloc",		1,	NULL,			_report_pvalloc },
-	{ "mremap",						"mremap",		0,	report_mremap,		_report_mremap },
+	{ "mremap",						"mremap",		0,	NULL,			_report_mremap },
 	{ "cfree",						"cfree",		1,	report_free,		NULL },
 	{ "reallocarray",					"reallocarray",		0,	NULL,			_report_reallocarray },
 #if 0
