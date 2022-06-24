@@ -1500,7 +1500,7 @@ void process_free(struct process *process, struct mt_msg *mt_msg, void *payload)
 void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *payload)
 {
 	unsigned long ptr;
-	unsigned int pid;
+	unsigned long pid;
 	struct list_head *it;
 
 	(void)mt_msg;
@@ -1536,7 +1536,7 @@ void process_realloc_done(struct process *process, struct mt_msg *mt_msg, void *
 	}
 
 	if (unlikely(options.kill)) {
-		fprintf(stderr, ">>> unexpected realloc done pid: %u ptr: %#lx\n", pid, ptr);
+		fprintf(stderr, ">>> unexpected realloc done pid: %lu ptr: %#lx\n", pid, ptr);
 		abort();
 	}
 	return;
